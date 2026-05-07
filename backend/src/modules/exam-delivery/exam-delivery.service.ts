@@ -1,0 +1,142 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { QuestionsService } from '../questions/questions.service';
+import { SessionsService } from '../sessions/sessions.service';
+
+@Injectable()
+export class ExamDeliveryService {
+  constructor(
+    private prisma: PrismaService,
+    private questionsService: QuestionsService,
+    private sessionsService: SessionsService,
+  ) {}
+
+  async getSessionState(token: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      include: { assessmentType: true, candidate: true, practicalTask: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const answeredCount = await this.prisma.examAnswer.count({ where: { sessionId: session.id } });
+    const mcqTimeRemaining = session.mcqStartedAt
+      ? Math.max(0, session.assessmentType.mcqTimeLimit * 60 - Math.floor((Date.now() - session.mcqStartedAt.getTime()) / 1000))
+      : null;
+    const practicalTimeRemaining = session.practicalStartedAt
+      ? Math.max(0, session.assessmentType.practicalTimeLimit * 60 - Math.floor((Date.now() - session.practicalStartedAt.getTime()) / 1000))
+      : null;
+
+    return {
+      sessionId: session.id,
+      status: session.status,
+      assessmentType: session.assessmentType.name,
+      candidateName: `${session.candidate.firstName} ${session.candidate.lastName}`,
+      mcqTimeRemaining,
+      practicalTimeRemaining,
+      answeredCount,
+      totalQuestions: session.assessmentType.mcqQuestionCount,
+      practicalTask: session.practicalTask ? {
+        title: session.practicalTask.title,
+        description: session.practicalTask.description,
+        acceptedFileTypes: session.practicalTask.acceptedFileTypes,
+      } : null,
+    };
+  }
+
+  async getCurrentQuestion(token: string) {
+    const session = await this.prisma.examSession.findUnique({ where: { magicToken: token } });
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.status !== 'MCQ_IN_PROGRESS') {
+      throw new BadRequestException('Exam is not in MCQ phase');
+    }
+
+    // Check timer
+    if (session.mcqStartedAt) {
+      const elapsed = (Date.now() - session.mcqStartedAt.getTime()) / 1000;
+      const limit = 30 * 60; // 30 minutes
+      if (elapsed > limit) {
+        await this.autoSubmitMcq(session.id);
+        throw new BadRequestException('MCQ time has expired');
+      }
+    }
+
+    return this.questionsService.getCurrentQuestion(session.id);
+  }
+
+  async submitAnswer(token: string, questionId: string, response: any, timeSpentSeconds: number) {
+    const session = await this.prisma.examSession.findUnique({ where: { magicToken: token } });
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.status !== 'MCQ_IN_PROGRESS') {
+      throw new BadRequestException('Exam is not in MCQ phase');
+    }
+
+    const result = await this.questionsService.submitAnswer(session.id, questionId, response, timeSpentSeconds);
+
+    if (result.isComplete) {
+      await this.sessionsService.completeMcq(session.id);
+    }
+
+    return result;
+  }
+
+  async autoSubmitMcq(sessionId: string) {
+    // Auto-submit any unanswered questions
+    const assignment = await this.prisma.sessionQuestionAssignment.findUnique({ where: { sessionId } });
+    if (!assignment) return;
+
+    const answeredCount = await this.prisma.examAnswer.count({ where: { sessionId } });
+    const order = assignment.questionOrder as any[];
+
+    for (let i = answeredCount; i < 25; i++) {
+      const item = order[i];
+      const question = await this.prisma.question.findUnique({ where: { id: item.questionId } });
+      if (question) {
+        await this.prisma.examAnswer.create({
+          data: {
+            sessionId,
+            questionId: item.questionId,
+            position: item.position,
+            questionSnapshot: { content: question.content, options: question.options, type: question.type },
+            candidateResponse: null,
+            isCorrect: false,
+            correctAnswer: question.correctAnswer,
+            timeSpentSeconds: 0,
+            marks: 0,
+            maxMarks: question.marks,
+          },
+        });
+      }
+    }
+
+    await this.sessionsService.completeMcq(sessionId);
+  }
+
+  async submitPractical(token: string, filePath?: string, fileName?: string) {
+    const session = await this.prisma.examSession.findUnique({ where: { magicToken: token } });
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.status !== 'PRACTICAL_IN_PROGRESS') {
+      throw new BadRequestException('Exam is not in practical phase');
+    }
+    return this.sessionsService.submitPractical(session.id, filePath, fileName);
+  }
+
+  async getTimer(token: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      include: { assessmentType: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const now = Date.now();
+    let remaining = 0;
+    let phase = session.status;
+
+    if (session.status === 'MCQ_IN_PROGRESS' && session.mcqStartedAt) {
+      remaining = Math.max(0, session.assessmentType.mcqTimeLimit * 60 - Math.floor((now - session.mcqStartedAt.getTime()) / 1000));
+    } else if (session.status === 'PRACTICAL_IN_PROGRESS' && session.practicalStartedAt) {
+      remaining = Math.max(0, session.assessmentType.practicalTimeLimit * 60 - Math.floor((now - session.practicalStartedAt.getTime()) / 1000));
+    }
+
+    return { phase, remaining, serverTime: now };
+  }
+}

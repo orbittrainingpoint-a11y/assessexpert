@@ -1,0 +1,36 @@
+# ── Node ──────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Environment / secrets ─────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Next.js ───────────────────────────────────────────
+frontend/portal/.next/
+frontend/portal/out/
+frontend/portal/.vercel
+frontend/portal/next-env.d.ts
+frontend/portal/*.tsbuildinfo
+
+# ── NestJS / TypeScript build ─────────────────────────
+backend/dist/
+backend/*.tsbuildinfo
+
+# ── Storage / uploads (runtime data) ─────────────────
+backend/storage/
+
+# ── OS / editor ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.pem
+
+# ── Logs ──────────────────────────────────────────────
+*.log
+logs/

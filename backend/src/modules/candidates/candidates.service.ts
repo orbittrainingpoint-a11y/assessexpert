@@ -1,0 +1,103 @@
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+
+@Injectable()
+export class CandidatesService {
+  constructor(private prisma: PrismaService) {}
+
+  async getCandidates(organizationId: string, filters?: any) {
+    const where: any = { organizationId };
+    if (filters?.search) {
+      where.OR = [
+        { firstName: { contains: filters.search, mode: 'insensitive' } },
+        { lastName: { contains: filters.search, mode: 'insensitive' } },
+        { email: { contains: filters.search, mode: 'insensitive' } },
+        { jobPosition: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+    const [candidates, total] = await Promise.all([
+      this.prisma.candidateRecord.findMany({
+        where,
+        include: {
+          sessions: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { report: { select: { overallScore: true, overallPassed: true, status: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: parseInt(filters?.limit) || 25,
+        skip: parseInt(filters?.offset) || 0,
+      }),
+      this.prisma.candidateRecord.count({ where }),
+    ]);
+    return { candidates, total };
+  }
+
+  async getCandidate(id: string, organizationId: string) {
+    const candidate = await this.prisma.candidateRecord.findUnique({
+      where: { id },
+      include: {
+        sessions: {
+          include: {
+            assessmentType: true,
+            report: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    if (!candidate) throw new NotFoundException('Candidate not found');
+    if (candidate.organizationId !== organizationId) throw new NotFoundException('Candidate not found');
+    return candidate;
+  }
+
+  async createCandidate(data: any, organizationId: string) {
+    const existing = await this.prisma.candidateRecord.findUnique({
+      where: { email_organizationId: { email: data.email, organizationId } },
+    });
+    if (existing) throw new ConflictException('Candidate with this email already exists');
+
+    return this.prisma.candidateRecord.create({
+      data: { ...data, organizationId },
+    });
+  }
+
+  async updateCandidate(id: string, data: any, organizationId: string) {
+    await this.getCandidate(id, organizationId);
+    return this.prisma.candidateRecord.update({ where: { id }, data });
+  }
+
+  async bulkImport(rows: any[], organizationId: string) {
+    const results = { success: 0, errors: [] as any[], duplicates: 0 };
+    for (const [idx, row] of rows.entries()) {
+      try {
+        const existing = await this.prisma.candidateRecord.findUnique({
+          where: { email_organizationId: { email: row.email, organizationId } },
+        });
+        if (existing) {
+          results.duplicates++;
+          results.errors.push({ row: idx + 2, error: `Duplicate email: ${row.email}` });
+          continue;
+        }
+        await this.prisma.candidateRecord.create({
+          data: {
+            organizationId,
+            email: row.email,
+            firstName: row.firstName || row['First Name'],
+            lastName: row.lastName || row['Last Name'],
+            phone: row.phone || row['Phone'],
+            jobPosition: row.jobPosition || row['Job Role'] || '',
+            yearsExperience: row.yearsExperience || row['Experience (years)'],
+            notes: row.notes || row['Notes'],
+            source: 'UPLOAD',
+          },
+        });
+        results.success++;
+      } catch (e) {
+        results.errors.push({ row: idx + 2, error: e.message });
+      }
+    }
+    return results;
+  }
+}

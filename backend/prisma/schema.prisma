@@ -1,0 +1,583 @@
+// prisma/schema.prisma
+// assessexpert Platform — Local PostgreSQL Database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  MASTER_PROCTOR
+  EXAM_SETUP_MASTER
+  SALES_AGENT
+  ORG_ADMIN
+  HR_MANAGER
+  HIRING_MANAGER
+  PROCTOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum SessionStatus {
+  SCHEDULED
+  INVITED
+  WAITING_ROOM
+  CHECKLIST
+  MCQ_IN_PROGRESS
+  MCQ_COMPLETE
+  PRACTICAL_IN_PROGRESS
+  SUBMITTED
+  GRADING
+  PENDING_PROCTOR_REVIEW
+  REPORT_PUBLISHED
+  CANCELLED
+  NO_SHOW
+  DISQUALIFIED
+}
+
+enum ReportStatus {
+  DRAFT
+  PENDING_REVIEW
+  RETURNED
+  PUBLISHED
+}
+
+enum ProctorVerdict {
+  PASS
+  FAIL
+  CONDITIONAL
+  FLAGGED
+  DISQUALIFIED
+}
+
+enum PracticalQuality {
+  EXCELLENT
+  GOOD
+  SATISFACTORY
+  POOR
+  DID_NOT_SUBMIT
+}
+
+enum QuestionType {
+  MCQ_SINGLE
+  MCQ_MULTI
+  TRUE_FALSE
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  ARCHIVED
+}
+
+enum PracticalType {
+  CAD
+  CODING
+  LAB
+  FILE
+  NONE
+}
+
+enum AssessmentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum TaskStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CandidateSource {
+  UPLOAD
+  MANUAL
+}
+
+enum EventType {
+  FACE_ABSENT
+  FACE_MULTIPLE
+  GAZE_OFFSCREEN
+  AUDIO_ANOMALY
+  TAB_SWITCH
+  COPY_PASTE_ATTEMPT
+  FULLSCREEN_EXIT
+  DUPLICATE_LOGIN
+  GUARDPRO_DISCONNECT
+  VM_DETECTED
+  PROCTOR_WARNING
+  SESSION_PAUSED
+  SESSION_TERMINATED
+}
+
+enum EventSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum EventSource {
+  AI
+  GUARDPRO
+  PROCTOR
+  SYSTEM
+}
+
+enum ReviewOutcome {
+  DISMISSED
+  CONFIRMED
+  ESCALATED
+}
+
+enum FREventType {
+  PRE_EXAM_ID
+  PERIODIC_CHECK
+  LIVE_ANOMALY
+}
+
+enum FROutcome {
+  VERIFIED
+  PENDING_REVIEW
+  REJECTED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  DEMO_SCHEDULED
+  NEGOTIATING
+  CONVERTED
+  LOST
+}
+
+// ─── MODELS ──────────────────────────────────────────────────────────────────
+
+model Organization {
+  id                   String    @id @default(cuid())
+  name                 String
+  slug                 String    @unique
+  tradingName          String?
+  country              String
+  city                 String?
+  industry             String
+  size                 String?
+  website              String?
+  logo                 String?
+  address              String?
+  taxRegNumber         String?
+  status               OrgStatus @default(ACTIVE)
+  brandingConfig       Json?
+  contractStartDate    DateTime?
+  contractEndDate      DateTime?
+  assessmentCredits    Int       @default(0)
+  creditsUsed          Int       @default(0)
+  maxConcurrentSessions Int      @default(5)
+  recordingRetentionDays Int     @default(7)
+  reportingLanguage    String    @default("en")
+  allowedAssessmentTypes String[]
+  accountTier          String    @default("STANDARD")
+  internalNotes        String?
+  assignedSalesAgentId String?
+  primaryContactName   String?
+  primaryContactEmail  String?
+  primaryContactPhone  String?
+  billingContactName   String?
+  billingContactEmail  String?
+  users                User[]
+  candidates           CandidateRecord[]
+  sessions             ExamSession[]
+  reports              Report[]
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model User {
+  id                String     @id @default(cuid())
+  email             String     @unique
+  passwordHash      String?
+  role              UserRole
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id])
+  firstName         String
+  lastName          String
+  phone             String?
+  jobTitle          String?
+  profilePhoto      String?
+  timezone          String     @default("UTC")
+  preferredLanguage String     @default("en")
+  mfaEnabled        Boolean    @default(false)
+  mfaSecret         String?
+  status            UserStatus @default(ACTIVE)
+  lastLoginAt       DateTime?
+  lastLoginIp       String?
+  certificationLevel String?
+  certificationDomains String[]
+  languages         String[]
+  maxSessionsPerDay Int?
+  region            String?
+  specialistDomains String[]
+  accessLevel       String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+}
+
+model AssessmentType {
+  id                     String           @id @default(cuid())
+  name                   String
+  shortCode              String           @unique
+  category               String
+  industry               String
+  jobRole                String
+  description            String?
+  mcqTimeLimit           Int              @default(30)
+  mcqQuestionCount       Int              @default(25)
+  mcqPassThreshold       Float            @default(60.0)
+  practicalType          PracticalType    @default(NONE)
+  practicalTimeLimit     Int              @default(60)
+  practicalPassThreshold Float            @default(60.0)
+  mcqWeight              Float            @default(50.0)
+  practicalWeight        Float            @default(50.0)
+  overallPassLogic       String           @default("BOTH")
+  overallPassThreshold   Float            @default(60.0)
+  requiresGuardPro       Boolean          @default(false)
+  blockedApplications    String[]
+  blockMultiMonitor      Boolean          @default(false)
+  blockVirtualMachines   Boolean          @default(false)
+  allowClipboard         Boolean          @default(false)
+  languages              String[]         @default(["en"])
+  status                 AssessmentStatus @default(DRAFT)
+  createdBy              String
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  questions              Question[]
+  practicalTasks         PracticalTask[]
+  sessions               ExamSession[]
+}
+
+model Question {
+  id               String         @id @default(cuid())
+  assessmentTypeId String
+  assessmentType   AssessmentType @relation(fields: [assessmentTypeId], references: [id])
+  type             QuestionType
+  content          Json           // {text, imageUrl?, codeBlock?}
+  options          Json           // [{key: "A", text: "..."}]
+  correctAnswer    Json           // ["B"] or ["A","C"]
+  explanation      String?
+  difficulty       Difficulty
+  domain           String
+  tags             String[]
+  marks            Float          @default(1.0)
+  language         String         @default("en")
+  status           QuestionStatus @default(DRAFT)
+  aiGenerated      Boolean        @default(false)
+  usageCount       Int            @default(0)
+  version          Int            @default(1)
+  versionHistory   Json?
+  createdBy        String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  answers          ExamAnswer[]
+}
+
+model SessionQuestionAssignment {
+  id                   String      @id @default(cuid())
+  sessionId            String      @unique
+  session              ExamSession @relation(fields: [sessionId], references: [id])
+  questionIds          String[]
+  questionOrder        Json
+  shuffleSeed          String
+  generatedAt          DateTime    @default(now())
+  generatedByProctorId String
+}
+
+model PracticalTask {
+  id               String         @id @default(cuid())
+  assessmentTypeId String
+  assessmentType   AssessmentType @relation(fields: [assessmentTypeId], references: [id])
+  type             PracticalType
+  title            String
+  description      String
+  starterFilePath  String?
+  starterFileName  String?
+  rubricData       Json
+  rubricFilePath   String?
+  acceptedFileTypes String[]
+  difficulty       String         @default("STANDARD")
+  estimatedMinutes Int?
+  evaluatorNotes   String?
+  testCases        Json?
+  status           TaskStatus     @default(DRAFT)
+  version          Int            @default(1)
+  versionHistory   Json?
+  createdBy        String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  sessions         ExamSession[]
+}
+
+model CandidateRecord {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  email          String
+  firstName      String
+  lastName       String
+  phone          String?
+  jobPosition    String
+  yearsExperience String?
+  department     String?
+  notes          String?
+  batchId        String?
+  source         CandidateSource @default(MANUAL)
+  sessions       ExamSession[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([email, organizationId])
+}
+
+model ExamSession {
+  id               String         @id @default(cuid())
+  assessmentTypeId String
+  assessmentType   AssessmentType @relation(fields: [assessmentTypeId], references: [id])
+  candidateId      String
+  candidate        CandidateRecord @relation(fields: [candidateId], references: [id])
+  organizationId   String
+  organization     Organization   @relation(fields: [organizationId], references: [id])
+  proctorId        String?
+  scheduledAt      DateTime
+  magicToken       String         @unique
+  tokenExpiresAt   DateTime
+  tokenUsedAt      DateTime?
+  tokenUsedFromIp  String?
+  status           SessionStatus  @default(SCHEDULED)
+  checklistCompletedAt   DateTime?
+  mcqStartedAt           DateTime?
+  mcqSubmittedAt         DateTime?
+  practicalTaskId        String?
+  practicalTask          PracticalTask? @relation(fields: [practicalTaskId], references: [id])
+  practicalStartedAt     DateTime?
+  practicalSubmittedAt   DateTime?
+  practicalFilePath      String?
+  practicalFileName      String?
+  guardproConnected      Boolean        @default(false)
+  candidateIp            String?
+  screenRecordingPath    String?
+  webcamRecordingPath    String?
+  recordingExpiresAt     DateTime?
+  recordingPurged        Boolean        @default(false)
+  integrityScore         Float?
+  disqualified           Boolean        @default(false)
+  disqualifyReason       String?
+  questionAssignment     SessionQuestionAssignment?
+  answers                ExamAnswer[]
+  events                 SessionEvent[]
+  frLogs                 FacialRecognitionLog[]
+  checklist              ProctorChecklist?
+  report                 Report?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+}
+
+model ExamAnswer {
+  id                String      @id @default(cuid())
+  sessionId         String
+  session           ExamSession @relation(fields: [sessionId], references: [id])
+  questionId        String
+  question          Question    @relation(fields: [questionId], references: [id])
+  position          Int
+  questionSnapshot  Json
+  candidateResponse Json
+  isCorrect         Boolean
+  correctAnswer     Json
+  timeSpentSeconds  Int
+  marks             Float
+  maxMarks          Float
+  submittedAt       DateTime    @default(now())
+}
+
+model ProctorChecklist {
+  id                      String      @id @default(cuid())
+  sessionId               String      @unique
+  session                 ExamSession @relation(fields: [sessionId], references: [id])
+  proctorId               String
+  items                   Json
+  completedAt             DateTime?
+  candidateNameConfirmed  String?
+  candidateEmailConfirmed Boolean     @default(false)
+  idPhotoPath             String?
+  frVerificationResult    Json?
+  recordingConsentGiven   Boolean     @default(false)
+  examGuidelinesDelivered Boolean     @default(false)
+  candidateAgreedToRules  Boolean     @default(false)
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+}
+
+model SessionEvent {
+  id             String        @id @default(cuid())
+  sessionId      String
+  session        ExamSession   @relation(fields: [sessionId], references: [id])
+  eventType      EventType
+  severity       EventSeverity
+  source         EventSource
+  timestamp      DateTime      @default(now())
+  payload        Json?
+  screenshotPath String?
+  reviewedBy     String?
+  reviewOutcome  ReviewOutcome?
+  proctorNote    String?
+}
+
+model FacialRecognitionLog {
+  id                 String      @id @default(cuid())
+  sessionId          String
+  session            ExamSession @relation(fields: [sessionId], references: [id])
+  eventType          FREventType
+  timestamp          DateTime    @default(now())
+  capturedImagePath  String
+  referenceImagePath String?
+  similarityScore    Float
+  outcome            FROutcome
+  reviewedBy         String?
+  reviewNotes        String?
+}
+
+model Report {
+  id               String          @id @default(cuid())
+  sessionId        String          @unique
+  session          ExamSession     @relation(fields: [sessionId], references: [id])
+  organizationId   String
+  organization     Organization    @relation(fields: [organizationId], references: [id])
+  candidateId      String
+  mcqScore         Float
+  mcqPassed        Boolean
+  mcqBreakdown     Json
+  practicalScore   Float?
+  practicalPassed  Boolean?
+  overallScore     Float
+  overallPassed    Boolean
+  integrityScore   Float
+  competencyRadar  Json?
+  aiNarrative      String?
+  aiRecommendation String?
+  proctorNarrative String?
+  proctorVerdict   ProctorVerdict?
+  practicalQuality PracticalQuality?
+  proctorOverrides Json?
+  status           ReportStatus    @default(DRAFT)
+  publishedAt      DateTime?
+  publishedBy      String?
+  pdfPath          String?
+  pdfVersion       Int             @default(1)
+  masterProctorReview Json?
+  hrRating         Int?
+  hrRatingNote     String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  userEmail   String
+  role        String
+  eventType   String
+  target      String?
+  targetId    String?
+  payload     Json?
+  ipAddress   String
+  chainHash   String
+  createdAt   DateTime @default(now())
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  companyName     String
+  fullName        String
+  role            String
+  email           String
+  phone           String?
+  companySize     String?
+  assessmentTypes String[]
+  message         String?
+  status          LeadStatus @default(NEW)
+  assignedAgentId String?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  payload    Json?
+  read       Boolean  @default(false)
+  actionUrl  String?
+  createdAt  DateTime @default(now())
+}
+
+model ProctorAvailability {
+  id         String   @id @default(cuid())
+  proctorId  String
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  timezone   String
+  isOverride Boolean  @default(false)
+  overrideDate DateTime?
+  overrideReason String?
+  createdAt  DateTime @default(now())
+}
+
+model Interview {
+  id            String   @id @default(cuid())
+  organizationId String
+  candidateId   String
+  sessionId     String?
+  scheduledAt   DateTime
+  format        String   @default("VIDEO")
+  status        String   @default("SCHEDULED")
+  interviewers  String[]
+  notes         String?
+  verdict       String?
+  recordingPath String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model PlatformSettings {
+  id                    String   @id @default(cuid())
+  key                   String   @unique
+  value                 Json
+  updatedBy             String?
+  updatedAt             DateTime @updatedAt
+}
