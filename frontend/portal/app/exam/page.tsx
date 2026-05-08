@@ -1,0 +1,1042 @@
+﻿'use client'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { authApi, examApi, checklistApi, api } from '@/lib/api'
+import { useSessionWebSocket } from '@/lib/useWebSocket'
+import { useWebRTC } from '@/lib/useWebRTC'
+import toast from 'react-hot-toast'
+import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
+
+type Phase = 
+  | 'verifying-link' 
+  | 'link-expired' 
+  | 'not-open' 
+  | 'otp-email' 
+  | 'otp-verify' 
+  | 'camera' 
+  | 'waiting' 
+  | 'mcq' 
+  | 'mcq-complete' 
+  | 'practical' 
+  | 'complete' 
+  | 'terminated' 
+  | 'connection-lost'
+
+function ExamContent() {
+  const searchParams = useSearchParams()
+  const token = searchParams.get('token') || ''
+
+  const [phase, setPhase] = useState<Phase>('verifying-link')
+  const [email, setEmail] = useState('')
+  const [otp, setOtp] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [sessionState, setSessionState] = useState<any>(null)
+  const [currentQuestion, setCurrentQuestion] = useState<any>(null)
+  const [practicalTask, setPracticalTask] = useState<any>(null)
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
+  const [timeRemaining, setTimeRemaining] = useState(0)
+  const [questionStartTime, setQuestionStartTime] = useState(Date.now())
+  
+  // OTP States
+  const [otpArray, setOtpArray] = useState(['', '', '', '', '', ''])
+  const [otpAttempts, setOtpAttempts] = useState(0)
+  const [resendTimer, setResendTimer] = useState(0)
+  const [devOtp, setDevOtp] = useState<string | null>(null)
+  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  // UI States
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showConsent, setShowConsent] = useState(false)
+  const [aiWarning, setAiWarning] = useState<{ message: string; type: 'warning' | 'critical' } | null>(null)
+  const [checklist, setChecklist] = useState<any[]>([])
+
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+  const [cameraReady, setCameraReady] = useState(false)
+
+  // Helper: assign stream to any video element
+  const assignStream = useCallback((el: HTMLVideoElement | null) => {
+    if (!el || !cameraStreamRef.current) return
+    if (el.srcObject !== cameraStreamRef.current) {
+      el.srcObject = cameraStreamRef.current
+    }
+    el.play().catch(() => {})
+  }, [])
+
+  // Re-assign stream whenever phase changes (new video element mounts)
+  useEffect(() => {
+    if (!cameraStreamRef.current) return
+    const timer = setTimeout(() => assignStream(videoRef.current), 50)
+    return () => clearTimeout(timer)
+  }, [phase, assignStream])
+
+  // Re-assign stream after fullscreen change (browser pauses video during transition)
+  useEffect(() => {
+    const onFs = () => {
+      setTimeout(() => assignStream(videoRef.current), 200)
+    }
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [assignStream])
+
+  // WebSocket real-time connection
+  const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
+    sessionId: sessionState?.id || '',
+    role: 'CANDIDATE',
+    enabled: !!sessionState?.id && (phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    onEvent: (event, data) => {
+      if (event === 'session.phase') {
+        if (data.phase === 'MCQ_IN_PROGRESS') {
+          loadNextQuestion().then(() => setPhase('mcq'))
+        } else if (data.phase === 'PRACTICAL_IN_PROGRESS') {
+          if (data.practicalTask) setPracticalTask(data.practicalTask)
+          setPhase('practical')
+        } else if (data.phase === 'TERMINATED') {
+          setPhase('terminated')
+        }
+      }
+      if (event === 'checklist.update') {
+        setChecklist((prev: any[]) => prev.map(item =>
+          item.key === data.itemKey ? { ...item, status: data.status } : item
+        ))
+        if (data.itemKey === 'ITEM_7_GUIDELINES' && data.status === 'IN_PROGRESS') setGuidelinesOpen(true)
+        if (data.itemKey === 'ITEM_7_GUIDELINES' && data.status === 'COMPLETED') setGuidelinesOpen(false)
+        if (data.itemKey === 'ITEM_5_SCREEN_SHARE' && data.status === 'IN_PROGRESS') setScreenShareRequested(true)
+        if (data.itemKey === 'ITEM_9_CONSENT' && data.status === 'IN_PROGRESS') setShowConsent(true)
+      }
+      if (event === 'proctor.message') {
+        setAiWarning({ message: data.message, type: 'warning' })
+        setTimeout(() => setAiWarning(null), 15000)
+      }
+      if (event === 'session.pause') {
+        if (data.paused) setAiWarning({ message: 'â¸ Session paused by proctor. Please wait.', type: 'warning' })
+        else setAiWarning(null)
+      }
+      if (event === 'disconnect' || event === 'connect_error') {
+        // Connection lost handled by isOnline state
+      }
+    },
+  })
+  // WebRTC — send candidate stream to proctor, receive proctor stream
+  const { remoteStreams: proctorStreams } = useWebRTC({
+    sessionId: sessionState?.id || '',
+    role: 'CANDIDATE',
+    localStream: cameraReady ? cameraStreamRef.current : null,
+    socket: wsSocket,
+    enabled: !!sessionState?.id && cameraReady && (phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+  })
+  const proctorStream = proctorStreams.size > 0 ? Array.from(proctorStreams.values())[0] : null
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+  const resendIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+
+  // Initial Link Verification
+  useEffect(() => {
+    if (!token) {
+      setPhase('link-expired')
+      return
+    }
+
+    const verify = async () => {
+      try {
+        const { data } = await authApi.verifyMagicLink(token)
+        setSessionState(data)
+        
+        const activeStatuses = ['WAITING_ROOM', 'CHECKLIST', 'MCQ_IN_PROGRESS', 'PRACTICAL_IN_PROGRESS', 'MCQ_COMPLETE']
+        const doneStatuses = ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'COMPLETED', 'DISQUALIFIED']
+
+        if (doneStatuses.includes(data.status)) {
+          setPhase('link-expired')
+        } else if (activeStatuses.includes(data.status)) {
+          // Session already in progress — skip OTP, go straight to waiting/exam
+          setPhase('otp-email')
+          setEmail(data.candidate?.email || '')
+        } else {
+          // SCHEDULED — check if too early (more than 60 min before start)
+          const now = new Date()
+          const scheduled = new Date(data.scheduledAt)
+          const diffMinutes = (scheduled.getTime() - now.getTime()) / (1000 * 60)
+          if (diffMinutes > 60) {
+            setPhase('not-open')
+          } else {
+            setPhase('otp-email')
+            setEmail(data.candidate?.email || '')
+          }
+        }
+      } catch (err: any) {
+        setPhase('link-expired')
+      }
+    }
+    verify()
+  }, [token])
+
+  // Not Open Auto-refresh
+  useEffect(() => {
+    if (phase !== 'not-open') return
+    const interval = setInterval(() => window.location.reload(), 60000)
+    return () => clearInterval(interval)
+  }, [phase])
+
+  // Resend OTP Timer
+  useEffect(() => {
+    if (resendTimer > 0) {
+      resendIntervalRef.current = setInterval(() => setResendTimer(t => t - 1), 1000)
+    } else {
+      clearInterval(resendIntervalRef.current)
+    }
+    return () => clearInterval(resendIntervalRef.current)
+  }, [resendTimer])
+
+  // Camera setup
+  const startCamera = useCallback(async () => {
+    try {
+      // Stop any existing stream first
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(t => t.stop())
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      cameraStreamRef.current = stream
+      setCameraReady(true)
+      return true
+    } catch {
+      toast.error('Camera access required. Please allow camera access and try again.')
+      return false
+    }
+  }, [])
+
+  // Timer sync
+  useEffect(() => {
+    if (phase !== 'mcq' && phase !== 'practical') return
+    const sync = async () => {
+      try {
+        const { data } = await examApi.getTimer(token)
+        setTimeRemaining(data.remaining)
+        if (data.remaining <= 0) {
+          if (phase === 'mcq') setPhase('mcq-complete')
+          else if (phase === 'practical') setPhase('complete')
+        }
+      } catch {}
+    }
+    sync()
+    timerRef.current = setInterval(() => {
+      setTimeRemaining(t => {
+        if (t <= 1) {
+          clearInterval(timerRef.current)
+          if (phase === 'mcq') setPhase('mcq-complete')
+          else setPhase('complete')
+          return 0
+        }
+        return t - 1
+      })
+    }, 1000)
+    const serverSync = setInterval(sync, 30000)
+    return () => { clearInterval(timerRef.current); clearInterval(serverSync) }
+  }, [phase, token])
+
+  // Connection Monitoring
+  const [isOnline, setIsOnline] = useState(true)
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline) }
+  }, [])
+
+  // Tab switch detection
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && (phase === 'mcq' || phase === 'practical')) {
+        setAiWarning({ message: 'âš ï¸ You must not switch browser tabs during the assessment. This event has been recorded.', type: 'critical' })
+        setTimeout(() => setAiWarning(null), 10000)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [phase])
+
+  // Clipboard block + right-click disable
+  useEffect(() => {
+    const block = (e: ClipboardEvent) => { if (phase === 'mcq' || phase === 'practical') e.preventDefault() }
+    const blockCtx = (e: MouseEvent) => { if (phase === 'mcq' || phase === 'practical') e.preventDefault() }
+    document.addEventListener('copy', block)
+    document.addEventListener('paste', block)
+    document.addEventListener('cut', block)
+    document.addEventListener('contextmenu', blockCtx)
+    return () => {
+      document.removeEventListener('copy', block)
+      document.removeEventListener('paste', block)
+      document.removeEventListener('cut', block)
+      document.removeEventListener('contextmenu', blockCtx)
+    }
+  }, [phase])
+
+  // Fullscreen Enforcement
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+      // Re-assign camera stream after fullscreen transition
+      setTimeout(() => assignStream(videoRef.current), 200)
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    return () => document.removeEventListener('fullscreenchange', handleFsChange)
+  }, [assignStream])
+
+  const enterFullscreen = async () => {
+    try {
+      await document.documentElement.requestFullscreen()
+    } catch {
+      toast.error('Fullscreen failed. Please enable manually.')
+    }
+  }
+
+  const [guidelinesOpen, setGuidelinesOpen] = useState(false)
+  const [screenShareRequested, setScreenShareRequested] = useState(false)
+
+  // Poll for practical phase transition (mcq-complete → practical)
+  useEffect(() => {
+    if (phase !== 'mcq-complete') return
+    const poll = setInterval(async () => {
+      try {
+        const { data: s } = await examApi.getSession(token)
+        if (s.status === 'PRACTICAL_IN_PROGRESS') {
+          clearInterval(poll)
+          if (s.practicalTask) {
+            setPracticalTask(s.practicalTask)
+          } else {
+            try {
+              const { data: taskData } = await examApi.getPracticalTask(token)
+              setPracticalTask(taskData)
+            } catch {
+              setPracticalTask({ title: 'Practical Task', description: "Please follow the proctor's instructions." })
+            }
+          }
+          setPhase('practical')
+        } else if (['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'COMPLETED'].includes(s.status)) {
+          clearInterval(poll)
+          setPhase('complete')
+        }
+      } catch {}
+    }, 3000)
+    return () => clearInterval(poll)
+  }, [phase, token])
+
+  // Checklist Polling
+  useEffect(() => {
+    if (phase !== 'waiting') return
+    const poll = async () => {
+      try {
+        const { data } = await checklistApi.get(sessionState.id)
+        setChecklist(data.items || [])
+        
+        const guidelines = data.items.find((i: any) => i.key === 'ITEM_7_GUIDELINES')
+        if (guidelines?.status === 'IN_PROGRESS' && !guidelinesOpen) {
+          setGuidelinesOpen(true)
+        } else if (guidelines?.status === 'COMPLETED') {
+          setGuidelinesOpen(false)
+        }
+
+        const screenShare = data.items.find((i: any) => i.key === 'ITEM_5_SCREEN_SHARE')
+        if (screenShare?.status === 'IN_PROGRESS' && !screenShareRequested) {
+          setScreenShareRequested(true)
+        }
+
+        const consent = data.items.find((i: any) => i.key === 'ITEM_9_CONSENT')
+        if (consent?.status === 'IN_PROGRESS' && !showConsent) {
+          setShowConsent(true)
+        }
+      } catch {}
+    }
+    const interval = setInterval(poll, 3000)
+    poll()
+    return () => clearInterval(interval)
+  }, [phase, sessionState?.id, showConsent, guidelinesOpen, screenShareRequested])
+
+  const requestScreenShare = async () => {
+    try {
+      await (navigator.mediaDevices as any).getDisplayMedia({ video: true })
+      setScreenShareRequested(false)
+      toast.success('Screen share active')
+    } catch {
+      toast.error('Screen share required')
+    }
+  }
+
+  const handleOtpChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return
+    const newOtp = [...otpArray]
+    newOtp[index] = value.slice(-1)
+    setOtpArray(newOtp)
+
+    if (value && index < 5) {
+      otpInputRefs.current[index + 1]?.focus()
+    }
+  }
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otpArray[index] && index > 0) {
+      otpInputRefs.current[index - 1]?.focus()
+    }
+  }
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const { data } = await authApi.sendOtp(email, token)
+      setPhase('otp-verify')
+      setResendTimer(60)
+      if (data?.devOtp) {
+        setDevOtp(data.devOtp)
+        toast.success('Dev mode: OTP shown below')
+      } else {
+        toast.success('Verification code sent to your email')
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to send code')
+    } finally { setLoading(false) }
+  }
+
+  const handleResendOtp = async () => {
+    if (resendTimer > 0) return
+    setLoading(true)
+    try {
+      await authApi.sendOtp(email, token)
+      setResendTimer(60)
+      toast.success('New verification code sent')
+    } catch (err: any) {
+      toast.error('Failed to resend code')
+    } finally { setLoading(false) }
+  }
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const finalOtp = otpArray.join('')
+    if (finalOtp.length < 6) return
+    
+    setLoading(true)
+    try {
+      await authApi.verifyOtp(email, finalOtp)
+      const ok = await startCamera()
+      if (ok) setPhase('camera')
+    } catch (err: any) {
+      setOtpAttempts(prev => prev + 1)
+      const remaining = 3 - (otpAttempts + 1)
+      if (remaining <= 0) {
+        setPhase('terminated')
+        toast.error('Too many failed attempts. Session locked.')
+      } else {
+        toast.error(`Invalid code. ${remaining} attempts remaining.`)
+      }
+    } finally { setLoading(false) }
+  }
+
+  const handleEnterWaiting = async () => {
+    try {
+      const { data } = await examApi.getSession(token)
+      setSessionState(data)
+      setPhase('waiting')
+      // Poll for exam start
+      const poll = setInterval(async () => {
+        const { data: s } = await examApi.getSession(token)
+        setSessionState(s)
+        if (s.status === 'MCQ_IN_PROGRESS') {
+          clearInterval(poll)
+          await loadNextQuestion()
+          setPhase('mcq')
+        } else if (s.status === 'PRACTICAL_IN_PROGRESS') {
+          clearInterval(poll)
+          // Fetch practical task details separately if not included in session
+          if (s.practicalTask) {
+            setPracticalTask(s.practicalTask)
+          } else {
+            try {
+              const { data: taskData } = await examApi.getPracticalTask(token)
+              setPracticalTask(taskData)
+            } catch {
+              setPracticalTask({ title: 'Practical Task', description: 'Please follow the proctor\'s instructions.' })
+            }
+          }
+          setPhase('practical')
+        }
+      }, 3000)
+    } catch (err: any) {
+      toast.error('Failed to load session')
+    }
+  }
+
+  const handleFileUpload = async (file: File) => {
+    if (!file) return
+    setLoading(true)
+    setUploadProgress(0)
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      await api.post(`/exam/practical/submit?token=${token}`, formData, {
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1))
+          setUploadProgress(percentCompleted)
+        }
+      })
+      toast.success('File uploaded successfully')
+      setPhase('complete')
+    } catch (err: any) {
+      toast.error('Upload failed. Please try again.')
+    } finally {
+      setLoading(false)
+      setUploadProgress(0)
+    }
+  }
+
+  const loadNextQuestion = async () => {
+    try {
+      const { data } = await examApi.getCurrentQuestion(token)
+      if (data.completed) { setPhase('mcq-complete'); return }
+      setCurrentQuestion(data)
+      setSelectedAnswer(null)
+      setQuestionStartTime(Date.now())
+    } catch (err: any) {
+      if (err.response?.status === 400) setPhase('mcq-complete')
+    }
+  }
+
+  const handleSubmitAnswer = async () => {
+    if (!selectedAnswer || !currentQuestion) return
+    setLoading(true)
+    const timeSpent = Math.floor((Date.now() - questionStartTime) / 1000)
+    try {
+      const { data } = await examApi.submitAnswer(token, currentQuestion.questionId, selectedAnswer, timeSpent)
+      if (data.isComplete) {
+        setPhase('mcq-complete')
+      } else {
+        await loadNextQuestion()
+      }
+    } catch (err: any) {
+      toast.error('Failed to submit answer')
+    } finally { setLoading(false) }
+  }
+
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+  const timerColor = timeRemaining < 300 ? 'var(--rose)' : timeRemaining < 600 ? 'var(--amber)' : 'var(--text-primary)'
+
+  // â”€â”€ RENDER PHASES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  const containerStyle: React.CSSProperties = {
+    minHeight: '100vh', background: 'var(--bg-base)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', padding: '20px',
+  }
+  const cardStyle: React.CSSProperties = { width: '100%', maxWidth: '480px' }
+
+  if (phase === 'verifying-link') return (
+    <div style={containerStyle}>
+      <div style={{ textAlign: 'center' }}>
+        <RefreshCw className="animate-spin" size={48} style={{ color: 'var(--cyan)', margin: '0 auto 20px' }} />
+        <p style={{ color: 'var(--text-secondary)' }}>Verifying your assessment link...</p>
+      </div>
+    </div>
+  )
+
+  if (phase === 'link-expired') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
+          <XCircle size={48} style={{ color: 'var(--rose)', margin: '0 auto 16px' }} />
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>Link No Longer Valid</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>
+            Assessment links can only be used once and expire after the session has ended.
+            If you believe this is an error, please contact your assessment coordinator.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'not-open') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
+          <Clock size={48} style={{ color: 'var(--amber)', margin: '0 auto 16px' }} />
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>Session Not Open Yet</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>
+            Your assessment is scheduled for:<br />
+            <strong>{sessionState ? new Date(sessionState.scheduledAt).toLocaleString() : 'Loading...'}</strong>
+          </p>
+          <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(215,119,6,0.08)', borderRadius: '8px', fontSize: '13px', color: 'var(--amber)' }}>
+            This page will refresh automatically when your session opens.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'otp-email') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ color: 'var(--cyan)', fontSize: '24px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>Welcome to Your Assessment</p>
+        </div>
+        <div className="glass-card" style={{ padding: '28px' }}>
+          <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>Verify Your Identity</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>Confirm your email address to receive your verification code.</p>
+          <form onSubmit={handleSendOtp} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Email Address</label>
+              <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" required />
+            </div>
+            <button className="btn-primary" type="submit" disabled={loading} style={{ width: '100%', padding: '12px' }}>
+              {loading ? 'Sending...' : 'Send Verification Code â†’'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'otp-verify') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ color: 'var(--cyan)', fontSize: '24px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
+        </div>
+        <div className="glass-card" style={{ padding: '28px' }}>
+          <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>Enter Verification Code</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>A 6-digit code has been sent to <strong>{email}</strong></p>
+
+          {/* Dev mode OTP helper — always shown in dev */}
+          <div style={{ padding: '12px 16px', background: 'rgba(215,119,6,0.12)', border: '1px solid rgba(215,119,6,0.4)', borderRadius: '8px', marginBottom: '16px' }}>
+            <p style={{ margin: '0 0 8px', fontSize: '11px', color: 'var(--amber)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dev Mode — OTP</p>
+            {devOtp && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Generated code:</span>
+                <button type="button" onClick={() => setOtpArray(devOtp.split(''))}
+                  style={{ fontSize: '20px', fontWeight: '700', color: 'var(--amber)', letterSpacing: '6px', fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline dotted' }}>
+                  {devOtp}
+                </button>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Or use bypass code:</span>
+              <button type="button" onClick={() => setOtpArray(['0','0','0','0','0','0'])}
+                style={{ fontSize: '20px', fontWeight: '700', color: 'var(--cyan)', letterSpacing: '6px', fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline dotted' }}>
+                000000
+              </button>
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: '10px', color: 'var(--text-muted)' }}>Click any code to auto-fill · Dev only</p>
+          </div>
+
+          <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              {otpArray.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={el => { otpInputRefs.current[i] = el }}
+                  className="form-input"
+                  type="text"
+                  value={digit}
+                  onChange={e => handleOtpChange(i, e.target.value)}
+                  onKeyDown={e => handleOtpKeyDown(i, e)}
+                  maxLength={1}
+                  style={{ width: '45px', height: '54px', textAlign: 'center', fontSize: '24px', fontWeight: '700', color: 'var(--cyan)' }}
+                  required
+                />
+              ))}
+            </div>
+            <button className="btn-primary" type="submit" disabled={loading || otpArray.some(d => !d)} style={{ width: '100%', padding: '12px' }}>
+              {loading ? 'Verifying...' : 'Verify & Continue â†’'}
+            </button>
+            <div style={{ textAlign: 'center' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={resendTimer > 0 || loading}
+                onClick={handleResendOtp}
+                style={{ fontSize: '13px' }}
+              >
+                {resendTimer > 0 ? `Resend Code in ${resendTimer}s` : 'Didn\'t receive it? Resend Code'}
+              </button>
+            </div>
+            <button type="button" className="btn-ghost" onClick={() => setPhase('otp-email')} style={{ width: '100%', color: 'var(--text-muted)' }}>â† Back</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'camera') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '28px' }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: '18px', color: 'var(--text-primary)' }}>Camera & Device Check</h2>
+          <video
+            ref={el => { videoRef.current = el; assignStream(el) }}
+            autoPlay muted playsInline
+            style={{ width: '100%', borderRadius: '8px', background: '#000', marginBottom: '16px', aspectRatio: '16/9', objectFit: 'cover' }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+            {[
+              { label: 'ðŸ“· Camera', status: 'âœ… Active' },
+              { label: 'ðŸŽ™ï¸ Microphone', status: 'âœ… Active' },
+              { label: 'ðŸŒ Internet', status: 'âœ… Connected' },
+              { label: 'â›¶ Fullscreen', status: 'âœ… Supported' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '6px', fontSize: '14px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
+                <span style={{ color: 'var(--emerald)' }}>{item.status}</span>
+              </div>
+            ))}
+          </div>
+          <button className="btn-primary" onClick={async () => { await enterFullscreen(); handleEnterWaiting() }} style={{ width: '100%', padding: '12px' }}>
+            Enter Waiting Room â†’
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'waiting') return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', overflow: 'hidden' }}>
+      {!isFullscreen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+          <Monitor size={64} style={{ color: 'var(--cyan)', marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '12px' }}>Full Screen Required</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>This assessment must run in full-screen mode to continue.</p>
+          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen â†’</button>
+        </div>
+      )}
+
+      <video
+        ref={el => { videoRef.current = el; assignStream(el) }}
+        autoPlay muted playsInline
+        style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }}
+      />
+      
+      {/* Right Sidebar Checklist */}
+      <div style={{ position: 'fixed', right: '20px', top: '20px', bottom: '20px', width: '320px', background: 'rgba(13,21,38,0.9)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', zIndex: 10, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+          <Shield size={20} style={{ color: 'var(--cyan)' }} />
+          <h3 style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: '700' }}>assessexpert</h3>
+        </div>
+        
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <p style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>VERIFICATION IN PROGRESS</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.6', marginBottom: '24px' }}>
+            Your proctor will guide you through the verification process. Please remain seated.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {checklist.length > 0 ? checklist.map((item: any, idx: number) => (
+              <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: item.status === 'COMPLETED' ? 1 : item.status === 'IN_PROGRESS' ? 1 : 0.4 }}>
+                <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: `2px solid ${item.status === 'COMPLETED' ? 'var(--emerald)' : 'var(--cyan)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: item.status === 'COMPLETED' ? 'var(--emerald)' : 'var(--cyan)' }}>
+                  {item.status === 'COMPLETED' ? 'âœ“' : idx + 1}
+                </div>
+                <span style={{ fontSize: '13px', color: item.status === 'IN_PROGRESS' ? 'var(--cyan)' : 'var(--text-secondary)' }}>
+                  {item.title || item.key.replace(/ITEM_\d+_/, '').replace(/_/g, ' ')}
+                </span>
+              </div>
+            )) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Initializing checklist...</div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(225,29,72,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--rose)', boxShadow: '0 0 10px var(--rose)' }} />
+          <span style={{ fontSize: '12px', color: 'var(--rose)', fontWeight: '600' }}>CAMERA ACTIVE</span>
+        </div>
+      </div>
+
+      {/* Candidate self-preview — so candidate can see their own camera is working */}
+      <div style={{ position: 'fixed', left: '20px', bottom: '20px', width: '200px', zIndex: 10 }}>
+        <div style={{ position: 'relative', aspectRatio: '16/9', background: '#000', borderRadius: '10px', border: '2px solid var(--emerald)', overflow: 'hidden' }}>
+          <video
+            ref={el => { videoRef.current = el; assignStream(el) }}
+            autoPlay muted playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+          <div style={{ position: 'absolute', bottom: '4px', left: '6px', background: 'rgba(0,0,0,0.7)', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', color: 'var(--emerald)', fontWeight: '600' }}>
+            ● YOUR CAMERA
+          </div>
+        </div>
+        <p style={{ margin: '4px 0 0', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center' }}>Proctor can see you</p>
+      </div>
+
+      {/* Consent Modal */}
+      {showConsent && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '440px', padding: '32px', textAlign: 'center' }}>
+            <Shield size={48} style={{ color: 'var(--cyan)', margin: '0 auto 20px' }} />
+            <h2 style={{ color: '#fff', marginBottom: '12px' }}>Session Recording Consent</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', marginBottom: '24px' }}>
+              This session, including your camera feed and all screen activity, will be recorded and stored securely for 7 days for assessment verification and quality purposes.
+            </p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setPhase('terminated')}>I Do Not Agree</button>
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => setShowConsent(false)}>âœ“ I Agree</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guidelines Modal */}
+      {guidelinesOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '600px', padding: '32px' }}>
+            <h2 style={{ color: 'var(--cyan)', marginBottom: '20px', textAlign: 'center' }}>EXAM GUIDELINES</h2>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.8', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <p>â€¢ Your camera must remain active at all times.</p>
+              <p>â€¢ You may not use any external references, notes, or assistance.</p>
+              <p>â€¢ Do not minimize, switch, or close this browser window.</p>
+              <p>â€¢ Do not copy-paste content into or out of the exam.</p>
+              <p>â€¢ Questions are delivered one at a time. No back navigation.</p>
+              <p>â€¢ If you have an issue, raise your hand on camera.</p>
+            </div>
+            <p style={{ marginTop: '24px', textAlign: 'center', color: 'var(--text-primary)', fontWeight: '600' }}>
+              Please listen carefully as the proctor reads these to you.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Screen Share Request Modal */}
+      {screenShareRequested && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ maxWidth: '440px', padding: '32px', textAlign: 'center' }}>
+            <Monitor size={48} style={{ color: 'var(--cyan)', margin: '0 auto 20px' }} />
+            <h2 style={{ color: '#fff', marginBottom: '12px' }}>Screen Sharing Required</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', marginBottom: '24px' }}>
+              This assessment requires you to share your full screen with the proctor for the duration of the session.
+            </p>
+            <button className="btn-primary" style={{ width: '100%' }} onClick={requestScreenShare}>Share Screen â€” Full Screen Mode</button>
+          </div>
+        </div>
+      )}
+
+      {/* Offline Overlay */}
+      {!isOnline && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+          <RefreshCw className="animate-spin" size={48} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '8px' }}>Connection Lost</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>Your internet connection has been interrupted. Reconnecting...</p>
+        </div>
+      )}
+    </div>
+  )
+
+  if (phase === 'mcq' && currentQuestion) return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* AI Warning Banner */}
+      {aiWarning && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: aiWarning.type === 'critical' ? 'var(--rose)' : 'var(--amber)', color: '#fff', padding: '10px', textAlign: 'center', zIndex: 1000, fontWeight: '600', animation: 'slideDown 0.3s ease-out' }}>
+          {aiWarning.message}
+        </div>
+      )}
+
+      {/* 1 Minute Warning Overlay */}
+      {timeRemaining === 60 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(225,29,72,0.2)', pointerEvents: 'none', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--rose)', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontWeight: '700', fontSize: '18px', boxShadow: '0 0 20px rgba(0,0,0,0.5)' }}>
+            â± 1 minute remaining â€” please submit your current answer.
+          </div>
+        </div>
+      )}
+
+      {/* Offline Overlay */}
+      {!isOnline && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+          <RefreshCw className="animate-spin" size={48} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '8px' }}>Connection Lost</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>Attempting to reconnect... your progress is saved.</p>
+        </div>
+      )}
+
+      {/* Fullscreen Guard */}
+      {!isFullscreen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+          <Monitor size={64} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
+          <h2 style={{ color: '#fff', marginBottom: '12px' }}>Full Screen Required</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>Please return to full screen mode to continue the assessment.</p>
+          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen â†’</button>
+        </div>
+      )}
+      {/* MCQ: proctor feed + self preview */}
+      <div style={{ position: 'fixed', left: '16px', bottom: '16px', zIndex: 50, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ position: 'relative', width: '150px', aspectRatio: '16/9', background: '#000', borderRadius: '7px', border: `2px solid ${proctorStream ? 'var(--cyan)' : 'var(--border)'}`, overflow: 'hidden' }}>
+          {proctorStream ? (
+            <video autoPlay playsInline
+              ref={el => { if (el && proctorStream && el.srcObject !== proctorStream) { el.srcObject = proctorStream; el.play().catch(() => {}) } }}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          ) : (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Proctor</span>
+            </div>
+          )}
+          <div style={{ position: 'absolute', bottom: '2px', left: '4px', background: 'rgba(0,0,0,0.7)', padding: '1px 4px', borderRadius: '3px', fontSize: '8px', color: proctorStream ? 'var(--cyan)' : 'var(--text-muted)' }}>PROCTOR</div>
+        </div>
+        <div style={{ position: 'relative', width: '150px', aspectRatio: '16/9', background: '#000', borderRadius: '7px', border: '2px solid var(--emerald)', overflow: 'hidden' }}>
+          <video autoPlay muted playsInline
+            ref={el => { if (el && cameraStreamRef.current && el.srcObject !== cameraStreamRef.current) { el.srcObject = cameraStreamRef.current; el.play().catch(() => {}) } }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+          <div style={{ position: 'absolute', bottom: '2px', left: '4px', background: 'rgba(0,0,0,0.7)', padding: '1px 4px', borderRadius: '3px', fontSize: '8px', color: 'var(--emerald)' }}>YOU</div>
+        </div>
+      </div>
+      {/* Top bar */}
+      <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+          assessexpert &nbsp;|&nbsp; {sessionState?.assessmentType} â€” MCQ Assessment
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>ðŸ“· <span style={{ color: 'var(--emerald)' }}>â—</span> REC</span>
+          <span style={{ fontSize: '20px', fontWeight: '700', color: timerColor, fontFamily: 'var(--font-mono)' }}>â± {formatTime(timeRemaining)}</span>
+        </div>
+      </div>
+
+      {/* Question */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+        <div style={{ width: '100%', maxWidth: '720px' }}>
+          <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Question {currentQuestion.position} of {currentQuestion.totalQuestions}
+          </div>
+          <div style={{ height: '3px', background: 'var(--bg-elevated)', borderRadius: '2px', marginBottom: '28px' }}>
+            <div style={{ height: '100%', background: 'var(--cyan)', borderRadius: '2px', width: `${(currentQuestion.position / currentQuestion.totalQuestions) * 100}%`, transition: 'width 0.3s' }} />
+          </div>
+
+          <div className="glass-card" style={{ padding: '28px', marginBottom: '20px' }}>
+            <p style={{ fontSize: '17px', color: 'var(--text-primary)', lineHeight: '1.7', margin: 0 }}>
+              {(currentQuestion.content as any)?.text}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+            {((currentQuestion.options as any[]) || []).map((opt: any) => (
+              <button key={opt.key} onClick={() => setSelectedAnswer(opt.key)} style={{
+                width: '100%', padding: '16px 20px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer',
+                background: selectedAnswer === opt.key ? 'rgba(0,212,255,0.12)' : 'var(--bg-surface)',
+                border: `1px solid ${selectedAnswer === opt.key ? 'var(--cyan)' : 'var(--border)'}`,
+                color: selectedAnswer === opt.key ? 'var(--cyan)' : 'var(--text-secondary)',
+                fontSize: '15px', transition: 'all 0.15s',
+              }}>
+                <span style={{ fontWeight: '600', marginRight: '12px' }}>{opt.key}.</span>{opt.text}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn-primary" onClick={handleSubmitAnswer} disabled={!selectedAnswer || loading} style={{ padding: '12px 32px', fontSize: '15px', opacity: selectedAnswer ? 1 : 0.5 }}>
+              {loading ? 'Submitting...' : 'Submit Answer â†’'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'mcq-complete') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>âœ…</div>
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>MCQ Assessment Complete</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>
+            You have answered all questions. Your proctor will now assign your practical task. Please remain on camera and wait for instructions.
+          </p>
+          <div style={{ marginTop: '20px', padding: '14px', background: 'rgba(0,212,255,0.08)', borderRadius: '8px', fontSize: '13px', color: 'var(--cyan)' }}>
+            â³ Waiting for proctor to begin the practical phase...
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'practical') return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>assessexpert &nbsp;|&nbsp; {sessionState?.assessmentType?.name} â€” Practical Assessment</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>ðŸ“· <span style={{ color: 'var(--emerald)' }}>â—</span> REC</span>
+          <span style={{ fontSize: '20px', fontWeight: '700', color: timerColor, fontFamily: 'var(--font-mono)' }}>â± {formatTime(timeRemaining)}</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+        <div style={{ width: '100%', maxWidth: '720px' }}>
+          <div className="glass-card" style={{ padding: '32px', marginBottom: '24px' }}>
+            <h2 style={{ color: 'var(--text-primary)', fontSize: '20px', marginBottom: '16px' }}>{practicalTask?.title || 'Practical Task'}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '15px', lineHeight: '1.7', marginBottom: '24px' }}>
+              {practicalTask?.description || "Please follow the proctor's instructions to complete the task."}
+            </p>
+            {practicalTask?.sourceFileUrl && (
+              <a href={practicalTask.sourceFileUrl} download className="btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', textDecoration: 'none' }}>
+                â¬‡ Download Starter File
+              </a>
+            )}
+          </div>
+          <div className="glass-card" style={{ padding: '40px', textAlign: 'center', border: '2px dashed var(--border)', cursor: 'pointer' }}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f) }}
+            onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.onchange = e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleFileUpload(f) }; i.click() }}
+          >
+            {loading ? (
+              <div style={{ width: '100%' }}>
+                <p style={{ color: 'var(--cyan)', marginBottom: '10px' }}>Uploading... {uploadProgress}%</p>
+                <div style={{ height: '8px', background: 'var(--bg-elevated)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${uploadProgress}%`, background: 'var(--cyan)', transition: 'width 0.2s' }} />
+                </div>
+              </div>
+            ) : (
+              <>
+                <p style={{ color: 'var(--text-primary)', fontWeight: '600', marginBottom: '4px' }}>Drag and drop your file here</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>or click to browse from your computer</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'complete') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>ðŸŽ‰</div>
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>Assessment Complete</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>Thank you. Your assessment has been completed and submitted.</p>
+          <div style={{ marginTop: '20px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'left' }}>
+            <p style={{ margin: '0 0 4px' }}>1. Your assessment is being reviewed by your proctor.</p>
+            <p style={{ margin: '0 0 4px' }}>2. A report will be shared with the hiring team.</p>
+            <p style={{ margin: 0 }}>3. The hiring team will be in touch with you directly.</p>
+          </div>
+          <button className="btn-ghost" onClick={() => window.close()} style={{ marginTop: '20px', width: '100%' }}>Close Window</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (phase === 'terminated') return (
+    <div style={containerStyle}>
+      <div style={cardStyle}>
+        <div className="glass-card" style={{ padding: '32px', textAlign: 'center', borderLeft: '3px solid var(--rose)' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>â›”</div>
+          <h2 style={{ color: 'var(--rose)', margin: '0 0 12px' }}>Session Terminated</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+            The proctor has ended this assessment session. Please contact your assessment coordinator for further information.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  return <div style={{ color: 'var(--text-muted)', padding: '40px', textAlign: 'center' }}>Loading...</div>
+}
+
+export default function ExamPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading session...</div>}>
+      <ExamContent />
+    </Suspense>
+  )
+}

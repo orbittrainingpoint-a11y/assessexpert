@@ -1,0 +1,186 @@
+'use client'
+import { useEffect, useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { useAuthStore } from '@/store/auth.store'
+import { authApi, notificationsApi } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
+import {
+  LayoutDashboard, Users, Building2, Calendar, FileText,
+  Settings, LogOut, Bell, ChevronRight, Shield, BookOpen,
+  ClipboardList, Video, BarChart3, UserCheck, Briefcase
+} from 'lucide-react'
+
+const NAV_CONFIG: Record<string, { label: string; icon: any; href: string }[]> = {
+  SUPER_ADMIN: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/admin' },
+    { label: 'Companies', icon: Building2, href: '/admin/companies' },
+    { label: 'Users', icon: Users, href: '/admin/users' },
+    { label: 'Schedule', icon: Calendar, href: '/admin/schedule' },
+    { label: 'Reports', icon: FileText, href: '/admin/reports' },
+    { label: 'Assessment Types', icon: BookOpen, href: '/admin/assessments' },
+    { label: 'Question Bank', icon: ClipboardList, href: '/admin/questions' },
+    { label: 'Settings', icon: Settings, href: '/admin/settings' },
+  ],
+  MASTER_PROCTOR: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/master-proctor' },
+    { label: 'Proctor Management', icon: UserCheck, href: '/master-proctor/proctors' },
+    { label: 'All Sessions', icon: Video, href: '/master-proctor/sessions' },
+    { label: 'Create & Manage Exams', icon: BookOpen, href: '/master-proctor/exams' },
+    { label: 'Question Papers', icon: ClipboardList, href: '/master-proctor/questions' },
+    { label: 'Report Review', icon: FileText, href: '/master-proctor/reports' },
+    { label: 'Settings', icon: Settings, href: '/master-proctor/settings' },
+  ],
+  PROCTOR: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/proctor' },
+    { label: "Today's Assessments", icon: Calendar, href: '/proctor/today' },
+    { label: 'Live Session', icon: Video, href: '/proctor/session' },
+    { label: 'Completed & Reports', icon: FileText, href: '/proctor/reports' },
+    { label: 'Settings', icon: Settings, href: '/proctor/settings' },
+  ],
+  EXAM_SETUP_MASTER: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/exam-setup' },
+    { label: 'Assessment Types', icon: BookOpen, href: '/exam-setup/assessments' },
+    { label: 'MCQ Question Bank', icon: ClipboardList, href: '/exam-setup/questions' },
+    { label: 'Practical Library', icon: Briefcase, href: '/exam-setup/practical' },
+    { label: 'Review & Approval', icon: Shield, href: '/exam-setup/review' },
+    { label: 'Exam Simulation', icon: Video, href: '/exam-setup/simulation' },
+    { label: 'Settings', icon: Settings, href: '/exam-setup/settings' },
+  ],
+  HR_MANAGER: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
+    { label: 'Candidates', icon: Users, href: '/hr/candidates' },
+    { label: 'Assessments', icon: FileText, href: '/hr/assessments' },
+    { label: 'Top Performers', icon: BarChart3, href: '/hr/performers' },
+    { label: 'Settings', icon: Settings, href: '/hr/settings' },
+  ],
+  ORG_ADMIN: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
+    { label: 'Candidates', icon: Users, href: '/hr/candidates' },
+    { label: 'Assessments', icon: FileText, href: '/hr/assessments' },
+    { label: 'Top Performers', icon: BarChart3, href: '/hr/performers' },
+    { label: 'Settings', icon: Settings, href: '/hr/settings' },
+  ],
+  HIRING_MANAGER: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
+    { label: 'Reports', icon: FileText, href: '/hr/assessments' },
+  ],
+  SALES_AGENT: [
+    { label: 'Overview', icon: LayoutDashboard, href: '/sales' },
+    { label: 'Leads', icon: Users, href: '/sales/leads' },
+    { label: 'My Companies', icon: Building2, href: '/sales/companies' },
+  ],
+}
+
+export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const { user, isAuthenticated, clearAuth } = useAuthStore()
+  const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => { setHydrated(true) }, [])
+
+  const { data: unreadData } = useQuery({
+    queryKey: ['notifications-count'],
+    queryFn: () => notificationsApi.getUnreadCount().then(r => r.data),
+    refetchInterval: 30000,
+    enabled: isAuthenticated,
+  })
+
+  useEffect(() => {
+    if (hydrated && !isAuthenticated) router.push('/login')
+  }, [hydrated, isAuthenticated, router])
+
+  if (!hydrated) return null
+  if (!user) return null
+
+  const navItems = NAV_CONFIG[user.role] || NAV_CONFIG.HR_MANAGER
+
+  const handleLogout = async () => {
+    try { await authApi.logout() } catch {}
+    clearAuth()
+    router.push('/login')
+  }
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      {/* Sidebar */}
+      <aside style={{
+        width: '240px', minHeight: '100vh', background: 'var(--bg-surface)',
+        borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
+        position: 'fixed', top: 0, left: 0, zIndex: 50,
+      }}>
+        {/* Logo */}
+        <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border)' }}>
+          <h1 style={{ color: 'var(--cyan)', fontSize: '18px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: '4px 0 0' }}>
+            {user.role.replace(/_/g, ' ')}
+          </p>
+        </div>
+
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
+          {navItems.map(item => {
+            const Icon = item.icon
+            const isActive = pathname === item.href || (item.href !== '/admin' && item.href !== '/hr' && item.href !== '/proctor' && pathname.startsWith(item.href))
+            return (
+              <Link key={item.href} href={item.href} className={`nav-item ${isActive ? 'active' : ''}`} style={{ marginBottom: '2px' }}>
+                <Icon size={16} />
+                <span>{item.label}</span>
+              </Link>
+            )
+          })}
+        </nav>
+
+        {/* User + actions */}
+        <div style={{ padding: '12px 8px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', marginBottom: '4px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(0,212,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cyan)', fontSize: '13px', fontWeight: '600' }}>
+              {user.firstName[0]}{user.lastName[0]}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user.firstName} {user.lastName}
+              </p>
+              <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user.email}
+              </p>
+            </div>
+          </div>
+          <button onClick={handleLogout} className="nav-item" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--rose)' }}>
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main style={{ marginLeft: '240px', flex: 1, minHeight: '100vh' }}>
+        {/* Top bar */}
+        <header style={{
+          height: '56px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          padding: '0 24px', position: 'sticky', top: 0, zIndex: 40,
+        }}>
+          <button onClick={() => {}} style={{ position: 'relative', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer' }}>
+            <Bell size={20} />
+            {(unreadData?.count || 0) > 0 && (
+              <span style={{
+                position: 'absolute', top: '-6px', right: '-6px',
+                background: 'var(--rose)', color: 'white', borderRadius: '50%',
+                width: '16px', height: '16px', fontSize: '10px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600',
+              }}>
+                {unreadData.count > 9 ? '9+' : unreadData.count}
+              </span>
+            )}
+          </button>
+        </header>
+
+        <div style={{ padding: '24px' }}>
+          {children}
+        </div>
+      </main>
+    </div>
+  )
+}
