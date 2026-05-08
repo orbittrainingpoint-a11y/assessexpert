@@ -10,13 +10,6 @@ yarn-error.log*
 .env.*
 !.env.example
 
-# ── Next.js ───────────────────────────────────────────
-frontend/portal/.next/
-frontend/portal/out/
-frontend/portal/.vercel
-frontend/portal/next-env.d.ts
-frontend/portal/*.tsbuildinfo
-
 # ── NestJS / TypeScript build ─────────────────────────
 backend/dist/
 backend/*.tsbuildinfo
