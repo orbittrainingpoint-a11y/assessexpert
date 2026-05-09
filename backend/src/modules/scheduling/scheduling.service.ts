@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class SchedulingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async getAvailableSlots(assessmentTypeId: string, dateFrom: string, dateTo: string) {
     // Get available proctors certified for this assessment type
@@ -55,7 +59,7 @@ export class SchedulingService {
       proctorId = proctor?.id;
     }
 
-    return this.prisma.examSession.create({
+    const session = await this.prisma.examSession.create({
       data: {
         candidateId: data.candidateId,
         assessmentTypeId: data.assessmentTypeId,
@@ -66,7 +70,23 @@ export class SchedulingService {
         tokenExpiresAt,
         status: 'SCHEDULED',
       },
-      include: { candidate: true, assessmentType: true },
+      include: { candidate: true, assessmentType: true, organization: true },
     });
+
+    // Send invitation email to candidate
+    const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
+    await this.notifications.sendCandidateInvitation(
+      session.candidate.email,
+      `${session.candidate.firstName} ${session.candidate.lastName}`,
+      {
+        companyName: (session as any).organization?.name || 'AssessExpert',
+        assessmentName: session.assessmentType.name,
+        scheduledAt: data.scheduledAt,
+        timezone: 'Asia/Dubai',
+        magicLink,
+      },
+    );
+
+    return session;
   }
 }

@@ -4,14 +4,27 @@ import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
+import * as nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
+  private transporter: nodemailer.Transporter;
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ) {
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
 
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
@@ -159,14 +172,29 @@ export class AuthService {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
     this.otpStore.set(email, { otp, expires, attempts: 0 });
-    // Also persist OTP on the session record so it survives server restarts
-    await this.prisma.examSession.update({
-      where: { id: session.id },
-      data: { devOtp: otp, devOtpExpires: expires } as any,
-    }).catch(() => {}); // ignore if column doesn't exist
-    console.log(`OTP for ${email}: ${otp}`);
-    const isDev = process.env.NODE_ENV !== 'production';
-    return { sent: true, ...(isDev && { devOtp: otp, devNote: 'OTP shown in dev mode only' }) };
+
+    // Send OTP via email
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'theassessexpert@gmail.com',
+        to: email,
+        subject: 'Your AssessExpert Verification Code',
+        html: `
+          <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 500px; margin: 0 auto; border-radius: 12px;">
+            <h1 style="color: #00D4FF; font-size: 22px; margin: 0 0 24px;">AssessExpert</h1>
+            <h2 style="color: #F1F5F9; font-size: 18px;">Your Verification Code</h2>
+            <p style="color: #94A3B8;">Use the code below to access your assessment. It expires in 10 minutes.</p>
+            <div style="background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.3); border-radius: 8px; padding: 24px; text-align: center; margin: 24px 0;">
+              <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #00D4FF;">${otp}</span>
+            </div>
+            <p style="color: #475569; font-size: 12px;">Do not share this code. If you did not request this, please ignore this email.</p>
+          </div>`,
+      });
+    } catch (e) {
+      console.error('OTP email failed:', e.message);
+    }
+
+    return { sent: true };
   }
 
   async verifyCandidateOtp(email: string, otp: string) {

@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 @Injectable()
 export class ReportsService {
-  private openai: OpenAI;
+  private genAI: GoogleGenerativeAI;
 
   constructor(private prisma: PrismaService) {
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
   }
 
   async generateDraftReport(sessionId: string) {
@@ -64,11 +64,14 @@ export class ReportsService {
     const warningEvents = session.events.filter(e => e.severity === 'WARNING').length;
     const integrityScore = Math.max(0, 100 - (criticalEvents * 15) - (warningEvents * 5));
 
-    // Generate AI narrative
+    // Generate AI narrative using Gemini
     let aiNarrative = '';
     let aiRecommendation = '';
     try {
-      const prompt = `You are an expert HR assessment evaluator. Generate a professional assessment report narrative for:
+      const model = this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
+
+      const narrativeResult = await model.generateContent(
+        `You are an expert HR assessment evaluator. Generate a professional assessment report narrative for:
 Candidate: ${session.candidate.firstName} ${session.candidate.lastName}
 Assessment: ${session.assessmentType.name}
 MCQ Score: ${mcqScore.toFixed(1)}% (${totalCorrect}/${session.assessmentType.mcqQuestionCount} correct)
@@ -76,23 +79,15 @@ MCQ Passed: ${mcqPassed}
 Integrity Score: ${integrityScore}/100
 AI Events: ${session.events.length} total (${criticalEvents} critical, ${warningEvents} warnings)
 
-Write 2-3 professional paragraphs analyzing the candidate's performance. Be objective and specific.`;
+Write 2-3 professional paragraphs analyzing the candidate's performance. Be objective and specific.`
+      );
+      aiNarrative = narrativeResult.response.text();
 
-      const completion = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4o',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500,
-      });
-      aiNarrative = completion.choices[0]?.message?.content || '';
-
-      const recPrompt = `Based on: MCQ ${mcqScore.toFixed(1)}%, Integrity ${integrityScore}/100, Passed: ${mcqPassed}. 
-Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caution. Be direct.`;
-      const recCompletion = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || 'gpt-4o',
-        messages: [{ role: 'user', content: recPrompt }],
-        max_tokens: 200,
-      });
-      aiRecommendation = recCompletion.choices[0]?.message?.content || '';
+      const recResult = await model.generateContent(
+        `Based on: MCQ ${mcqScore.toFixed(1)}%, Integrity ${integrityScore}/100, Passed: ${mcqPassed}.
+Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caution. Be direct.`
+      );
+      aiRecommendation = recResult.response.text();
     } catch (e) {
       aiNarrative = `Candidate ${session.candidate.firstName} ${session.candidate.lastName} completed the ${session.assessmentType.name} assessment. MCQ score: ${mcqScore.toFixed(1)}%.`;
       aiRecommendation = mcqPassed ? 'Candidate meets the minimum threshold. Recommend proceeding to interview.' : 'Candidate did not meet the minimum threshold.';
