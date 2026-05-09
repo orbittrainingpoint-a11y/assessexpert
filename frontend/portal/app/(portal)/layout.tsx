@@ -33,6 +33,7 @@ const NAV_CONFIG: Record<string, { label: string; icon: any; href: string }[]> =
   ],
   PROCTOR: [
     { label: 'Overview', icon: LayoutDashboard, href: '/proctor' },
+    { label: 'All Sessions', icon: Calendar, href: '/proctor/sessions' },
     { label: "Today's Assessments", icon: Calendar, href: '/proctor/today' },
     { label: 'Live Session', icon: Video, href: '/proctor/session' },
     { label: 'Completed & Reports', icon: FileText, href: '/proctor/reports' },

@@ -69,11 +69,12 @@ export class SessionsService {
       end.setHours(23, 59, 59, 999);
       where.scheduledAt = { gte: start, lte: end };
     }
-    return this.prisma.examSession.findMany({
+    const sessions = await this.prisma.examSession.findMany({
       where,
       include: { candidate: true, assessmentType: true, organization: true },
       orderBy: { scheduledAt: 'asc' },
     });
+    return { sessions };
   }
 
   async getSessionsForOrg(organizationId: string, filters?: any) {
@@ -94,13 +95,14 @@ export class SessionsService {
     if (filters?.organizationId) where.organizationId = filters.organizationId;
     if (filters?.status) where.status = filters.status;
     if (filters?.proctorId) where.proctorId = filters.proctorId;
-    return this.prisma.examSession.findMany({
+    const sessions = await this.prisma.examSession.findMany({
       where,
       include: { candidate: true, assessmentType: true, organization: true },
       orderBy: { scheduledAt: 'desc' },
       take: filters?.limit || 100,
       skip: filters?.offset || 0,
     });
+    return { sessions };
   }
 
   async getLiveSessions() {

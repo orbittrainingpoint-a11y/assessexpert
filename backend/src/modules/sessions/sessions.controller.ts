@@ -17,8 +17,12 @@ export class SessionsController {
   ) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
-  async getAllSessions(@Query() filters: any) {
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR')
+  async getAllSessions(@Query() filters: any, @Req() req: any) {
+    // If proctor, only show their sessions
+    if (req.user.role === 'PROCTOR') {
+      return this.sessionsService.getSessionsForProctor(req.user.id);
+    }
     return this.sessionsService.getAllSessions(filters);
   }
 
