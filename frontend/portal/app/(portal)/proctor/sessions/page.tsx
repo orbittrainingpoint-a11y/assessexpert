@@ -97,6 +97,8 @@ export default function ProctorSessionsPage() {
             const scheduledDate = new Date(session.scheduledAt)
             const isPast = scheduledDate <= now
             const isToday = scheduledDate.toDateString() === now.toDateString()
+            const fifteenMinutesBefore = new Date(scheduledDate.getTime() - 15 * 60 * 1000)
+            const canJoin = now >= fifteenMinutesBefore && !isPast
             
             return (
               <div key={session.id} className="glass-card" style={{ padding: '20px' }}>
@@ -160,7 +162,7 @@ export default function ProctorSessionsPage() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    {session.status === 'SCHEDULED' && isToday && (
+                    {session.status === 'SCHEDULED' && canJoin && (
                       <Link href={`/proctor/session?id=${session.id}`} className="btn-primary" style={{ padding: '8px 16px', fontSize: '13px', textDecoration: 'none' }}>
                         Join Session
                       </Link>

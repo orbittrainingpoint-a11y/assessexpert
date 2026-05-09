@@ -37,6 +37,18 @@ export class ExamDeliveryService {
     });
     if (!session) throw new NotFoundException('Session not found');
 
+    // Check if candidate is joining within the allowed time window (15 minutes before to 15 minutes after)
+    const now = new Date();
+    const scheduledTime = new Date(session.scheduledAt);
+    const fifteenMinutesBefore = new Date(scheduledTime.getTime() - 15 * 60 * 1000);
+    const fifteenMinutesAfter = new Date(scheduledTime.getTime() + 15 * 60 * 1000);
+    
+    if (session.status === 'SCHEDULED' && (now < fifteenMinutesBefore || now > fifteenMinutesAfter)) {
+      throw new BadRequestException(
+        `This session can only be accessed between ${fifteenMinutesBefore.toLocaleTimeString()} and ${fifteenMinutesAfter.toLocaleTimeString()}. Current time: ${now.toLocaleTimeString()}`
+      );
+    }
+
     const answeredCount = await this.prisma.examAnswer.count({ where: { sessionId: session.id } });
     const mcqTimeRemaining = session.mcqStartedAt
       ? Math.max(0, session.assessmentType.mcqTimeLimit * 60 - Math.floor((Date.now() - session.mcqStartedAt.getTime()) / 1000))

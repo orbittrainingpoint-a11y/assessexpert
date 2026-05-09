@@ -108,7 +108,8 @@ export class SchedulingService {
     proctorId?: string;
   }) {
     const token = randomBytes(32).toString('hex');
-    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 30 * 60 * 1000);
+    // Token valid from 15 minutes before scheduled time until 15 minutes after
+    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
 
     // Auto-assign proctor if not specified
     let proctorId = data.proctorId;
@@ -160,7 +161,7 @@ export class SchedulingService {
             <h2>Assessment Reminder — 24 Hours</h2>
             <p>Hi ${session.candidate.firstName},</p>
             <p>This is a reminder that your assessment is scheduled for tomorrow.</p>
-            <p><strong>${session.assessmentType.name}</strong><br/>${data.scheduledAt.toLocaleString()} (Asia/Dubai)</p>
+            <p><strong>${session.assessmentType.name}</strong><br/>${data.scheduledAt.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Asia/Dubai' })} (Asia/Dubai)</p>
             <p>Ensure your camera, microphone, and internet connection are ready.</p>
             <div style="text-align:center;margin:32px 0">
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>

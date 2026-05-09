@@ -40,6 +40,25 @@ export class NotificationsService {
     timezone: string;
     magicLink: string;
   }) {
+    // Format date and time properly
+    const dateOptions: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      timeZone: data.timezone || 'Asia/Dubai'
+    };
+    const timeOptions: Intl.DateTimeFormatOptions = { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true,
+      timeZone: data.timezone || 'Asia/Dubai'
+    };
+    
+    const formattedDate = data.scheduledAt.toLocaleDateString('en-US', dateOptions);
+    const formattedTime = data.scheduledAt.toLocaleTimeString('en-US', timeOptions);
+    const formattedDateTime = `${formattedDate} at ${formattedTime} (${data.timezone || 'Asia/Dubai'})`;
+    
     const html = `
       <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 600px; margin: 0 auto;">
         <div style="text-align: center; margin-bottom: 32px;">
@@ -50,10 +69,11 @@ export class NotificationsService {
         <p>You have been scheduled for a technical assessment by <strong>${data.companyName}</strong>.</p>
         <table style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 20px; width: 100%; margin: 20px 0;">
           <tr><td style="color: #94A3B8; padding: 8px 0;">Assessment:</td><td style="color: #F1F5F9;"><strong>${data.assessmentName}</strong></td></tr>
-          <tr><td style="color: #94A3B8; padding: 8px 0;">Date & Time:</td><td style="color: #F1F5F9;"><strong>${data.scheduledAt.toLocaleString()} (${data.timezone})</strong></td></tr>
+          <tr><td style="color: #94A3B8; padding: 8px 0;">Date & Time:</td><td style="color: #F1F5F9;"><strong>${formattedDateTime}</strong></td></tr>
           <tr><td style="color: #94A3B8; padding: 8px 0;">Duration:</td><td style="color: #F1F5F9;"><strong>Approximately 90 minutes</strong></td></tr>
         </table>
         <p style="color: #94A3B8;">Please ensure you have a working webcam, microphone, and stable internet connection.</p>
+        <p style="color: #F59E0B; font-weight: 600;">⏰ You can join 15 minutes before the scheduled time.</p>
         <div style="text-align: center; margin: 32px 0;">
           <a href="${data.magicLink}" style="background: #00D4FF; color: #060B18; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Access Your Exam</a>
         </div>

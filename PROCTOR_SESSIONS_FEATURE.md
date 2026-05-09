@@ -4,6 +4,9 @@
 - Proctors couldn't see all their scheduled sessions (past, present, future)
 - After HR schedules a session, it wasn't visible in proctor dashboard
 - No "All Sessions" tab in proctor sidebar
+- Email time format was incorrect (showing raw Date object)
+- Join Session button not appearing for scheduled sessions
+- No 15-minute window validation for candidates joining sessions
 
 ## Solution Implemented
 
@@ -76,6 +79,24 @@ const { data } = useQuery({
 
 ## Features
 
+### Email Time Format
+- Properly formatted date and time with timezone
+- Example: "Monday, January 15, 2024 at 02:30 PM (Asia/Dubai)"
+- Includes note: "You can join 15 minutes before the scheduled time"
+
+### 15-Minute Window Validation
+- Candidates can join 15 minutes before scheduled time
+- Token expires 15 minutes after scheduled time
+- Backend validates time window in `getSessionState()`
+- Shows clear error message if outside window
+
+### Join Session Button Logic
+- Shows "Join Session" button when:
+  - Status is SCHEDULED
+  - Current time is within 15 minutes before scheduled time
+  - Session hasn't passed
+- Calculation: `canJoin = now >= (scheduledTime - 15 minutes) && !isPast`
+
 ### Session Filtering
 - **Upcoming**: `new Date(s.scheduledAt) > now`
 - **Past**: `new Date(s.scheduledAt) <= now`
@@ -112,12 +133,15 @@ const { data } = useQuery({
 ## Files Modified
 
 ### Backend
-- `backend/src/modules/sessions/sessions.controller.ts`
-- `backend/src/modules/sessions/sessions.service.ts`
+- `backend/src/modules/sessions/sessions.controller.ts` - Added PROCTOR role access to getAllSessions
+- `backend/src/modules/sessions/sessions.service.ts` - Updated return format for consistency
+- `backend/src/modules/notifications/notifications.service.ts` - Fixed email date/time formatting with timezone
+- `backend/src/modules/scheduling/scheduling.service.ts` - Changed token expiry to 15 minutes after scheduled time
+- `backend/src/modules/exam-delivery/exam-delivery.service.ts` - Added 15-minute window validation
 
 ### Frontend
-- `frontend/portal/app/(portal)/layout.tsx`
-- `frontend/portal/app/(portal)/proctor/sessions/page.tsx` (NEW)
+- `frontend/portal/app/(portal)/layout.tsx` - Added "All Sessions" to proctor sidebar
+- `frontend/portal/app/(portal)/proctor/sessions/page.tsx` (NEW) - Created sessions page with tabs and join button logic
 
 ## Next Steps
 
