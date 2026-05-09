@@ -117,6 +117,18 @@ Key variables to configure:
 
 ---
 
+## Recent Updates
+
+### Session Management Fixes (Latest)
+- ✅ **Email Time Format** — Properly formatted date/time with timezone (e.g., "Monday, January 15, 2024 at 02:30 PM (Asia/Dubai)")
+- ✅ **15-Minute Window** — Candidates can join 15 minutes before scheduled time, token expires 15 minutes after
+- ✅ **Join Session Button** — Proctors see "Join Session" button 15 minutes before scheduled time
+- ✅ **All Sessions Page** — Proctors can view all scheduled sessions with Upcoming/Past/All tabs
+
+See `SESSION_FIXES_COMPLETE.md` for detailed implementation.
+
+---
+
 ## Key Features Implemented
 
 ### Exam Engine
