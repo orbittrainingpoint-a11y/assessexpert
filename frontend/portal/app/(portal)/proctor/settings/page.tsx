@@ -1,9 +1,10 @@
 'use client'
 import { useAuthStore } from '@/store/auth.store'
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { authApi } from '@/lib/api'
 import toast from 'react-hot-toast'
+import axios from 'axios'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00']
@@ -14,6 +15,12 @@ const NOTIF_EVENTS = [
   { key: 'report_ready', label: 'AI draft report ready' },
   { key: 'candidate_noshow', label: 'Candidate no-show' },
 ]
+
+// Helper to convert day name to number (0=Mon, 6=Sun)
+const dayToNumber = (day: string): number => DAYS.indexOf(day)
+
+// Helper to convert number to day name
+const numberToDay = (num: number): string => DAYS[num] || 'Mon'
 
 export default function ProctorSettingsPage() {
   const { user } = useAuthStore()
@@ -31,10 +38,86 @@ export default function ProctorSettingsPage() {
     Object.fromEntries(NOTIF_EVENTS.map(e => [e.key, { email: true, portal: true, sms: e.key === 'session_reminder' }]))
   )
 
+  // Load availability from backend
+  const { data: availabilityData, refetch: refetchAvailability } = useQuery({
+    queryKey: ['availability', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      })
+      return res.data
+    },
+    enabled: !!user?.id,
+  })
+
+  // Load availability data into state
+  useEffect(() => {
+    if (availabilityData) {
+      // Convert slots to Set<"Day-Time">
+      const slotsSet = new Set<string>()
+      availabilityData.slots?.forEach((slot: any) => {
+        const day = numberToDay(slot.dayOfWeek)
+        // Parse time range and add all hours
+        const startHour = parseInt(slot.startTime.split(':')[0])
+        const endHour = parseInt(slot.endTime.split(':')[0])
+        for (let hour = startHour; hour < endHour; hour++) {
+          const timeStr = `${hour.toString().padStart(2, '0')}:00`
+          slotsSet.add(`${day}-${timeStr}`)
+        }
+      })
+      setAvailable(slotsSet)
+      setTimezone(availabilityData.timezone || 'Asia/Dubai')
+      setMaxPerDay(availabilityData.maxSessionsPerDay || 4)
+    }
+  }, [availabilityData])
+
   const changePwMutation = useMutation({
     mutationFn: () => authApi.changePassword(current, newPw),
     onSuccess: () => { toast.success('Password changed'); setCurrent(''); setNewPw(''); setConfirm('') },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
+  })
+
+  const saveAvailabilityMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.id) throw new Error('User not found')
+      
+      // Convert Set<"Day-Time"> to slots array
+      const slotsMap = new Map<string, { start: number; end: number }>()
+      
+      available.forEach(key => {
+        const [day, time] = key.split('-')
+        const hour = parseInt(time.split(':')[0])
+        const dayNum = dayToNumber(day)
+        
+        if (!slotsMap.has(day)) {
+          slotsMap.set(day, { start: hour, end: hour + 1 })
+        } else {
+          const slot = slotsMap.get(day)!
+          slot.start = Math.min(slot.start, hour)
+          slot.end = Math.max(slot.end, hour + 1)
+        }
+      })
+      
+      const slots = Array.from(slotsMap.entries()).map(([day, { start, end }]) => ({
+        dayOfWeek: dayToNumber(day),
+        startTime: `${start.toString().padStart(2, '0')}:00`,
+        endTime: `${end.toString().padStart(2, '0')}:00`,
+      }))
+      
+      await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`,
+        { slots, timezone, maxSessionsPerDay: maxPerDay },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+      )
+    },
+    onSuccess: () => {
+      toast.success('Availability saved successfully')
+      refetchAvailability()
+    },
+    onError: (e: any) => {
+      toast.error(e.response?.data?.message || 'Failed to save availability')
+    },
   })
 
   const handlePwSubmit = (e: React.FormEvent) => {
@@ -170,8 +253,9 @@ export default function ProctorSettingsPage() {
               </div>
             </div>
             <button className="btn-primary" style={{ marginTop: '16px', padding: '8px 20px', fontSize: '13px' }}
-              onClick={() => toast.success('Availability saved')}>
-              Save Availability
+              onClick={() => saveAvailabilityMutation.mutate()}
+              disabled={saveAvailabilityMutation.isPending}>
+              {saveAvailabilityMutation.isPending ? 'Saving...' : 'Save Availability'}
             </button>
           </div>
         </div>

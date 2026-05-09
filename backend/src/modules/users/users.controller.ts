@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -46,5 +46,25 @@ export class UsersController {
   @Roles('SUPER_ADMIN')
   async deactivateUser(@Param('id') id: string) {
     return this.usersService.deactivateUser(id);
+  }
+
+  @Get(':id/availability')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
+  async getAvailability(@Param('id') id: string, @Req() req: any) {
+    // Proctors can only view their own availability
+    if (req.user.role === 'PROCTOR' && req.user.id !== id) {
+      throw new ForbiddenException('You can only view your own availability');
+    }
+    return this.usersService.getAvailability(id);
+  }
+
+  @Post(':id/availability')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
+  async saveAvailability(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    // Proctors can only update their own availability
+    if (req.user.role === 'PROCTOR' && req.user.id !== id) {
+      throw new ForbiddenException('You can only update your own availability');
+    }
+    return this.usersService.saveAvailability(id, body);
   }
 }
