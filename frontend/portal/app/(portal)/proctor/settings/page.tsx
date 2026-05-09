@@ -43,9 +43,18 @@ export default function ProctorSettingsPage() {
     queryKey: ['availability', user?.id],
     queryFn: async () => {
       if (!user?.id) return null
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`
+      const token = localStorage.getItem('accessToken')
+      
+      console.log('[Availability] Loading from:', url)
+      console.log('[Availability] Token exists:', !!token)
+      
+      const res = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
       })
+      
+      console.log('[Availability] Loaded data:', res.data)
       return res.data
     },
     enabled: !!user?.id,
@@ -53,19 +62,27 @@ export default function ProctorSettingsPage() {
 
   // Load availability data into state
   useEffect(() => {
+    console.log('[Availability] useEffect triggered, availabilityData:', availabilityData)
+    
     if (availabilityData) {
       // Convert slots to Set<"Day-Time">
       const slotsSet = new Set<string>()
+      console.log('[Availability] Processing slots:', availabilityData.slots)
+      
       availabilityData.slots?.forEach((slot: any) => {
         const day = numberToDay(slot.dayOfWeek)
         // Parse time range and add all hours
         const startHour = parseInt(slot.startTime.split(':')[0])
         const endHour = parseInt(slot.endTime.split(':')[0])
+        console.log(`[Availability] Slot: ${day} ${startHour}:00 - ${endHour}:00`)
+        
         for (let hour = startHour; hour < endHour; hour++) {
           const timeStr = `${hour.toString().padStart(2, '0')}:00`
           slotsSet.add(`${day}-${timeStr}`)
         }
       })
+      
+      console.log('[Availability] Converted to grid slots:', Array.from(slotsSet))
       setAvailable(slotsSet)
       setTimezone(availabilityData.timezone || 'Asia/Dubai')
       setMaxPerDay(availabilityData.maxSessionsPerDay || 4)
@@ -81,6 +98,10 @@ export default function ProctorSettingsPage() {
   const saveAvailabilityMutation = useMutation({
     mutationFn: async () => {
       if (!user?.id) throw new Error('User not found')
+      
+      console.log('[Availability] Starting save...')
+      console.log('[Availability] User ID:', user.id)
+      console.log('[Availability] API URL:', process.env.NEXT_PUBLIC_API_URL)
       
       // Convert Set<"Day-Time"> to slots array
       const slotsMap = new Map<string, { start: number; end: number }>()
@@ -105,17 +126,34 @@ export default function ProctorSettingsPage() {
         endTime: `${end.toString().padStart(2, '0')}:00`,
       }))
       
-      await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`,
+      console.log('[Availability] Slots to save:', slots)
+      console.log('[Availability] Timezone:', timezone)
+      console.log('[Availability] Max per day:', maxPerDay)
+      
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`
+      const token = localStorage.getItem('accessToken')
+      
+      console.log('[Availability] POST URL:', url)
+      console.log('[Availability] Token exists:', !!token)
+      
+      const response = await axios.post(
+        url,
         { slots, timezone, maxSessionsPerDay: maxPerDay },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+        { headers: { Authorization: `Bearer ${token}` } }
       )
+      
+      console.log('[Availability] Save response:', response.data)
+      return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('[Availability] Save successful:', data)
       toast.success('Availability saved successfully')
       refetchAvailability()
     },
     onError: (e: any) => {
+      console.error('[Availability] Save failed:', e)
+      console.error('[Availability] Error response:', e.response?.data)
+      console.error('[Availability] Error status:', e.response?.status)
       toast.error(e.response?.data?.message || 'Failed to save availability')
     },
   })
