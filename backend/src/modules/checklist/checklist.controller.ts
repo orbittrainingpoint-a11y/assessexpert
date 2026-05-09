@@ -59,4 +59,13 @@ export class ChecklistController {
   ) {
     return this.checklistService.completeItem(sessionId, itemKey, body, req.user.id);
   }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get(':sessionId/all-verified')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  async checkAllVerified(@Param('sessionId') sessionId: string) {
+    const allComplete = await this.checklistService.areAllChecklistsComplete(sessionId);
+    return { allVerified: allComplete };
+  }
 }

@@ -92,6 +92,17 @@ export class ChecklistService {
     return !!checklist.completedAt;
   }
 
+  async getAllChecklistsForSession(sessionId: string) {
+    // For future multi-candidate support, return array
+    const checklist = await this.prisma.proctorChecklist.findUnique({ where: { sessionId } });
+    return checklist ? [checklist] : [];
+  }
+
+  async areAllChecklistsComplete(sessionId: string): Promise<boolean> {
+    // For now, single candidate - check if the one checklist is complete
+    return this.isChecklistComplete(sessionId);
+  }
+
   getChecklistTemplate() {
     return CHECKLIST_ITEMS;
   }

@@ -24,21 +24,28 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  // Track connected clients: socketId -> { sessionId, role }
-  private clients = new Map<string, { sessionId?: string; role?: string; userId?: string }>();
+  // Track connected clients: socketId -> { sessionId, role, userId, candidateId }
+  private clients = new Map<string, { sessionId?: string; role?: string; userId?: string; candidateId?: string }>();
+  
+  // Track active proctor-candidate audio connections: sessionId -> { proctorSocketId, activeCandidateSocketId }
+  private activeAudioConnections = new Map<string, { proctorSocketId: string; activeCandidateSocketId: string | null }>();
 
   handleConnection(client: Socket) {
     this.clients.set(client.id, {});
   }
 
   handleDisconnect(client: Socket) {
+    const clientData = this.clients.get(client.id);
+    if (clientData?.sessionId && clientData?.role === 'PROCTOR') {
+      this.activeAudioConnections.delete(clientData.sessionId);
+    }
     this.clients.delete(client.id);
   }
 
   // ── Client joins a session room ──────────────────────────────────────────
   @SubscribeMessage('join_session')
   handleJoinSession(
-    @MessageBody() data: { sessionId: string; role: string; userId?: string },
+    @MessageBody() data: { sessionId: string; role: string; userId?: string; candidateId?: string },
     @ConnectedSocket() client: Socket,
   ) {
     client.join(`session:${data.sessionId}`)
@@ -47,12 +54,23 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       sessionId: data.sessionId,
       role: data.role,
       userId: data.userId,
+      candidateId: data.candidateId,
     });
+
+    // Track proctor socket for audio routing
+    if (data.role === 'PROCTOR') {
+      this.activeAudioConnections.set(data.sessionId, {
+        proctorSocketId: client.id,
+        activeCandidateSocketId: null,
+      });
+    }
 
     // Notify proctor that candidate joined (if candidate)
     if (data.role === 'CANDIDATE') {
       this.server.to(`session:${data.sessionId}`).emit('candidate.joined', {
         sessionId: data.sessionId,
+        candidateId: data.candidateId,
+        socketId: client.id,
         timestamp: new Date().toISOString(),
       });
     }
@@ -183,6 +201,52 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       candidate: data.candidate,
     })
     return { forwarded: true }
+  }
+
+  // ── Proctor activates audio with specific candidate ────────────────────────────────
+  @SubscribeMessage('proctor.activate_candidate')
+  handleProctorActivateCandidate(
+    @MessageBody() data: { sessionId: string; candidateSocketId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const connection = this.activeAudioConnections.get(data.sessionId);
+    if (connection) {
+      // Notify previous candidate to mute audio
+      if (connection.activeCandidateSocketId) {
+        this.server.to(`peer:${connection.activeCandidateSocketId}`).emit('proctor.audio_inactive', {
+          sessionId: data.sessionId,
+        });
+      }
+      
+      // Update active candidate
+      connection.activeCandidateSocketId = data.candidateSocketId;
+      
+      // Notify new candidate to unmute audio
+      this.server.to(`peer:${data.candidateSocketId}`).emit('proctor.audio_active', {
+        sessionId: data.sessionId,
+        proctorSocketId: client.id,
+      });
+    }
+    
+    return { activated: true, candidateSocketId: data.candidateSocketId };
+  }
+
+  // ── Proctor deactivates audio with candidate ────────────────────────────────────
+  @SubscribeMessage('proctor.deactivate_candidate')
+  handleProctorDeactivateCandidate(
+    @MessageBody() data: { sessionId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const connection = this.activeAudioConnections.get(data.sessionId);
+    if (connection && connection.activeCandidateSocketId) {
+      // Notify candidate to mute audio
+      this.server.to(`peer:${connection.activeCandidateSocketId}`).emit('proctor.audio_inactive', {
+        sessionId: data.sessionId,
+      });
+      connection.activeCandidateSocketId = null;
+    }
+    
+    return { deactivated: true };
   }
 
   // ── Server-side emit helpers (called from services) ──────────────────────
