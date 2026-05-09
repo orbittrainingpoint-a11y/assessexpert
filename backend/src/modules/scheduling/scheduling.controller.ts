@@ -22,6 +22,12 @@ export class SchedulingController {
     );
   }
 
+  @Get('diagnostics')
+  @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN', 'PROCTOR', 'MASTER_PROCTOR')
+  async getDiagnostics() {
+    return this.schedulingService.getDiagnostics();
+  }
+
   @Post('schedule')
   @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
   async scheduleSession(@Body() body: any, @Req() req: any) {

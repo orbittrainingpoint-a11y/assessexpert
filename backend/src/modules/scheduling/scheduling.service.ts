@@ -1,43 +1,103 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class SchedulingService {
+  private readonly logger = new Logger(SchedulingService.name);
+  
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
   ) {}
 
   async getAvailableSlots(assessmentTypeId: string, dateFrom: string, dateTo: string) {
+    this.logger.log(`Getting available slots from ${dateFrom} to ${dateTo} for assessment ${assessmentTypeId}`);
+    
     // Get available proctors certified for this assessment type
     const proctors = await this.prisma.user.findMany({
       where: { role: 'PROCTOR', status: 'ACTIVE' },
+      select: { id: true, firstName: true, lastName: true, timezone: true },
     });
 
-    // Generate available slots (simplified - in production would check proctor availability table)
+    this.logger.log(`Found ${proctors.length} active proctors`);
+
+    if (proctors.length === 0) {
+      this.logger.warn('No active proctors found');
+      return [];
+    }
+
+    // Get proctor availability from database
+    const proctorIds = proctors.map(p => p.id);
+    const availabilitySlots = await this.prisma.proctorAvailability.findMany({
+      where: {
+        proctorId: { in: proctorIds },
+        isOverride: false,
+      },
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+    });
+
+    this.logger.log(`Found ${availabilitySlots.length} availability slots in database`);
+
+    if (availabilitySlots.length === 0) {
+      this.logger.warn('No availability slots found in database. Proctors need to set their availability.');
+      return [];
+    }
+
+    // Generate available slots based on proctor availability
     const slots = [];
     const start = new Date(dateFrom);
     const end = new Date(dateTo);
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== 0 && d.getDay() !== 6) { // Skip weekends
-        for (const hour of [9, 10, 11, 14, 15, 16]) {
-          const slotTime = new Date(d);
-          slotTime.setHours(hour, 0, 0, 0);
-          if (slotTime > new Date()) {
-            slots.push({
-              datetime: slotTime.toISOString(),
-              available: true,
-              proctorCount: proctors.length,
-            });
+      const dayOfWeek = (d.getDay() + 6) % 7; // Convert Sunday=0 to Monday=0 format
+      
+      // Find availability for this day
+      const dayAvailability = availabilitySlots.filter(slot => slot.dayOfWeek === dayOfWeek);
+      
+      if (dayAvailability.length > 0) {
+        // For each availability slot on this day
+        for (const avail of dayAvailability) {
+          const startHour = parseInt(avail.startTime.split(':')[0]);
+          const endHour = parseInt(avail.endTime.split(':')[0]);
+          
+          // Generate hourly slots
+          for (let hour = startHour; hour < endHour; hour++) {
+            const slotTime = new Date(d);
+            slotTime.setHours(hour, 0, 0, 0);
+            
+            // Only include future slots
+            if (slotTime > new Date()) {
+              // Count how many proctors are available at this time
+              const availableProctors = availabilitySlots.filter(s => {
+                if (s.dayOfWeek !== dayOfWeek) return false;
+                const sStart = parseInt(s.startTime.split(':')[0]);
+                const sEnd = parseInt(s.endTime.split(':')[0]);
+                return hour >= sStart && hour < sEnd;
+              });
+              
+              slots.push({
+                datetime: slotTime.toISOString(),
+                available: availableProctors.length > 0,
+                proctorCount: availableProctors.length,
+                dayOfWeek,
+                hour,
+              });
+            }
           }
         }
       }
     }
 
-    return slots.slice(0, 10); // Return first 10 available slots
+    // Remove duplicates and sort
+    const uniqueSlots = Array.from(
+      new Map(slots.map(s => [s.datetime, s])).values()
+    ).sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+
+    this.logger.log(`Generated ${uniqueSlots.length} available slots`);
+    
+    return uniqueSlots.slice(0, 50); // Return first 50 available slots
   }
 
   async scheduleSession(data: {
@@ -132,5 +192,59 @@ export class SchedulingService {
     }
 
     return session;
+  }
+
+  async getDiagnostics() {
+    this.logger.log('Running scheduling diagnostics');
+    
+    // Count active proctors
+    const proctorCount = await this.prisma.user.count({
+      where: { role: 'PROCTOR', status: 'ACTIVE' },
+    });
+
+    // Get all proctors with details
+    const proctors = await this.prisma.user.findMany({
+      where: { role: 'PROCTOR', status: 'ACTIVE' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        timezone: true,
+        maxSessionsPerDay: true,
+      },
+    });
+
+    // Count availability slots
+    const availabilityCount = await this.prisma.proctorAvailability.count();
+
+    // Get all availability slots
+    const availabilitySlots = await this.prisma.proctorAvailability.findMany({
+      orderBy: [{ proctorId: 'asc' }, { dayOfWeek: 'asc' }, { startTime: 'asc' }],
+    });
+
+    // Group by proctor
+    const slotsByProctor = availabilitySlots.reduce((acc, slot) => {
+      if (!acc[slot.proctorId]) acc[slot.proctorId] = [];
+      acc[slot.proctorId].push(slot);
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    const proctorsWithSlots = proctors.map(p => ({
+      ...p,
+      slotsCount: slotsByProctor[p.id]?.length || 0,
+      slots: slotsByProctor[p.id] || [],
+    }));
+
+    return {
+      summary: {
+        totalProctors: proctorCount,
+        proctorsWithAvailability: Object.keys(slotsByProctor).length,
+        proctorsWithoutAvailability: proctorCount - Object.keys(slotsByProctor).length,
+        totalAvailabilitySlots: availabilityCount,
+      },
+      proctors: proctorsWithSlots,
+      allSlots: availabilitySlots,
+    };
   }
 }
