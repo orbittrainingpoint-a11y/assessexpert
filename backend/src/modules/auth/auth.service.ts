@@ -144,18 +144,27 @@ export class AuthService {
     });
     if (!session) throw new UnauthorizedException('Invalid or expired link');
     if (session.tokenExpiresAt < new Date()) throw new UnauthorizedException('Link has expired');
-    // Allow joining if session is within 24 hours of scheduled time (not just 30 min)
-    if (session.tokenUsedAt && session.status !== 'WAITING_ROOM' && session.status !== 'CHECKLIST'
-        && !['MCQ_IN_PROGRESS', 'PRACTICAL_IN_PROGRESS', 'MCQ_COMPLETE'].includes(session.status)) {
-      throw new UnauthorizedException('This link has already been used');
+
+    // Block if session is fully done
+    const doneStatuses = ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'DISQUALIFIED', 'CANCELLED', 'NO_SHOW'];
+    if (doneStatuses.includes(session.status)) {
+      throw new UnauthorizedException('This assessment session has ended');
     }
+
+    // Mark first use
     if (!session.tokenUsedAt) {
       await this.prisma.examSession.update({
         where: { id: session.id },
         data: { tokenUsedAt: new Date(), tokenUsedFromIp: ip, status: 'WAITING_ROOM' },
       });
     }
-    return { ...session, status: session.tokenUsedAt ? session.status : 'WAITING_ROOM' };
+
+    // Return fresh session state
+    const updated = await this.prisma.examSession.findUnique({
+      where: { id: session.id },
+      include: { candidate: true, assessmentType: true },
+    });
+    return updated;
   }
 
   // OTP store — in-memory for dev, should use Redis in production

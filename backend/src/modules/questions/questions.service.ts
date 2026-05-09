@@ -124,6 +124,7 @@ export class QuestionsService {
           content: question.content,
           options: question.options,
           type: question.type,
+          correctAnswer: question.correctAnswer, // stored for historical report accuracy
         },
         candidateResponse: response,
         isCorrect,

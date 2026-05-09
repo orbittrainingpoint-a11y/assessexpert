@@ -11,6 +11,25 @@ export class ExamDeliveryService {
     private sessionsService: SessionsService,
   ) {}
 
+  async getPracticalTask(token: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      include: { practicalTask: true, assessmentType: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    if (!session.practicalTask) throw new NotFoundException('No practical task assigned yet');
+    return {
+      title: session.practicalTask.title,
+      description: session.practicalTask.description,
+      acceptedFileTypes: session.practicalTask.acceptedFileTypes,
+      estimatedMinutes: session.assessmentType.practicalTimeLimit,
+    };
+  }
+
+  async getSessionByToken(token: string) {
+    return this.prisma.examSession.findUnique({ where: { magicToken: token } });
+  }
+
   async getSessionState(token: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: token },
@@ -28,9 +47,12 @@ export class ExamDeliveryService {
 
     return {
       sessionId: session.id,
+      id: session.id,
       status: session.status,
       assessmentType: session.assessmentType.name,
+      assessmentTypeFull: session.assessmentType,
       candidateName: `${session.candidate.firstName} ${session.candidate.lastName}`,
+      scheduledAt: session.scheduledAt,
       mcqTimeRemaining,
       practicalTimeRemaining,
       answeredCount,

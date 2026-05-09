@@ -3,9 +3,10 @@ import { ExamDeliveryController } from './exam-delivery.controller';
 import { ExamDeliveryService } from './exam-delivery.service';
 import { QuestionsModule } from '../questions/questions.module';
 import { SessionsModule } from '../sessions/sessions.module';
+import { GatewayModule } from '../gateway/gateway.module';
 
 @Module({
-  imports: [QuestionsModule, SessionsModule],
+  imports: [QuestionsModule, SessionsModule, GatewayModule],
   controllers: [ExamDeliveryController],
   providers: [ExamDeliveryService],
   exports: [ExamDeliveryService],

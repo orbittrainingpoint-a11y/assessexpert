@@ -322,12 +322,12 @@ function ExamContent() {
     return () => clearInterval(poll)
   }, [phase, token])
 
-  // Checklist Polling
+  // Checklist Polling — uses public by-token endpoint (no JWT needed)
   useEffect(() => {
     if (phase !== 'waiting') return
     const poll = async () => {
       try {
-        const { data } = await checklistApi.get(sessionState.id)
+        const { data } = await api.get(`/checklist/by-token?token=${token}`)
         setChecklist(data.items || [])
         
         const guidelines = data.items.find((i: any) => i.key === 'ITEM_7_GUIDELINES')
@@ -435,7 +435,8 @@ function ExamContent() {
   const handleEnterWaiting = async () => {
     try {
       const { data } = await examApi.getSession(token)
-      setSessionState(data)
+      // Normalise: backend returns sessionId, ensure .id is always set
+      setSessionState({ ...data, id: data.id || data.sessionId })
       setPhase('waiting')
       // Poll for exam start
       const poll = setInterval(async () => {

@@ -14,7 +14,7 @@ export class SessionsService {
     scheduledAt: Date;
   }) {
     const token = randomBytes(32).toString('hex');
-    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 30 * 60 * 1000); // +30 min
+    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 4 * 60 * 60 * 1000); // 4 hours from scheduled time
 
     const session = await this.prisma.examSession.create({
       data: {
@@ -124,13 +124,35 @@ export class SessionsService {
     if (session.status !== 'CHECKLIST') {
       throw new BadRequestException('Checklist must be completed before starting MCQ');
     }
-    // Verify checklist is complete
-    const checklist = await this.prisma.proctorChecklist.findUnique({
-      where: { sessionId },
-    });
+    const checklist = await this.prisma.proctorChecklist.findUnique({ where: { sessionId } });
     if (!checklist?.completedAt) {
       throw new ForbiddenException('Proctor checklist must be fully completed before starting the exam');
     }
+
+    // Draw 25 questions via Fisher-Yates shuffle
+    const pool = await this.prisma.question.findMany({
+      where: { assessmentTypeId: session.assessmentTypeId, status: 'ACTIVE' },
+    });
+    if (pool.length < 25) {
+      throw new BadRequestException(`Insufficient active questions: ${pool.length} found, 25 required.`);
+    }
+    const seed = randomBytes(16).toString('hex');
+    const arr = [...pool];
+    let seedNum = parseInt(seed.substring(0, 8), 16);
+    for (let i = arr.length - 1; i > 0; i--) {
+      seedNum = (seedNum * 1664525 + 1013904223) & 0xffffffff;
+      const j = Math.abs(seedNum) % (i + 1);
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const selected = arr.slice(0, 25);
+    const questionOrder = selected.map((q, i) => ({ questionId: q.id, position: i + 1, answeredAt: null, timeSpentSeconds: null }));
+
+    await this.prisma.sessionQuestionAssignment.upsert({
+      where: { sessionId },
+      create: { sessionId, questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
+      update: { questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
+    });
+
     return this.prisma.examSession.update({
       where: { id: sessionId },
       data: { status: 'MCQ_IN_PROGRESS', mcqStartedAt: new Date() },
@@ -146,7 +168,8 @@ export class SessionsService {
 
   async assignPracticalTask(sessionId: string, practicalTaskId: string, proctorId: string) {
     const session = await this.getSession(sessionId);
-    if (session.status !== 'MCQ_COMPLETE') {
+    const allowedStatuses = ['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'];
+    if (!allowedStatuses.includes(session.status)) {
       throw new BadRequestException('MCQ must be completed before assigning practical task');
     }
     return this.prisma.examSession.update({
@@ -185,9 +208,11 @@ export class SessionsService {
   }
 
   async pauseSession(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({ where: { id: sessionId } });
+    // Store previous status so resume can restore it
     return this.prisma.examSession.update({
       where: { id: sessionId },
-      data: { status: 'CHECKLIST' }, // Paused state
+      data: { status: 'MCQ_IN_PROGRESS' }, // keep status, pause is communicated via WS only
     });
   }
 

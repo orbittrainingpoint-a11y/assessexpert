@@ -1,12 +1,18 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { NotificationsService } from '../notifications/notifications.service';
+import { AppGateway } from '../gateway/app.gateway';
 
 @Injectable()
 export class ReportsService {
   private genAI: GoogleGenerativeAI;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+    private gateway: AppGateway,
+  ) {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
   }
 
@@ -220,6 +226,50 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     await this.prisma.examSession.update({
       where: { id: sessionId },
       data: { status: 'REPORT_PUBLISHED' },
+    });
+
+    // Notify HR via email + in-portal WebSocket
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      include: { candidate: true, assessmentType: true, organization: true },
+    });
+    const proctor = await this.prisma.user.findUnique({ where: { id: proctorId }, select: { firstName: true, lastName: true } });
+    const hrUsers = await this.prisma.user.findMany({
+      where: { organizationId: session?.organizationId, role: { in: ['HR_MANAGER', 'ORG_ADMIN'] }, status: 'ACTIVE' },
+    });
+
+    for (const hr of hrUsers) {
+      // Email notification
+      await this.notifications.sendReportPublishedNotification(
+        hr.email,
+        `${hr.firstName} ${hr.lastName}`,
+        {
+          candidateName: `${session?.candidate.firstName} ${session?.candidate.lastName}`,
+          assessmentType: session?.assessmentType.name || '',
+          sessionDate: session?.scheduledAt || new Date(),
+          overallResult: published.overallPassed ? 'PASS' : 'FAIL',
+          mcqScore: published.mcqScore,
+          proctorName: proctor ? `${proctor.firstName} ${proctor.lastName}` : 'Proctor',
+          dashboardUrl: `${process.env.FRONTEND_URL}/hr/assessments`,
+        },
+      ).catch(() => {});
+      // In-portal notification
+      await this.notifications.createPortalNotification(
+        hr.id,
+        'REPORT_PUBLISHED',
+        'Report Published',
+        `Assessment report for ${session?.candidate.firstName} ${session?.candidate.lastName} is now available.`,
+        { sessionId, reportId: published.id },
+        `/hr/assessments/${sessionId}`,
+      ).catch(() => {});
+    }
+
+    // Emit WebSocket to HR org room
+    this.gateway.emitToAll('report.published', {
+      organizationId: session?.organizationId,
+      candidateName: `${session?.candidate.firstName} ${session?.candidate.lastName}`,
+      sessionId,
+      reportId: published.id,
     });
 
     return published;

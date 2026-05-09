@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ExamDeliveryService } from './exam-delivery.service';
+import { AppGateway } from '../gateway/app.gateway';
 import { ApiTags } from '@nestjs/swagger';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -8,7 +9,10 @@ import * as fs from 'fs';
 @ApiTags('exam')
 @Controller('exam')
 export class ExamDeliveryController {
-  constructor(private examDeliveryService: ExamDeliveryService) {}
+  constructor(
+    private examDeliveryService: ExamDeliveryService,
+    private gateway: AppGateway,
+  ) {}
 
   @Get('session')
   async getSessionState(@Query('token') token: string) {
@@ -33,6 +37,11 @@ export class ExamDeliveryController {
     return this.examDeliveryService.getTimer(token);
   }
 
+  @Get('practical/task')
+  async getPracticalTask(@Query('token') token: string) {
+    return this.examDeliveryService.getPracticalTask(token);
+  }
+
   @Post('practical/submit')
   @UseInterceptors(FileInterceptor('file'))
   async submitPractical(
@@ -50,6 +59,10 @@ export class ExamDeliveryController {
       fs.writeFileSync(filePath, file.buffer);
     }
 
-    return this.examDeliveryService.submitPractical(token, filePath, fileName);
+    const result = await this.examDeliveryService.submitPractical(token, filePath, fileName);
+    // Notify proctor that candidate submitted
+    const session = await this.examDeliveryService.getSessionByToken(token);
+    if (session) this.gateway.emitToSession(session.id, 'session.submitted', { sessionId: session.id, timestamp: new Date().toISOString() });
+    return result;
   }
 }
