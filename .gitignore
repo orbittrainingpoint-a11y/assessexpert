@@ -1,0 +1,71 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.log
+
+# Production
+build/
+dist/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Prisma
+prisma/migrations/
+
+# Storage (recordings, uploads, etc.)
+storage/
+uploads/
+recordings/
+reports/
+practical-files/
+question-assets/
+temp/
+
+# Database
+*.db
+*.sqlite
+
+# Secrets
+*.pem
+*.key
+*.cert
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
