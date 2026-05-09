@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class CandidatesService {
+  private readonly logger = new Logger(CandidatesService.name);
   constructor(private prisma: PrismaService) {}
 
   async getCandidates(organizationId: string, filters?: any) {
@@ -53,14 +54,58 @@ export class CandidatesService {
   }
 
   async createCandidate(data: any, organizationId: string) {
-    const existing = await this.prisma.candidateRecord.findUnique({
-      where: { email_organizationId: { email: data.email, organizationId } },
-    });
-    if (existing) throw new ConflictException('Candidate with this email already exists');
+    try {
+      this.logger.log(`Creating candidate with data: ${JSON.stringify({ ...data, organizationId })}`);
+      
+      // Validate required fields
+      if (!data.email) {
+        throw new BadRequestException('Email is required');
+      }
+      if (!data.firstName) {
+        throw new BadRequestException('First name is required');
+      }
+      if (!data.lastName) {
+        throw new BadRequestException('Last name is required');
+      }
+      if (!organizationId) {
+        throw new BadRequestException('Organization ID is required');
+      }
 
-    return this.prisma.candidateRecord.create({
-      data: { ...data, organizationId },
-    });
+      // Check for existing candidate
+      const existing = await this.prisma.candidateRecord.findUnique({
+        where: { email_organizationId: { email: data.email, organizationId } },
+      });
+      if (existing) {
+        this.logger.warn(`Duplicate candidate email: ${data.email}`);
+        throw new ConflictException('Candidate with this email already exists');
+      }
+
+      // Create candidate with validated data
+      const candidateData = {
+        organizationId,
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone || null,
+        jobPosition: data.jobPosition || '',
+        yearsExperience: data.yearsExperience || null,
+        department: data.department || null,
+        notes: data.notes || null,
+        batchId: data.batchId || null,
+        source: data.source || 'MANUAL',
+      };
+
+      this.logger.log(`Creating candidate with validated data: ${JSON.stringify(candidateData)}`);
+      const candidate = await this.prisma.candidateRecord.create({
+        data: candidateData,
+      });
+      
+      this.logger.log(`Candidate created successfully: ${candidate.id}`);
+      return candidate;
+    } catch (error) {
+      this.logger.error(`Error creating candidate: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async updateCandidate(id: string, data: any, organizationId: string) {
