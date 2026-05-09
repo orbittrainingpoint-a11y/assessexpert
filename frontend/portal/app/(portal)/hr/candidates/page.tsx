@@ -329,10 +329,7 @@ export default function CandidatesPage() {
     scheduleMutation.mutate({
       candidateId: scheduleCandidate.id,
       assessmentTypeId: schedAssessmentId,
-      slotId: selectedSlot.id,
-      scheduledAt: selectedSlot.startTime,
-      proctorId: selectedSlot.proctorId,
-      timePref: schedTimePref,
+      scheduledAt: selectedSlot.datetime,
     })
   }
 
@@ -554,12 +551,12 @@ export default function CandidatesPage() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
-                      {slots.map((slot: any) => (
-                        <button key={slot.id} type="button" onClick={() => setSelectedSlot(slot)}
-                          style={{ padding: '10px 14px', borderRadius: '8px', border: `1px solid ${selectedSlot?.id === slot.id ? 'var(--cyan)' : 'var(--border)'}`, background: selectedSlot?.id === slot.id ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>{new Date(slot.startTime).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — {new Date(slot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Proctor: {slot.proctorName || 'TBD'}</span>
-                          {selectedSlot?.id === slot.id && <ChevronRight size={14} color="var(--cyan)" />}
+                      {slots.map((slot: any, index: number) => (
+                        <button key={slot.datetime || slot.id || index} type="button" onClick={() => setSelectedSlot(slot)}
+                          style={{ padding: '10px 14px', borderRadius: '8px', border: `1px solid ${selectedSlot?.datetime === slot.datetime ? 'var(--cyan)' : 'var(--border)'}`, background: selectedSlot?.datetime === slot.datetime ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{new Date(slot.datetime).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — {new Date(slot.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{slot.proctorCount || 0} proctor{slot.proctorCount !== 1 ? 's' : ''}</span>
+                          {selectedSlot?.datetime === slot.datetime && <ChevronRight size={14} color="var(--cyan)" />}
                         </button>
                       ))}
                     </div>
