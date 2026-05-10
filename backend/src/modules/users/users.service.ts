@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -170,5 +171,103 @@ export class UsersService {
       this.logger.error(`Error saving availability for proctor ${proctorId}:`, error);
       throw error;
     }
+  }
+
+  async inviteUser(data: { email: string; role: string; organizationId?: string; firstName?: string; lastName?: string }, invitedBy: string) {
+    this.logger.log(`Inviting user: ${data.email} with role: ${data.role}`);
+
+    // Check if user already exists
+    const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) throw new ConflictException('User with this email already exists');
+
+    // Check for pending invitation
+    const pendingInvite = await this.prisma.userInvitation.findFirst({
+      where: { email: data.email, organizationId: data.organizationId, acceptedAt: null },
+    });
+    if (pendingInvite) throw new ConflictException('Invitation already sent to this email');
+
+    // Generate invitation token
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Create invitation
+    const invitation = await this.prisma.userInvitation.create({
+      data: {
+        email: data.email,
+        role: data.role as any,
+        organizationId: data.organizationId,
+        invitedBy,
+        token,
+        expiresAt,
+      },
+    });
+
+    // TODO: Send email with invitation link
+    const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accept-invitation?token=${token}`;
+    this.logger.log(`Invitation link: ${inviteLink}`);
+
+    return { success: true, inviteLink, expiresAt };
+  }
+
+  async acceptInvitation(token: string, data: { password: string; firstName: string; lastName: string; phone?: string }) {
+    this.logger.log(`Accepting invitation with token: ${token}`);
+
+    // Find invitation
+    const invitation = await this.prisma.userInvitation.findUnique({ where: { token } });
+    if (!invitation) throw new NotFoundException('Invalid invitation token');
+    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
+    if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation expired');
+
+    // Check if user already exists
+    const existing = await this.prisma.user.findUnique({ where: { email: invitation.email } });
+    if (existing) throw new ConflictException('User already exists');
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(data.password, 12);
+
+    // Create user
+    const user = await this.prisma.user.create({
+      data: {
+        email: invitation.email,
+        passwordHash,
+        role: invitation.role,
+        organizationId: invitation.organizationId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        organizationId: true,
+      },
+    });
+
+    // Mark invitation as accepted
+    await this.prisma.userInvitation.update({
+      where: { id: invitation.id },
+      data: { acceptedAt: new Date() },
+    });
+
+    this.logger.log(`User created successfully: ${user.id}`);
+    return user;
+  }
+
+  async getInvitation(token: string) {
+    const invitation = await this.prisma.userInvitation.findUnique({ where: { token } });
+    if (!invitation) throw new NotFoundException('Invalid invitation token');
+    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
+    if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation expired');
+
+    return {
+      email: invitation.email,
+      role: invitation.role,
+      organizationId: invitation.organizationId,
+      expiresAt: invitation.expiresAt,
+    };
   }
 }

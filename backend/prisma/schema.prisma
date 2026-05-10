@@ -622,6 +622,20 @@ model Interview {
   updatedAt     DateTime @updatedAt
 }
 
+model UserInvitation {
+  id             String   @id @default(cuid())
+  email          String
+  role           UserRole
+  organizationId String?
+  invitedBy      String
+  token          String   @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@unique([email, organizationId])
+}
+
 model PlatformSettings {
   id                    String   @id @default(cuid())
   key                   String   @unique

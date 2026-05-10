@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CandidatesService } from './candidates.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -29,7 +29,17 @@ export class CandidatesController {
   @Post()
   @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
   async createCandidate(@Body() body: any, @Req() req: any) {
-    return this.candidatesService.createCandidate(body, req.user.organizationId);
+    // For SUPER_ADMIN, organizationId must be provided in body
+    // For others, use their organizationId
+    const organizationId = req.user.role === 'SUPER_ADMIN' 
+      ? body.organizationId 
+      : req.user.organizationId;
+    
+    if (!organizationId) {
+      throw new BadRequestException('Organization ID is required');
+    }
+    
+    return this.candidatesService.createCandidate(body, organizationId);
   }
 
   @Put(':id')

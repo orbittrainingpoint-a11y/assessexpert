@@ -1,12 +1,16 @@
-import { Controller, Post, Get, Body, Req, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, UseGuards, HttpCode, Param, Inject } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private usersService: UsersService,
+  ) {}
 
   @Post('login')
   @HttpCode(200)
@@ -79,5 +83,17 @@ export class AuthController {
     // Token invalidation is handled client-side (clear localStorage)
     // No guard needed — logout must work even with expired tokens
     return { success: true };
+  }
+
+  @Get('invitation/:token')
+  @HttpCode(200)
+  async getInvitation(@Param('token') token: string) {
+    return this.usersService.getInvitation(token);
+  }
+
+  @Post('invitation/accept')
+  @HttpCode(200)
+  async acceptInvitation(@Body() body: { token: string; password: string; firstName: string; lastName: string; phone?: string }) {
+    return this.usersService.acceptInvitation(body.token, body);
   }
 }

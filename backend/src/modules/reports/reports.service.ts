@@ -276,15 +276,24 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
   }
 
   async getReportsForOrg(organizationId: string, filters?: any) {
+    if (!organizationId) {
+      return { reports: [], total: 0 };
+    }
     const where: any = { organizationId, status: 'PUBLISHED' };
     if (filters?.from) where.publishedAt = { gte: new Date(filters.from) };
-    return this.prisma.report.findMany({
-      where,
-      include: {
-        session: { include: { candidate: true, assessmentType: true } },
-      },
-      orderBy: { publishedAt: 'desc' },
-    });
+    const [reports, total] = await Promise.all([
+      this.prisma.report.findMany({
+        where,
+        include: {
+          session: { include: { candidate: true, assessmentType: true } },
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: parseInt(filters?.limit) || 200,
+        skip: parseInt(filters?.offset) || 0,
+      }),
+      this.prisma.report.count({ where }),
+    ]);
+    return { reports, total };
   }
 
   async getReportsForProctor(proctorId: string) {

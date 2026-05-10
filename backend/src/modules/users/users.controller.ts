@@ -36,6 +36,12 @@ export class UsersController {
     return this.usersService.createUser(body);
   }
 
+  @Post('invite')
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN')
+  async inviteUser(@Body() body: any, @Req() req: any) {
+    return this.usersService.inviteUser(body, req.user.id);
+  }
+
   @Put(':id')
   @Roles('SUPER_ADMIN')
   async updateUser(@Param('id') id: string, @Body() body: any) {

@@ -20,6 +20,10 @@ export class ReportsController {
     if (['PROCTOR'].includes(req.user.role)) {
       return this.reportsService.getReportsForProctor(req.user.id);
     }
+    // HR_MANAGER, ORG_ADMIN, HIRING_MANAGER
+    if (!req.user.organizationId) {
+      return { reports: [], total: 0 }; // Return empty if no org
+    }
     return this.reportsService.getReportsForOrg(req.user.organizationId, filters);
   }
 
