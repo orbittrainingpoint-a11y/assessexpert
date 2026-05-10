@@ -20,13 +20,16 @@ async function main() {
     create: {
       id: 'org-assessexpert',
       name: 'AssessExpert',
-      contactEmail: 'admin@assessexpert.ae',
-      contactPhone: '+971-4-1234567',
+      slug: 'assessexpert',
+      country: 'UAE',
+      city: 'Dubai',
+      industry: 'Technology',
       address: 'Dubai, UAE',
-      subscriptionTier: 'ENTERPRISE',
-      subscriptionStatus: 'ACTIVE',
+      primaryContactEmail: 'admin@assessexpert.ae',
+      primaryContactPhone: '+971-4-1234567',
+      status: 'ACTIVE',
       maxConcurrentSessions: 100,
-      storageQuotaGB: 1000,
+      accountTier: 'ENTERPRISE',
     },
   });
 
@@ -36,13 +39,16 @@ async function main() {
     create: {
       id: 'org-democompany',
       name: 'Demo Company',
-      contactEmail: 'hr@democompany.ae',
-      contactPhone: '+971-4-7654321',
+      slug: 'democompany',
+      country: 'UAE',
+      city: 'Abu Dhabi',
+      industry: 'Business Services',
       address: 'Abu Dhabi, UAE',
-      subscriptionTier: 'PROFESSIONAL',
-      subscriptionStatus: 'ACTIVE',
+      primaryContactEmail: 'hr@democompany.ae',
+      primaryContactPhone: '+971-4-7654321',
+      status: 'ACTIVE',
       maxConcurrentSessions: 20,
-      storageQuotaGB: 100,
+      accountTier: 'STANDARD',
     },
   });
 
@@ -146,12 +152,18 @@ async function main() {
     create: {
       id: 'assess-fullstack',
       name: 'Full Stack Developer',
+      shortCode: 'FULLSTACK',
+      category: 'Software Development',
+      industry: 'Technology',
+      jobRole: 'Full Stack Developer',
       description: 'Comprehensive assessment for Full Stack Developer position covering frontend, backend, and database skills.',
-      mcqCount: 25,
-      mcqDurationMinutes: 45,
-      practicalDurationMinutes: 90,
-      passingScorePercentage: 60,
+      mcqQuestionCount: 25,
+      mcqTimeLimit: 45,
+      practicalTimeLimit: 90,
+      mcqPassThreshold: 60,
+      practicalPassThreshold: 60,
       status: 'ACTIVE',
+      createdBy: 'system',
     },
   });
 
@@ -161,12 +173,18 @@ async function main() {
     create: {
       id: 'assess-frontend',
       name: 'Frontend Developer',
+      shortCode: 'FRONTEND',
+      category: 'Software Development',
+      industry: 'Technology',
+      jobRole: 'Frontend Developer',
       description: 'Assessment for Frontend Developer position focusing on React, JavaScript, HTML, and CSS.',
-      mcqCount: 25,
-      mcqDurationMinutes: 40,
-      practicalDurationMinutes: 60,
-      passingScorePercentage: 60,
+      mcqQuestionCount: 25,
+      mcqTimeLimit: 40,
+      practicalTimeLimit: 60,
+      mcqPassThreshold: 60,
+      practicalPassThreshold: 60,
       status: 'ACTIVE',
+      createdBy: 'system',
     },
   });
 
@@ -176,12 +194,18 @@ async function main() {
     create: {
       id: 'assess-backend',
       name: 'Backend Developer',
+      shortCode: 'BACKEND',
+      category: 'Software Development',
+      industry: 'Technology',
+      jobRole: 'Backend Developer',
       description: 'Assessment for Backend Developer position covering Node.js, databases, and API design.',
-      mcqCount: 25,
-      mcqDurationMinutes: 40,
-      practicalDurationMinutes: 90,
-      passingScorePercentage: 60,
+      mcqQuestionCount: 25,
+      mcqTimeLimit: 40,
+      practicalTimeLimit: 90,
+      mcqPassThreshold: 60,
+      practicalPassThreshold: 60,
       status: 'ACTIVE',
+      createdBy: 'system',
     },
   });
 
@@ -194,6 +218,7 @@ async function main() {
     {
       id: 'q1',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'MCQ_SINGLE',
       content: { text: 'What is the purpose of React hooks?' },
       options: [
         { key: 'A', text: 'To add state and lifecycle features to functional components' },
@@ -201,12 +226,16 @@ async function main() {
         { key: 'C', text: 'To create class components' },
         { key: 'D', text: 'To handle routing' },
       ],
-      correctAnswer: 'A',
+      correctAnswer: ['A'],
       difficulty: 'MEDIUM',
+      domain: 'Frontend',
+      tags: ['React', 'Hooks'],
+      createdBy: 'system',
     },
     {
       id: 'q2',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'MCQ_SINGLE',
       content: { text: 'Which HTTP method is used to update a resource?' },
       options: [
         { key: 'A', text: 'GET' },
@@ -214,12 +243,16 @@ async function main() {
         { key: 'C', text: 'PUT' },
         { key: 'D', text: 'DELETE' },
       ],
-      correctAnswer: 'C',
+      correctAnswer: ['C'],
       difficulty: 'EASY',
+      domain: 'Backend',
+      tags: ['HTTP', 'REST'],
+      createdBy: 'system',
     },
     {
       id: 'q3',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'MCQ_SINGLE',
       content: { text: 'What does SQL stand for?' },
       options: [
         { key: 'A', text: 'Structured Query Language' },
@@ -227,12 +260,16 @@ async function main() {
         { key: 'C', text: 'Standard Query Language' },
         { key: 'D', text: 'System Query Language' },
       ],
-      correctAnswer: 'A',
+      correctAnswer: ['A'],
       difficulty: 'EASY',
+      domain: 'Database',
+      tags: ['SQL', 'Database'],
+      createdBy: 'system',
     },
     {
       id: 'q4',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'MCQ_SINGLE',
       content: { text: 'What is the purpose of middleware in Express.js?' },
       options: [
         { key: 'A', text: 'To handle database connections' },
@@ -240,12 +277,16 @@ async function main() {
         { key: 'C', text: 'To render HTML templates' },
         { key: 'D', text: 'To manage sessions' },
       ],
-      correctAnswer: 'B',
+      correctAnswer: ['B'],
       difficulty: 'MEDIUM',
+      domain: 'Backend',
+      tags: ['Express', 'Node.js'],
+      createdBy: 'system',
     },
     {
       id: 'q5',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'MCQ_SINGLE',
       content: { text: 'Which of the following is NOT a JavaScript data type?' },
       options: [
         { key: 'A', text: 'String' },
@@ -253,8 +294,11 @@ async function main() {
         { key: 'C', text: 'Character' },
         { key: 'D', text: 'Number' },
       ],
-      correctAnswer: 'C',
+      correctAnswer: ['C'],
       difficulty: 'EASY',
+      domain: 'Frontend',
+      tags: ['JavaScript', 'Fundamentals'],
+      createdBy: 'system',
     },
   ];
 
@@ -277,6 +321,7 @@ async function main() {
       create: {
         id: `q${i}`,
         assessmentTypeId: fullStackAssessment.id,
+        type: 'MCQ_SINGLE',
         content: { text: `Sample Question ${i} for Full Stack Developer` },
         options: [
           { key: 'A', text: 'Option A' },
@@ -284,9 +329,12 @@ async function main() {
           { key: 'C', text: 'Option C' },
           { key: 'D', text: 'Option D' },
         ],
-        correctAnswer: 'A',
+        correctAnswer: ['A'],
         difficulty: i % 3 === 0 ? 'HARD' : i % 2 === 0 ? 'MEDIUM' : 'EASY',
+        domain: 'General',
+        tags: ['Sample'],
         status: 'ACTIVE',
+        createdBy: 'system',
       },
     });
   }
@@ -304,9 +352,11 @@ async function main() {
       title: 'Build a REST API',
       description: 'Create a RESTful API with CRUD operations for a Todo application using Node.js and Express.',
       assessmentTypeId: fullStackAssessment.id,
+      type: 'CODING',
+      rubricData: { criteria: ['Functionality', 'Code Quality', 'Best Practices'] },
       acceptedFileTypes: ['.zip', '.js', '.ts'],
-      maxFileSizeMB: 10,
       status: 'ACTIVE',
+      createdBy: 'system',
     },
   });
 
@@ -318,9 +368,11 @@ async function main() {
       title: 'React Component Development',
       description: 'Build a responsive dashboard component with charts and data tables using React.',
       assessmentTypeId: frontendAssessment.id,
+      type: 'CODING',
+      rubricData: { criteria: ['UI/UX', 'Responsiveness', 'Code Quality'] },
       acceptedFileTypes: ['.zip', '.jsx', '.tsx'],
-      maxFileSizeMB: 10,
       status: 'ACTIVE',
+      createdBy: 'system',
     },
   });
 
@@ -336,6 +388,7 @@ async function main() {
       lastName: 'Hassan',
       email: 'ahmed.hassan@example.com',
       phone: '+971-50-1234567',
+      jobPosition: 'Full Stack Developer',
     },
     {
       id: 'cand2',
@@ -343,6 +396,7 @@ async function main() {
       lastName: 'Ali',
       email: 'fatima.ali@example.com',
       phone: '+971-50-2345678',
+      jobPosition: 'Frontend Developer',
     },
     {
       id: 'cand3',
@@ -350,6 +404,7 @@ async function main() {
       lastName: 'Khan',
       email: 'mohammed.khan@example.com',
       phone: '+971-50-3456789',
+      jobPosition: 'Backend Developer',
     },
     {
       id: 'cand4',
@@ -357,6 +412,7 @@ async function main() {
       lastName: 'Ahmed',
       email: 'sara.ahmed@example.com',
       phone: '+971-50-4567890',
+      jobPosition: 'Full Stack Developer',
     },
     {
       id: 'cand5',
@@ -364,6 +420,7 @@ async function main() {
       lastName: 'Ibrahim',
       email: 'omar.ibrahim@example.com',
       phone: '+971-50-5678901',
+      jobPosition: 'Backend Developer',
     },
   ];
 
