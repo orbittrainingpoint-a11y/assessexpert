@@ -307,8 +307,19 @@ async function main() {
       where: { id: question.id },
       update: {},
       create: {
-        ...question,
+        id: question.id,
+        type: question.type,
+        content: question.content,
+        options: question.options,
+        correctAnswer: question.correctAnswer,
+        difficulty: question.difficulty,
+        domain: question.domain,
+        tags: question.tags,
         status: 'ACTIVE',
+        createdBy: question.createdBy,
+        assessmentType: {
+          connect: { id: question.assessmentTypeId },
+        },
       },
     });
   }
@@ -320,7 +331,6 @@ async function main() {
       update: {},
       create: {
         id: `q${i}`,
-        assessmentTypeId: fullStackAssessment.id,
         type: 'MCQ_SINGLE',
         content: { text: `Sample Question ${i} for Full Stack Developer` },
         options: [
@@ -335,6 +345,9 @@ async function main() {
         tags: ['Sample'],
         status: 'ACTIVE',
         createdBy: 'system',
+        assessmentType: {
+          connect: { id: fullStackAssessment.id },
+        },
       },
     });
   }
@@ -351,12 +364,14 @@ async function main() {
       id: 'task1',
       title: 'Build a REST API',
       description: 'Create a RESTful API with CRUD operations for a Todo application using Node.js and Express.',
-      assessmentTypeId: fullStackAssessment.id,
       type: 'CODING',
       rubricData: { criteria: ['Functionality', 'Code Quality', 'Best Practices'] },
       acceptedFileTypes: ['.zip', '.js', '.ts'],
       status: 'ACTIVE',
       createdBy: 'system',
+      assessmentType: {
+        connect: { id: fullStackAssessment.id },
+      },
     },
   });
 
@@ -367,12 +382,14 @@ async function main() {
       id: 'task2',
       title: 'React Component Development',
       description: 'Build a responsive dashboard component with charts and data tables using React.',
-      assessmentTypeId: frontendAssessment.id,
       type: 'CODING',
       rubricData: { criteria: ['UI/UX', 'Responsiveness', 'Code Quality'] },
       acceptedFileTypes: ['.zip', '.jsx', '.tsx'],
       status: 'ACTIVE',
       createdBy: 'system',
+      assessmentType: {
+        connect: { id: frontendAssessment.id },
+      },
     },
   });
 
@@ -429,8 +446,15 @@ async function main() {
       where: { id: candidate.id },
       update: {},
       create: {
-        ...candidate,
-        organizationId: demoCompanyOrg.id,
+        id: candidate.id,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        email: candidate.email,
+        phone: candidate.phone,
+        jobPosition: candidate.jobPosition,
+        organization: {
+          connect: { id: demoCompanyOrg.id },
+        },
       },
     });
   }
