@@ -744,134 +744,16 @@ function ExamContent() {
   )
 
   if (phase === 'waiting') return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', overflow: 'hidden' }}>
-      {!isFullscreen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-          <Monitor size={64} style={{ color: 'var(--cyan)', marginBottom: '20px' }} />
-          <h2 style={{ color: '#fff', marginBottom: '12px' }}>Full Screen Required</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>This assessment must run in full-screen mode to continue.</p>
-          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen â†’</button>
-        </div>
-      )}
-
-      <video
-        ref={el => { bgVideoRef.current = el; assignStream(el) }}
-        autoPlay muted playsInline
-        style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }}
-      />
-      
-      {/* Right Sidebar Checklist */}
-      <div style={{ position: 'fixed', right: '20px', top: '20px', bottom: '20px', width: '320px', background: 'rgba(13,21,38,0.9)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', zIndex: 10, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <Shield size={20} style={{ color: 'var(--cyan)' }} />
-          <h3 style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: '700' }}>assessexpert</h3>
-        </div>
-        
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <p style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>VERIFICATION IN PROGRESS</p>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.6', marginBottom: '24px' }}>
-            Your proctor will guide you through the verification process. Please remain seated.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {checklist.length > 0 ? checklist.map((item: any, idx: number) => (
-              <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: item.status === 'COMPLETED' ? 1 : item.status === 'IN_PROGRESS' ? 1 : 0.4 }}>
-                <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: `2px solid ${item.status === 'COMPLETED' ? 'var(--emerald)' : 'var(--cyan)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: item.status === 'COMPLETED' ? 'var(--emerald)' : 'var(--cyan)' }}>
-                  {item.status === 'COMPLETED' ? 'âœ“' : idx + 1}
-                </div>
-                <span style={{ fontSize: '13px', color: item.status === 'IN_PROGRESS' ? 'var(--cyan)' : 'var(--text-secondary)' }}>
-                  {item.title || item.key.replace(/ITEM_\d+_/, '').replace(/_/g, ' ')}
-                </span>
-              </div>
-            )) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Initializing checklist...</div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(225,29,72,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--rose)', boxShadow: '0 0 10px var(--rose)' }} />
-          <span style={{ fontSize: '12px', color: 'var(--rose)', fontWeight: '600' }}>CAMERA ACTIVE</span>
-        </div>
-      </div>
-
-      {/* Candidate self-preview — so candidate can see their own camera is working */}
-      <div style={{ position: 'fixed', left: '20px', bottom: '20px', width: '200px', zIndex: 10 }}>
-        <div style={{ position: 'relative', aspectRatio: '16/9', background: '#000', borderRadius: '10px', border: '2px solid var(--emerald)', overflow: 'hidden' }}>
-          <video
-            ref={el => { videoRef.current = el; assignStream(el) }}
-            autoPlay muted playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-          <div style={{ position: 'absolute', bottom: '4px', left: '6px', background: 'rgba(0,0,0,0.7)', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', color: 'var(--emerald)', fontWeight: '600' }}>
-            ● YOUR CAMERA
-          </div>
-        </div>
-        <p style={{ margin: '4px 0 0', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center' }}>Proctor can see you</p>
-      </div>
-
-      {/* Consent Modal */}
-      {showConsent && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-card" style={{ maxWidth: '440px', padding: '32px', textAlign: 'center' }}>
-            <Shield size={48} style={{ color: 'var(--cyan)', margin: '0 auto 20px' }} />
-            <h2 style={{ color: '#fff', marginBottom: '12px' }}>Session Recording Consent</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', marginBottom: '24px' }}>
-              This session, including your camera feed and all screen activity, will be recorded and stored securely for 7 days for assessment verification and quality purposes.
-            </p>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setPhase('terminated')}>I Do Not Agree</button>
-              <button className="btn-primary" style={{ flex: 1 }} onClick={() => setShowConsent(false)}>âœ“ I Agree</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Guidelines Modal */}
-      {guidelinesOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-card" style={{ maxWidth: '600px', padding: '32px' }}>
-            <h2 style={{ color: 'var(--cyan)', marginBottom: '20px', textAlign: 'center' }}>EXAM GUIDELINES</h2>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.8', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <p>â€¢ Your camera must remain active at all times.</p>
-              <p>â€¢ You may not use any external references, notes, or assistance.</p>
-              <p>â€¢ Do not minimize, switch, or close this browser window.</p>
-              <p>â€¢ Do not copy-paste content into or out of the exam.</p>
-              <p>â€¢ Questions are delivered one at a time. No back navigation.</p>
-              <p>â€¢ If you have an issue, raise your hand on camera.</p>
-            </div>
-            <p style={{ marginTop: '24px', textAlign: 'center', color: 'var(--text-primary)', fontWeight: '600' }}>
-              Please listen carefully as the proctor reads these to you.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Screen Share Request Modal */}
-      {screenShareRequested && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-card" style={{ maxWidth: '440px', padding: '32px', textAlign: 'center' }}>
-            <Monitor size={48} style={{ color: 'var(--cyan)', margin: '0 auto 20px' }} />
-            <h2 style={{ color: '#fff', marginBottom: '12px' }}>Screen Sharing Required</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', marginBottom: '24px' }}>
-              This assessment requires you to share your full screen with the proctor for the duration of the session.
-            </p>
-            <button className="btn-primary" style={{ width: '100%' }} onClick={requestScreenShare}>Share Screen â€” Full Screen Mode</button>
-          </div>
-        </div>
-      )}
-
-      {/* Offline Overlay */}
-      {!isOnline && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-          <RefreshCw className="animate-spin" size={48} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
-          <h2 style={{ color: '#fff', marginBottom: '8px' }}>Connection Lost</h2>
-          <p style={{ color: 'var(--text-secondary)' }}>Your internet connection has been interrupted. Reconnecting...</p>
-        </div>
-      )}
-    </div>
+    <CandidateVerificationLayout
+      sessionId={sessionState?.id || ''}
+      candidateId={sessionState?.candidate?.id || ''}
+      examTitle={sessionState?.assessmentType?.name || 'Assessment'}
+      proctorStream={proctorStream as MediaStream | null}
+      candidateStream={cameraStreamRef.current}
+      checklist={checklist}
+      proctorActive={proctorActive}
+    />
   )
-
   if (phase === 'mcq' && currentQuestion) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* AI Warning Banner */}

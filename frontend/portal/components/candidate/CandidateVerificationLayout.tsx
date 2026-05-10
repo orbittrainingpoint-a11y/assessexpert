@@ -1,364 +1,163 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
-import { Video, VideoOff, CheckCircle, Circle } from 'lucide-react'
+import { useRef, useEffect } from 'react'
+import { VideoOff, Volume2 } from 'lucide-react'
 
 interface ChecklistItem {
-  id: string
-  label: string
-  completed: boolean
+  key: string
+  title?: string
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'
 }
 
-interface CandidateVerificationLayoutProps {
+interface Props {
   sessionId: string
   candidateId: string
   examTitle: string
   proctorStream: MediaStream | null
   candidateStream: MediaStream | null
-  socket: any
+  checklist: ChecklistItem[]
   proctorActive: boolean
 }
 
-export default function CandidateVerificationLayout({
-  sessionId,
-  candidateId,
-  examTitle,
-  proctorStream,
-  candidateStream,
-  socket,
-  proctorActive,
-}: CandidateVerificationLayoutProps) {
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([
-    { id: '1', label: 'Identity Verification', completed: false },
-    { id: '2', label: 'Camera Check', completed: false },
-    { id: '3', label: 'Microphone Check', completed: false },
-    { id: '4', label: 'Environment Scan', completed: false },
-    { id: '5', label: 'ID Document Verification', completed: false },
-  ])
-  const [verificationComplete, setVerificationComplete] = useState(false)
-
-  const proctorVideoRef = useRef<HTMLVideoElement>(null)
-  const candidateVideoRef = useRef<HTMLVideoElement>(null)
-
+function VideoPanel({ stream, label, muted, active, badge }: { stream: MediaStream | null; label: string; muted: boolean; active: boolean; badge?: React.ReactNode }) {
+  const ref = useRef<HTMLVideoElement>(null)
   useEffect(() => {
-    if (proctorVideoRef.current && proctorStream) {
-      proctorVideoRef.current.srcObject = proctorStream
-      proctorVideoRef.current.play().catch(() => {})
-    }
-  }, [proctorStream])
-
-  useEffect(() => {
-    if (candidateVideoRef.current && candidateStream) {
-      candidateVideoRef.current.srcObject = candidateStream
-      candidateVideoRef.current.play().catch(() => {})
-    }
-  }, [candidateStream])
-
-  useEffect(() => {
-    if (!socket) return
-
-    const handleChecklistUpdate = ({ candidateId: cId, itemId, completed }: any) => {
-      if (cId === candidateId) {
-        setChecklist(prev => prev.map(item => 
-          item.id === itemId ? { ...item, completed } : item
-        ))
-      }
-    }
-
-    const handleVerificationComplete = ({ candidateId: cId }: any) => {
-      if (cId === candidateId) {
-        setVerificationComplete(true)
-      }
-    }
-
-    socket.on('checklist.itemUpdated', handleChecklistUpdate)
-    socket.on('checklist.candidateComplete', handleVerificationComplete)
-
-    return () => {
-      socket.off('checklist.itemUpdated', handleChecklistUpdate)
-      socket.off('checklist.candidateComplete', handleVerificationComplete)
-    }
-  }, [socket, candidateId])
+    if (!ref.current) return
+    ref.current.srcObject = stream
+    if (stream) ref.current.play().catch(() => {})
+  }, [stream])
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      background: 'var(--bg-primary)', 
-      padding: '20px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '20px'
-    }}>
+    <div className="glass-card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+        {badge}
+      </div>
+      <div style={{ position: 'relative', flex: 1, minHeight: '280px', background: '#000', borderRadius: '8px', overflow: 'hidden', border: `2px solid ${active ? 'var(--cyan)' : 'var(--border)'}` }}>
+        {stream ? (
+          <video ref={ref} autoPlay muted={muted} playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+            <VideoOff size={40} color="var(--text-muted)" />
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', maxWidth: '220px', lineHeight: '1.5' }}>
+              {label === 'Proctor Camera'
+                ? 'Waiting for proctor to connect...'
+                : 'Camera not available'}
+            </p>
+          </div>
+        )}
+        {active && stream && (
+          <div style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.7)', padding: '3px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--emerald)', boxShadow: '0 0 6px var(--emerald)' }} />
+            <span style={{ fontSize: '10px', color: '#fff', fontWeight: '600' }}>LIVE</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function CandidateVerificationLayout({ examTitle, proctorStream, candidateStream, checklist, proctorActive }: Props) {
+  const completed = checklist.filter(i => i.status === 'COMPLETED').length
+  const total = checklist.length || 7
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div className="glass-card" style={{ padding: '16px' }}>
-        <h1 style={{ 
-          fontSize: '20px', 
-          fontWeight: '700', 
-          color: 'var(--text-primary)', 
-          margin: 0 
-        }}>
-          Verification in Progress
-        </h1>
-        <p style={{ 
-          color: 'var(--text-muted)', 
-          fontSize: '14px', 
-          marginTop: '4px',
-          margin: 0
-        }}>
-          {examTitle} • Please wait while the proctor verifies your identity
-        </p>
+      <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div>
+          <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Candidate Screen</span>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 8px' }}>|</span>
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{examTitle}</span>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 8px' }}>|</span>
+          <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: '600' }}>Phase: Verification</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--rose)', boxShadow: '0 0 8px var(--rose)' }} />
+          <span style={{ fontSize: '12px', color: 'var(--rose)', fontWeight: '600' }}>CAMERA ACTIVE</span>
+        </div>
       </div>
 
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: '1fr 1fr', 
-        gap: '20px',
-        flex: 1
-      }}>
-        {/* Left: Proctor Camera */}
-        <div className="glass-card" style={{ 
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
-            <h3 style={{ 
-              margin: 0, 
-              fontSize: '14px', 
-              fontWeight: '600', 
-              color: 'var(--text-primary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              Proctor
-            </h3>
-            {proctorActive && (
-              <span style={{
-                fontSize: '11px',
-                color: 'var(--emerald)',
-                background: 'rgba(16, 185, 129, 0.1)',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                fontWeight: '600'
-              }}>
-                ● ACTIVE
-              </span>
-            )}
-          </div>
+      {/* Main: 50/50 video panels */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '16px', flex: 1 }}>
+        {/* Proctor Camera */}
+        <VideoPanel
+          stream={proctorStream}
+          label="Proctor Camera"
+          muted={false}
+          active={proctorActive}
+          badge={proctorActive ? (
+            <span style={{ fontSize: '11px', color: 'var(--emerald)', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Volume2 size={11} /> ACTIVE
+            </span>
+          ) : (
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '3px 8px', borderRadius: '4px' }}>
+              Waiting...
+            </span>
+          )}
+        />
 
-          <div style={{ 
-            position: 'relative',
-            flex: 1,
-            minHeight: '400px',
-            background: '#000',
-            borderRadius: '8px',
-            overflow: 'hidden'
-          }}>
-            {proctorActive && proctorStream ? (
-              <video
-                ref={proctorVideoRef}
-                autoPlay
-                playsInline
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover'
-                }}
-              />
-            ) : (
-              <div style={{
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'column',
-                gap: '12px'
-              }}>
-                <VideoOff size={48} color="var(--text-muted)" />
-                <p style={{ 
-                  color: 'var(--text-muted)', 
-                  fontSize: '14px',
-                  textAlign: 'center',
-                  maxWidth: '300px'
-                }}>
-                  {proctorActive 
-                    ? 'Waiting for proctor video...' 
-                    : 'Proctor camera will appear when they start verifying you'}
-                </p>
-              </div>
-            )}
-          </div>
+        {/* Candidate Camera */}
+        <VideoPanel
+          stream={candidateStream}
+          label="Your Camera"
+          muted={true}
+          active={true}
+          badge={
+            <span style={{ fontSize: '11px', color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', padding: '3px 8px', borderRadius: '4px', fontWeight: '600' }}>
+              ● Camera Active
+            </span>
+          }
+        />
+      </div>
 
-          <p style={{
-            fontSize: '12px',
-            color: 'var(--text-muted)',
-            margin: 0,
-            textAlign: 'center'
-          }}>
-            The proctor can see and hear you during verification
-          </p>
+      {/* Bottom: Checklist progress */}
+      <div className="glass-card" style={{ margin: '0 16px 16px', padding: '16px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Verification Checklist Status
+          </span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Progress: {completed} of {total} items verified
+          </span>
         </div>
 
-        {/* Right: Candidate Camera + Checklist */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Candidate Self Camera */}
-          <div className="glass-card" style={{ 
-            padding: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}>
-            <h3 style={{ 
-              margin: 0, 
-              fontSize: '14px', 
-              fontWeight: '600', 
-              color: 'var(--text-primary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              Your Camera
-            </h3>
+        {/* Progress bar */}
+        <div style={{ height: '6px', background: 'var(--bg-elevated)', borderRadius: '3px', marginBottom: '14px' }}>
+          <div style={{ height: '100%', background: pct === 100 ? 'var(--emerald)' : 'var(--cyan)', borderRadius: '3px', width: `${pct}%`, transition: 'width 0.4s ease' }} />
+        </div>
 
-            <div style={{ 
-              position: 'relative',
-              height: '280px',
-              background: '#000',
-              borderRadius: '8px',
-              overflow: 'hidden',
-              border: '2px solid var(--cyan)'
-            }}>
-              {candidateStream ? (
-                <video
-                  ref={candidateVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover'
-                  }}
-                />
-              ) : (
-                <div style={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexDirection: 'column',
-                  gap: '12px'
-                }}>
-                  <Video size={32} color="var(--text-muted)" />
-                  <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-                    Camera not available
-                  </p>
-                </div>
+        {/* Checklist items */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px' }}>
+          {checklist.length > 0 ? checklist.map((item, idx) => (
+            <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: item.status === 'COMPLETED' ? 'rgba(16,185,129,0.08)' : item.status === 'IN_PROGRESS' ? 'rgba(0,212,255,0.06)' : 'var(--bg-elevated)', borderRadius: '6px', border: `1px solid ${item.status === 'COMPLETED' ? 'var(--emerald)' : item.status === 'IN_PROGRESS' ? 'var(--cyan)' : 'transparent'}`, transition: 'all 0.3s' }}>
+              <span style={{ fontSize: '14px' }}>
+                {item.status === 'COMPLETED' ? '☑' : '☐'}
+              </span>
+              <span style={{ fontSize: '12px', color: item.status === 'COMPLETED' ? 'var(--emerald)' : item.status === 'IN_PROGRESS' ? 'var(--cyan)' : 'var(--text-muted)', fontWeight: item.status === 'COMPLETED' ? '600' : '400' }}>
+                {item.title || item.key.replace(/ITEM_\d+_/, '').replace(/_/g, ' ')}
+              </span>
+              {item.status === 'PENDING' && (
+                <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-muted)' }}>pending</span>
               )}
             </div>
-          </div>
-
-          {/* Checklist Progress */}
-          <div className="glass-card" style={{ 
-            padding: '16px',
-            flex: 1
-          }}>
-            <h3 style={{ 
-              margin: '0 0 16px', 
-              fontSize: '14px', 
-              fontWeight: '600', 
-              color: 'var(--text-primary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              Verification Checklist
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {checklist.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '12px',
-                    background: item.completed 
-                      ? 'rgba(16, 185, 129, 0.1)' 
-                      : 'var(--bg-elevated)',
-                    borderRadius: '6px',
-                    border: item.completed 
-                      ? '1px solid var(--emerald)' 
-                      : '1px solid transparent',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  {item.completed ? (
-                    <CheckCircle size={20} color="var(--emerald)" />
-                  ) : (
-                    <Circle size={20} color="var(--text-muted)" />
-                  )}
-                  <span style={{
-                    fontSize: '14px',
-                    color: item.completed ? 'var(--emerald)' : 'var(--text-secondary)',
-                    fontWeight: item.completed ? '600' : '400'
-                  }}>
-                    {item.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {verificationComplete && (
-              <div style={{
-                marginTop: '16px',
-                padding: '12px',
-                background: 'rgba(16, 185, 129, 0.1)',
-                border: '2px solid var(--emerald)',
-                borderRadius: '8px',
-                textAlign: 'center'
-              }}>
-                <p style={{
-                  margin: 0,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: 'var(--emerald)'
-                }}>
-                  ✓ Verification Complete
-                </p>
-                <p style={{
-                  margin: '4px 0 0',
-                  fontSize: '12px',
-                  color: 'var(--text-muted)'
-                }}>
-                  Waiting for all candidates to be verified...
-                </p>
+          )) : (
+            // Placeholder items while loading
+            ['ID Verified', 'Face Match Confirmed', 'Room Scan Done', 'No Phone on Desk', 'No Notes Visible', 'Lighting Adequate', 'Single Monitor Only'].map(label => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: '6px' }}>
+                <span style={{ fontSize: '14px' }}>☐</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{label}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-muted)' }}>pending</span>
               </div>
-            )}
-          </div>
+            ))
+          )}
         </div>
-      </div>
 
-      {/* Instructions */}
-      <div className="glass-card" style={{ 
-        padding: '12px 16px',
-        background: 'rgba(6, 182, 212, 0.1)',
-        border: '1px solid var(--cyan)'
-      }}>
-        <p style={{
-          margin: 0,
-          fontSize: '13px',
-          color: 'var(--text-secondary)',
-          textAlign: 'center'
-        }}>
-          💡 <strong>Instructions:</strong> Please remain seated and visible in your camera. 
-          Follow the proctor's instructions for identity verification. The exam will begin once all candidates are verified.
-        </p>
+        {pct === 100 && (
+          <div style={{ marginTop: '12px', padding: '10px', background: 'rgba(16,185,129,0.1)', border: '1px solid var(--emerald)', borderRadius: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--emerald)' }}>✓ Verification Complete — Waiting for exam to begin...</span>
+          </div>
+        )}
       </div>
     </div>
   )
