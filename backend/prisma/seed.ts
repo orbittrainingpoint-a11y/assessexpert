@@ -60,7 +60,7 @@ async function main() {
   // Super Admin
   await prisma.user.upsert({
     where: { email: 'admin@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'SUPER_ADMIN' },
     create: {
       email: 'admin@assessexpert.ae',
       passwordHash: await hashPassword('Admin@assessexpert2026!'),
@@ -74,7 +74,7 @@ async function main() {
   // Master Proctor
   await prisma.user.upsert({
     where: { email: 'masterproctor@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'MASTER_PROCTOR' },
     create: {
       email: 'masterproctor@assessexpert.ae',
       passwordHash: await hashPassword('MasterProctor@2026!'),
@@ -85,16 +85,16 @@ async function main() {
     },
   });
 
-  // Exam Setup (using ORG_ADMIN role)
+  // Exam Setup
   await prisma.user.upsert({
     where: { email: 'examsetup@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'EXAM_SETUP_MASTER' },
     create: {
       email: 'examsetup@assessexpert.ae',
       passwordHash: await hashPassword('ExamSetup@2026!'),
       firstName: 'Exam',
       lastName: 'Setup',
-      role: 'ORG_ADMIN',
+      role: 'EXAM_SETUP_MASTER',
       organizationId: assessExpertOrg.id,
     },
   });
@@ -102,7 +102,7 @@ async function main() {
   // Proctor
   await prisma.user.upsert({
     where: { email: 'proctor@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'PROCTOR' },
     create: {
       email: 'proctor@assessexpert.ae',
       passwordHash: await hashPassword('Proctor@2026!'),
@@ -113,16 +113,16 @@ async function main() {
     },
   });
 
-  // Sales (using ORG_ADMIN role)
+  // Sales Agent
   await prisma.user.upsert({
     where: { email: 'sales@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'SALES_AGENT' },
     create: {
       email: 'sales@assessexpert.ae',
       passwordHash: await hashPassword('Sales@2026!'),
       firstName: 'Sales',
       lastName: 'Manager',
-      role: 'ORG_ADMIN',
+      role: 'SALES_AGENT',
       organizationId: assessExpertOrg.id,
     },
   });
@@ -130,7 +130,7 @@ async function main() {
   // HR Manager
   await prisma.user.upsert({
     where: { email: 'hr@democompany.ae' },
-    update: {},
+    update: { organizationId: demoCompanyOrg.id, role: 'HR_MANAGER' },
     create: {
       email: 'hr@democompany.ae',
       passwordHash: await hashPassword('HRManager@2026!'),

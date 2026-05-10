@@ -53,8 +53,8 @@ export default function AdminCompaniesPage() {
   })
 
   const inviteMutation = useMutation({
-    mutationFn: () => usersApi.create({ email: inviteEmail, role: inviteRole, organizationId: viewOrg.id, firstName: '', lastName: '', password: Math.random().toString(36).slice(-10) }),
-    onSuccess: () => { toast.success('User invited — welcome email sent'); qc.invalidateQueries({ queryKey: ['org-users', viewOrg?.id] }); setInviteEmail('') },
+    mutationFn: () => usersApi.invite({ email: inviteEmail, role: inviteRole, organizationId: viewOrg.id }),
+    onSuccess: () => { toast.success('Invitation sent — user will receive an email'); qc.invalidateQueries({ queryKey: ['org-users', viewOrg?.id] }); setInviteEmail('') },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   })
 

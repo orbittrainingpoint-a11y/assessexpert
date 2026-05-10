@@ -7,67 +7,85 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('users')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
-  @Get()
+  // Public — no auth required
+  @Get('invitation/:token')
+  getInvitation(@Param('token') token: string) {
+    return this.usersService.getInvitation(token);
+  }
+
+  @Post('accept-invitation')
+  acceptInvitation(@Body() body: any) {
+    return this.usersService.acceptInvitation(body.token, body);
+  }
+
+  // Protected routes
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
-  async getUsers(@Query() filters: any) {
+  @Get()
+  getUsers(@Query() filters: any) {
     return this.usersService.getUsers(filters);
   }
 
-  @Get('proctors')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
-  async getProctors(@Query() filters: any) {
+  @Get('proctors')
+  getProctors(@Query() filters: any) {
     return this.usersService.getProctors(filters);
   }
 
-  @Get(':id')
-  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
-  async getUser(@Param('id') id: string) {
-    return this.usersService.getUser(id);
-  }
-
-  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
-  async createUser(@Body() body: any) {
+  @Post()
+  createUser(@Body() body: any) {
     return this.usersService.createUser(body);
   }
 
-  @Post('invite')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'ORG_ADMIN')
-  async inviteUser(@Body() body: any, @Req() req: any) {
+  @Post('invite')
+  inviteUser(@Body() body: any, @Req() req: any) {
     return this.usersService.inviteUser(body, req.user.id);
   }
 
-  @Put(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
+  @Get(':id')
+  getUser(@Param('id') id: string) {
+    return this.usersService.getUser(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
-  async updateUser(@Param('id') id: string, @Body() body: any) {
+  @Put(':id')
+  updateUser(@Param('id') id: string, @Body() body: any) {
     return this.usersService.updateUser(id, body);
   }
 
-  @Post(':id/deactivate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
-  async deactivateUser(@Param('id') id: string) {
+  @Post(':id/deactivate')
+  deactivateUser(@Param('id') id: string) {
     return this.usersService.deactivateUser(id);
   }
 
-  @Get(':id/availability')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
-  async getAvailability(@Param('id') id: string, @Req() req: any) {
-    // Proctors can only view their own availability
+  @Get(':id/availability')
+  getAvailability(@Param('id') id: string, @Req() req: any) {
     if (req.user.role === 'PROCTOR' && req.user.id !== id) {
       throw new ForbiddenException('You can only view your own availability');
     }
     return this.usersService.getAvailability(id);
   }
 
-  @Post(':id/availability')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
-  async saveAvailability(@Param('id') id: string, @Body() body: any, @Req() req: any) {
-    // Proctors can only update their own availability
+  @Post(':id/availability')
+  saveAvailability(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     if (req.user.role === 'PROCTOR' && req.user.id !== id) {
       throw new ForbiddenException('You can only update your own availability');
     }

@@ -91,6 +91,7 @@ export const usersApi = {
   getAll: (filters?: any) => api.get('/users', { params: filters }),
   getOne: (id: string) => api.get(`/users/${id}`),
   create: (data: any) => api.post('/users', data),
+  invite: (data: any) => api.post('/users/invite', data),
   update: (id: string, data: any) => api.put(`/users/${id}`, data),
   deactivate: (id: string) => api.post(`/users/${id}/deactivate`),
   suspend: (id: string, reason: string) => api.post(`/users/${id}/suspend`, { reason }),

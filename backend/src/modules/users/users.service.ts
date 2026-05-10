@@ -1,12 +1,22 @@
 import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import * as nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-  constructor(private prisma: PrismaService) {}
+  private transporter: nodemailer.Transporter;
+
+  constructor(private prisma: PrismaService) {
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+  }
 
   async getUsers(filters?: any) {
     const where: any = {};
@@ -202,9 +212,26 @@ export class UsersService {
       },
     });
 
-    // TODO: Send email with invitation link
+    // Send invitation email
     const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accept-invitation?token=${token}`;
-    this.logger.log(`Invitation link: ${inviteLink}`);
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'theassessexpert@gmail.com',
+        to: data.email,
+        subject: 'You have been invited to AssessExpert',
+        html: `
+          <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 500px; margin: 0 auto; border-radius: 12px;">
+            <h1 style="color: #00D4FF; font-size: 22px; margin: 0 0 24px;">AssessExpert</h1>
+            <h2 style="color: #F1F5F9; font-size: 18px;">You've been invited</h2>
+            <p style="color: #94A3B8;">You have been invited to join AssessExpert as <strong style="color:#F1F5F9">${data.role.replace(/_/g, ' ')}</strong>. Click the button below to set up your account.</p>
+            <a href="${inviteLink}" style="display:inline-block;margin:24px 0;padding:14px 28px;background:#00D4FF;color:#060B18;font-weight:700;border-radius:8px;text-decoration:none;">Accept Invitation</a>
+            <p style="color: #475569; font-size: 12px;">This link expires in 7 days. If you did not expect this invitation, please ignore this email.</p>
+          </div>`,
+      });
+      this.logger.log(`Invitation email sent to ${data.email}`);
+    } catch (e) {
+      this.logger.error(`Failed to send invitation email to ${data.email}:`, e.message);
+    }
 
     return { success: true, inviteLink, expiresAt };
   }

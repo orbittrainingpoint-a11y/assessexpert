@@ -13,8 +13,19 @@ echo   Powered by Orbit Training ^| Dubai, UAE
 echo  ============================================================
 echo.
 
+REM ── Generate Prisma Client ────────────────────────────────────────
+echo [1/5] Generating Prisma Client...
+cd /d "%BACKEND%"
+call npx prisma generate >nul 2>&1
+if %errorlevel% equ 0 (
+    echo       Prisma Client OK
+) else (
+    echo       Prisma generate failed - check schema
+)
+echo.
+
 REM ── Reset demo session ──────────────────────────────────────────
-echo [1/4] Resetting demo session (Ahmed Al-Rashidi)...
+echo [2/5] Resetting demo session (Ahmed Al-Rashidi)...
 cd /d "%BACKEND%"
 call npx ts-node prisma/seed-ahmed.ts >nul 2>&1
 if %errorlevel% equ 0 (
@@ -25,19 +36,19 @@ if %errorlevel% equ 0 (
 echo.
 
 REM ── Start Backend ────────────────────────────────────────────────
-echo [2/4] Starting Backend API on port 4000...
+echo [3/5] Starting Backend API on port 4000...
 start "assessexpert Backend" cmd /k "title assessexpert Backend ^| Port 4000 && cd /d "%BACKEND%" && npm run start:dev"
 echo       Backend window opened
 echo.
 
 REM ── Wait for backend to boot ─────────────────────────────────────
-echo [3/4] Waiting for backend to boot (8 seconds)...
+echo [4/5] Waiting for backend to boot (8 seconds)...
 timeout /t 8 /nobreak >nul
 echo       Done
 echo.
 
 REM ── Start Frontend ───────────────────────────────────────────────
-echo [4/4] Starting Frontend Portal on port 3000...
+echo [5/5] Starting Frontend Portal on port 3000...
 start "assessexpert Frontend" cmd /k "title assessexpert Frontend ^| Port 3000 && cd /d "%FRONTEND%" && npm run dev"
 echo       Frontend window opened
 echo.
@@ -89,6 +100,14 @@ echo   3. Click "Open Candidate Tab" to open exam in new tab
 echo   4. In candidate tab: enter email, click 000000, verify
 echo   5. Back in proctor tab: red notification appears, click Join Now
 echo   6. Complete checklist, Begin MCQ
+echo.
+echo   USER INVITATION FLOW
+echo   --------------------
+echo   1. Login as Super Admin
+echo   2. Go to Companies, open a company, Users tab
+echo   3. Enter email + role, click Invite
+echo   4. User receives email with accept link
+echo   5. Accept link: http://localhost:3000/accept-invitation?token=...
 echo.
 echo  ============================================================
 echo   Wait ~15 seconds for full startup, then open the portal.
