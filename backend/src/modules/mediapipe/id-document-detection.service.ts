@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ImageProcessor } from '../../utils/image-processor';
 import * as sharp from 'sharp';
 
-interface DocumentDetectionResult {
+export interface DocumentDetectionResult {
   documentDetected: boolean;
   boundingBox?: {
     x: number;

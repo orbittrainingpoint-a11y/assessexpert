@@ -1,4 +1,5 @@
 import { createCanvas, loadImage, Image } from 'canvas';
+import * as sharp from 'sharp';
 
 export class ImageProcessor {
   /**

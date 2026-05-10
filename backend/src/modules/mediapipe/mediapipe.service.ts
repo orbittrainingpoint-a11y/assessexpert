@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as sharp from 'sharp';
 
-interface DetectedFace {
+export interface DetectedFace {
   boundingBox: {
     originX: number;
     originY: number;
@@ -14,12 +14,12 @@ interface DetectedFace {
   confidence: number;
 }
 
-interface FaceLandmarks {
+export interface FaceLandmarks {
   landmarks: Array<{ x: number; y: number; z: number }>;
   embedding: number[];
 }
 
-interface FaceComparisonResult {
+export interface FaceComparisonResult {
   similarity: number;
   outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
   confidence: number;

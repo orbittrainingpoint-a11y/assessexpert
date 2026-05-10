@@ -5,7 +5,7 @@ import { ImageProcessor } from '../../utils/image-processor';
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface CaptureResult {
+export interface CaptureResult {
   success: boolean;
   capturePath?: string;
   captureId?: string;
@@ -464,7 +464,7 @@ export class AutoCaptureService {
     for (const capture of captures) {
       if (fs.existsSync(capture.path)) {
         const stats = fs.statSync(capture.path);
-        stats.totalSize += stats.size;
+        (stats as any).totalSize += stats.size;
       }
     }
 

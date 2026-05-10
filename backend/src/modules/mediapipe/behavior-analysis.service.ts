@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
-interface BehaviorScore {
+export interface BehaviorScore {
   sessionId: string;
   overallScore: number; // 0-100
   multipleFacesCount: number;
@@ -13,7 +13,7 @@ interface BehaviorScore {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 }
 
-interface BehaviorPattern {
+export interface BehaviorPattern {
   type: string;
   frequency: number;
   lastOccurrence: Date;
