@@ -22,7 +22,7 @@ export interface ChecklistState {
 
 interface Props {
   sessionId: string
-  candidateVideoRef: React.RefObject<HTMLVideoElement>
+  candidateVideoRef: React.RefObject<HTMLVideoElement | null>
   onAllDone: () => void
 }
 
