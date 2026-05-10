@@ -15,7 +15,7 @@ async function main() {
   console.log('Creating organizations...');
   
   const assessExpertOrg = await prisma.organization.upsert({
-    where: { id: 'org-assessexpert' },
+    where: { slug: 'assessexpert' },
     update: {},
     create: {
       id: 'org-assessexpert',
@@ -34,7 +34,7 @@ async function main() {
   });
 
   const demoCompanyOrg = await prisma.organization.upsert({
-    where: { id: 'org-democompany' },
+    where: { slug: 'democompany' },
     update: {},
     create: {
       id: 'org-democompany',
