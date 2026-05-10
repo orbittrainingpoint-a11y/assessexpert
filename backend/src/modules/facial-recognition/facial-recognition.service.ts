@@ -1,51 +1,52 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import * as AWS from 'aws-sdk';
+import { MediaPipeService } from '../mediapipe/mediapipe.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
 export class FacialRecognitionService {
-  private rekognition: AWS.Rekognition;
-
-  constructor(private prisma: PrismaService) {
-    this.rekognition = new AWS.Rekognition({
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      region: process.env.AWS_REGION || 'us-east-1',
-    });
-  }
+  constructor(
+    private prisma: PrismaService,
+    private mediaPipeService: MediaPipeService,
+  ) {}
 
   async compareFaces(sourceImageBase64: string, targetImageBase64: string): Promise<{
     similarity: number;
     outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
   }> {
     try {
-      const sourceBuffer = Buffer.from(sourceImageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-      const targetBuffer = Buffer.from(targetImageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+      // Extract face landmarks and embeddings from both images
+      const sourceLandmarks = await this.mediaPipeService.extractFaceLandmarks(sourceImageBase64);
+      const targetLandmarks = await this.mediaPipeService.extractFaceLandmarks(targetImageBase64);
 
-      const result = await this.rekognition.compareFaces({
-        SourceImage: { Bytes: sourceBuffer },
-        TargetImage: { Bytes: targetBuffer },
-        SimilarityThreshold: 50,
-      }).promise();
+      if (!sourceLandmarks || !targetLandmarks) {
+        return { similarity: 0, outcome: 'REJECTED' };
+      }
 
-      const similarity = result.FaceMatches?.[0]?.Similarity || 0;
-      let outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
-      if (similarity >= 90) outcome = 'VERIFIED';
-      else if (similarity >= 70) outcome = 'PENDING_REVIEW';
-      else outcome = 'REJECTED';
+      // Compare embeddings using MediaPipe
+      const result = this.mediaPipeService.compareFaceEmbeddings(
+        sourceLandmarks.embedding,
+        targetLandmarks.embedding
+      );
 
-      return { similarity, outcome };
+      return {
+        similarity: result.similarity,
+        outcome: result.outcome,
+      };
     } catch (e) {
-      // Fallback for dev/test when AWS not configured
-      console.warn('AWS Rekognition not available, using mock FR result');
+      console.warn('MediaPipe face comparison error, using fallback:', e.message);
+      // Fallback for dev/test
       return { similarity: 95, outcome: 'VERIFIED' };
     }
   }
 
   async runPreExamCheck(sessionId: string, capturedImageBase64: string, referenceImageBase64: string, proctorId: string) {
     const { similarity, outcome } = await this.compareFaces(capturedImageBase64, referenceImageBase64);
+
+    // Extract and store face embedding for future comparisons
+    const landmarks = await this.mediaPipeService.extractFaceLandmarks(capturedImageBase64);
+    const faceEmbedding = landmarks ? landmarks.embedding : null;
 
     const storagePath = process.env.STORAGE_PATH || './storage';
     const frPath = path.join(storagePath, 'fr-images');
@@ -62,6 +63,8 @@ export class FacialRecognitionService {
         similarityScore: similarity,
         outcome,
         reviewedBy: outcome === 'PENDING_REVIEW' ? null : proctorId,
+        faceEmbedding: faceEmbedding ? JSON.stringify(faceEmbedding) : null,
+        detectionMethod: 'MEDIAPIPE',
       },
     });
 
@@ -76,7 +79,7 @@ export class FacialRecognitionService {
     const capturedPath = path.join(frPath, `${sessionId}-periodic-${Date.now()}.jpg`);
     fs.writeFileSync(capturedPath, Buffer.from(capturedImageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64'));
 
-    // Get reference from pre-exam check
+    // Get reference embedding from pre-exam check
     const preExamLog = await this.prisma.facialRecognitionLog.findFirst({
       where: { sessionId, eventType: 'PRE_EXAM_ID' },
       orderBy: { timestamp: 'asc' },
@@ -84,12 +87,29 @@ export class FacialRecognitionService {
 
     let similarity = 95;
     let outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED' = 'VERIFIED';
+    let faceEmbedding = null;
 
-    if (preExamLog?.capturedImagePath && fs.existsSync(preExamLog.capturedImagePath)) {
-      const refBase64 = fs.readFileSync(preExamLog.capturedImagePath).toString('base64');
-      const result = await this.compareFaces(capturedImageBase64, `data:image/jpeg;base64,${refBase64}`);
-      similarity = result.similarity;
-      outcome = result.outcome;
+    if (preExamLog?.faceEmbedding) {
+      try {
+        // Extract embedding from current capture
+        const currentLandmarks = await this.mediaPipeService.extractFaceLandmarks(capturedImageBase64);
+        
+        if (currentLandmarks) {
+          faceEmbedding = currentLandmarks.embedding;
+          const referenceEmbedding = JSON.parse(preExamLog.faceEmbedding as string);
+          
+          // Compare embeddings
+          const result = this.mediaPipeService.compareFaceEmbeddings(
+            currentLandmarks.embedding,
+            referenceEmbedding
+          );
+          
+          similarity = result.similarity;
+          outcome = result.outcome;
+        }
+      } catch (error) {
+        console.error('Periodic check error:', error.message);
+      }
     }
 
     return this.prisma.facialRecognitionLog.create({
@@ -99,6 +119,8 @@ export class FacialRecognitionService {
         capturedImagePath: capturedPath,
         similarityScore: similarity,
         outcome,
+        faceEmbedding: faceEmbedding ? JSON.stringify(faceEmbedding) : null,
+        detectionMethod: 'MEDIAPIPE',
       },
     });
   }

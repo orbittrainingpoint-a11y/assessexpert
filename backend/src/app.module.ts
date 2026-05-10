@@ -16,6 +16,7 @@ import { ChecklistModule } from './modules/checklist/checklist.module';
 import { ExamDeliveryModule } from './modules/exam-delivery/exam-delivery.module';
 import { ProctoringModule } from './modules/proctoring/proctoring.module';
 import { FacialRecognitionModule } from './modules/facial-recognition/facial-recognition.module';
+import { MediaPipeModule } from './modules/mediapipe/mediapipe.module';
 import { RecordingsModule } from './modules/recordings/recordings.module';
 import { GradingModule } from './modules/grading/grading.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -46,6 +47,7 @@ import { AppController } from './app.controller';
     ExamDeliveryModule,
     ProctoringModule,
     FacialRecognitionModule,
+    MediaPipeModule,
     RecordingsModule,
     GradingModule,
     ReportsModule,

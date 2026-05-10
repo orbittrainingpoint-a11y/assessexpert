@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { authApi, examApi, checklistApi, api } from '@/lib/api'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useWebRTC } from '@/lib/useWebRTC'
+import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
 
@@ -14,6 +15,7 @@ type Phase =
   | 'otp-email' 
   | 'otp-verify' 
   | 'camera' 
+  | 'verification'
   | 'waiting' 
   | 'mcq' 
   | 'mcq-complete' 
@@ -84,7 +86,7 @@ function ExamContent() {
   const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
     sessionId: sessionState?.id || '',
     role: 'CANDIDATE',
-    enabled: !!sessionState?.id && (phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    enabled: !!sessionState?.id && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
     onEvent: (event, data) => {
       if (event === 'session.phase') {
         if (data.phase === 'MCQ_IN_PROGRESS') {
@@ -95,6 +97,17 @@ function ExamContent() {
         } else if (data.phase === 'TERMINATED') {
           setPhase('terminated')
         }
+      }
+      if (event === 'exam.pushMCQ') {
+        loadNextQuestion().then(() => setPhase('mcq'))
+      }
+      if (event === 'exam.pushPractical') {
+        if (data.practicalTask) setPracticalTask(data.practicalTask)
+        setPhase('practical')
+      }
+      if (event === 'candidate.disqualified') {
+        setPhase('terminated')
+        toast.error('You have been disqualified from this assessment')
       }
       if (event === 'checklist.update') {
         setChecklist((prev: any[]) => prev.map(item =>
@@ -119,14 +132,15 @@ function ExamContent() {
     },
   })
   // WebRTC — send candidate stream to proctor, receive proctor stream
-  const { remoteStreams: proctorStreams } = useWebRTC({
+  const { remoteStreams: proctorStreams, proctorActive } = useWebRTC({
     sessionId: sessionState?.id || '',
     role: 'CANDIDATE',
     localStream: cameraReady ? cameraStreamRef.current : null,
     socket: wsSocket,
-    enabled: !!sessionState?.id && cameraReady && (phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    enabled: !!sessionState?.id && cameraReady && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    candidateId: sessionState?.candidate?.id,
   })
-  const proctorStream = proctorStreams.size > 0 ? Array.from(proctorStreams.values())[0] : null
+  const proctorStream = proctorStreams.size > 0 && proctorActive ? Array.from(proctorStreams.values())[0] : null
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
@@ -437,7 +451,12 @@ function ExamContent() {
       const { data } = await examApi.getSession(token)
       // Normalise: backend returns sessionId, ensure .id is always set
       setSessionState({ ...data, id: data.id || data.sessionId })
-      setPhase('waiting')
+      // Check if multi-candidate session
+      if (data.isMultiCandidate) {
+        setPhase('verification')
+      } else {
+        setPhase('waiting')
+      }
       // Poll for exam start
       const poll = setInterval(async () => {
         const { data: s } = await examApi.getSession(token)

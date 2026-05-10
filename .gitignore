@@ -17,6 +17,11 @@ backend/*.tsbuildinfo
 # ── Storage / uploads (runtime data) ─────────────────
 backend/storage/
 
+# ── MediaPipe Models (large files) ───────────────────
+backend/ml-models/*.tflite
+backend/ml-models/*.task
+!backend/ml-models/README.md
+
 # ── OS / editor ───────────────────────────────────────
 .DS_Store
 Thumbs.db

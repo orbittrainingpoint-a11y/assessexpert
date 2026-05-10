@@ -29,6 +29,74 @@ export class SessionsService {
     return session;
   }
 
+  async createMultiCandidateSession(data: {
+    assessmentTypeId: string;
+    candidateIds: string[];
+    organizationId: string;
+    proctorId?: string;
+    scheduledAt: Date;
+  }) {
+    const token = randomBytes(32).toString('hex');
+    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 4 * 60 * 60 * 1000);
+
+    const session = await this.prisma.examSession.create({
+      data: {
+        assessmentTypeId: data.assessmentTypeId,
+        candidateId: data.candidateIds[0],
+        organizationId: data.organizationId,
+        proctorId: data.proctorId,
+        scheduledAt: data.scheduledAt,
+        magicToken: token,
+        tokenExpiresAt,
+        status: 'SCHEDULED',
+        isMultiCandidate: true,
+        sessionCandidates: {
+          create: data.candidateIds.map(candidateId => ({
+            candidateId,
+            status: 'PENDING',
+          })),
+        },
+      },
+      include: { candidate: true, assessmentType: true, sessionCandidates: { include: { candidate: true } } },
+    });
+
+    return session;
+  }
+
+  async addCandidateToSession(sessionId: string, candidateId: string) {
+    return this.prisma.sessionCandidate.create({
+      data: { sessionId, candidateId, status: 'PENDING' },
+      include: { candidate: true },
+    });
+  }
+
+  async getSessionCandidates(sessionId: string) {
+    return this.prisma.sessionCandidate.findMany({
+      where: { sessionId },
+      include: { candidate: true },
+      orderBy: { joinedAt: 'asc' },
+    });
+  }
+
+  async updateCandidateStatus(sessionId: string, candidateId: string, status: string, data?: any) {
+    return this.prisma.sessionCandidate.update({
+      where: { sessionId_candidateId: { sessionId, candidateId } },
+      data: { status: status as any, ...data },
+    });
+  }
+
+  async checkAllCandidatesVerified(sessionId: string) {
+    const candidates = await this.prisma.sessionCandidate.findMany({ where: { sessionId } });
+    const allVerified = candidates.every(c => c.status === 'VERIFIED' || c.status === 'MCQ_IN_PROGRESS' || c.status === 'MCQ_SUBMITTED' || c.status === 'PRACTICAL_IN_PROGRESS' || c.status === 'PRACTICAL_SUBMITTED' || c.status === 'COMPLETED');
+    return { allVerified, total: candidates.length, verified: candidates.filter(c => c.verifiedAt).length };
+  }
+
+  async checkAllMCQSubmitted(sessionId: string) {
+    const candidates = await this.prisma.sessionCandidate.findMany({ where: { sessionId } });
+    const allSubmitted = candidates.every(c => c.status === 'MCQ_SUBMITTED' || c.status === 'PRACTICAL_IN_PROGRESS' || c.status === 'PRACTICAL_SUBMITTED' || c.status === 'COMPLETED');
+    return { allSubmitted, total: candidates.length, submitted: candidates.filter(c => c.mcqSubmittedAt).length };
+  }
+
   async getSession(id: string, organizationId?: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { id },
@@ -38,6 +106,7 @@ export class SessionsService {
         checklist: true,
         questionAssignment: true,
         report: true,
+        sessionCandidates: { include: { candidate: true } },
       },
     });
     if (!session) throw new NotFoundException('Session not found');

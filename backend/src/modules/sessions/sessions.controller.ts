@@ -70,6 +70,48 @@ export class SessionsController {
     });
   }
 
+  @Post('multi-candidate')
+  @Roles('SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN')
+  async createMultiCandidateSession(@Body() body: any, @Req() req: any) {
+    return this.sessionsService.createMultiCandidateSession({
+      ...body,
+      organizationId: req.user.organizationId || body.organizationId,
+    });
+  }
+
+  @Post(':id/candidates')
+  @Roles('SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'PROCTOR')
+  async addCandidate(@Param('id') id: string, @Body() body: { candidateId: string }) {
+    return this.sessionsService.addCandidateToSession(id, body.candidateId);
+  }
+
+  @Get(':id/candidates')
+  async getSessionCandidates(@Param('id') id: string) {
+    return this.sessionsService.getSessionCandidates(id);
+  }
+
+  @Put(':id/candidates/:candidateId')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  async updateCandidateStatus(
+    @Param('id') id: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: { status: string; data?: any },
+  ) {
+    return this.sessionsService.updateCandidateStatus(id, candidateId, body.status, body.data);
+  }
+
+  @Get(':id/verification-status')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  async checkVerificationStatus(@Param('id') id: string) {
+    return this.sessionsService.checkAllCandidatesVerified(id);
+  }
+
+  @Get(':id/mcq-status')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  async checkMCQStatus(@Param('id') id: string) {
+    return this.sessionsService.checkAllMCQSubmitted(id);
+  }
+
   @Post(':id/begin')
   @Roles('PROCTOR', 'MASTER_PROCTOR')
   async beginAssessment(@Param('id') id: string, @Req() req: any) {

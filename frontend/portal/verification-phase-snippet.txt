@@ -1,0 +1,12 @@
+// Verification phase added after line 716
+if (phase === 'verification') return (
+  <CandidateVerificationLayout
+    sessionId={sessionState?.id || ''}
+    candidateId={sessionState?.candidate?.id || ''}
+    examTitle={sessionState?.assessmentType?.name || 'Assessment'}
+    proctorStream={proctorStream}
+    candidateStream={cameraStreamRef.current}
+    socket={wsSocket}
+    proctorActive={proctorActive}
+  />
+)

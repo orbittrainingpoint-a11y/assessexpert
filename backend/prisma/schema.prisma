@@ -40,6 +40,7 @@ enum SessionStatus {
   INVITED
   WAITING_ROOM
   CHECKLIST
+  VERIFICATION_IN_PROGRESS
   MCQ_IN_PROGRESS
   MCQ_COMPLETE
   PRACTICAL_IN_PROGRESS
@@ -112,6 +113,19 @@ enum TaskStatus {
   DRAFT
   ACTIVE
   ARCHIVED
+}
+
+enum CandidateSessionStatus {
+  PENDING
+  JOINED
+  VERIFYING
+  VERIFIED
+  MCQ_IN_PROGRESS
+  MCQ_SUBMITTED
+  PRACTICAL_IN_PROGRESS
+  PRACTICAL_SUBMITTED
+  COMPLETED
+  DISQUALIFIED
 }
 
 enum CandidateSource {
@@ -355,6 +369,7 @@ model CandidateRecord {
   batchId        String?
   source         CandidateSource @default(MANUAL)
   sessions       ExamSession[]
+  sessionCandidates SessionCandidate[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -376,6 +391,7 @@ model ExamSession {
   tokenUsedAt      DateTime?
   tokenUsedFromIp  String?
   status           SessionStatus  @default(SCHEDULED)
+  isMultiCandidate Boolean        @default(false)
   checklistCompletedAt   DateTime?
   mcqStartedAt           DateTime?
   mcqSubmittedAt         DateTime?
@@ -400,8 +416,35 @@ model ExamSession {
   frLogs                 FacialRecognitionLog[]
   checklist              ProctorChecklist?
   report                 Report?
+  sessionCandidates      SessionCandidate[]
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
+}
+
+model SessionCandidate {
+  id                String                  @id @default(cuid())
+  sessionId         String
+  session           ExamSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  candidateId       String
+  candidate         CandidateRecord         @relation(fields: [candidateId], references: [id])
+  status            CandidateSessionStatus  @default(PENDING)
+  socketId          String?
+  joinedAt          DateTime?
+  verifiedAt        DateTime?
+  mcqStartedAt      DateTime?
+  mcqSubmittedAt    DateTime?
+  mcqScore          Float?
+  practicalStartedAt DateTime?
+  practicalSubmittedAt DateTime?
+  practicalScore    Float?
+  disqualified      Boolean                 @default(false)
+  disqualifyReason  String?
+  checklistCompleted Boolean                @default(false)
+  checklistData     Json?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@unique([sessionId, candidateId])
 }
 
 model ExamAnswer {
@@ -466,6 +509,11 @@ model FacialRecognitionLog {
   outcome            FROutcome
   reviewedBy         String?
   reviewNotes        String?
+  faceEmbedding      String?     // JSON string of embedding array
+  landmarkData       Json?       // Optional landmark coordinates
+  detectionMethod    String      @default("MEDIAPIPE")
+  faceCount          Int?        // Number of faces detected
+  poseData           Json?       // Optional pose detection data
 }
 
 model Report {

@@ -29,6 +29,9 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   
   // Track active proctor-candidate audio connections: sessionId -> { proctorSocketId, activeCandidateSocketId }
   private activeAudioConnections = new Map<string, { proctorSocketId: string; activeCandidateSocketId: string | null }>();
+  
+  // Track verified candidates per session: sessionId -> Set<candidateId>
+  private verifiedCandidates = new Map<string, Set<string>>();
 
   handleConnection(client: Socket) {
     this.clients.set(client.id, {});
@@ -115,6 +118,66 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { sessionId: string; eventType: string; severity: string; candidateName?: string },
   ) {
     this.server.to(`session:${data.sessionId}`).emit('ai.flag', {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true };
+  }
+
+  // ── AI multiple faces detected ───────────────────────────────────────────
+  @SubscribeMessage('ai.multiple_faces')
+  handleMultipleFaces(
+    @MessageBody() data: { sessionId: string; faceCount: number; screenshotPath?: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('ai.multiple_faces', {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true };
+  }
+
+  // ── AI face absent detected ──────────────────────────────────────────────
+  @SubscribeMessage('ai.face_absent')
+  handleFaceAbsent(
+    @MessageBody() data: { sessionId: string; message: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('ai.face_absent', {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true };
+  }
+
+  // ── AI looking away detected ──────────────────────────────────────────────
+  @SubscribeMessage('ai.looking_away')
+  handleLookingAway(
+    @MessageBody() data: { sessionId: string; headAngle: any; message: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('ai.looking_away', {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true };
+  }
+
+  // ── AI hand near face detected ────────────────────────────────────────────
+  @SubscribeMessage('ai.hand_near_face')
+  handleHandNearFace(
+    @MessageBody() data: { sessionId: string; handCount: number; message: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('ai.hand_near_face', {
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+    return { sent: true };
+  }
+
+  // ── AI gaze offscreen detected ────────────────────────────────────────────
+  @SubscribeMessage('ai.gaze_offscreen')
+  handleGazeOffscreen(
+    @MessageBody() data: { sessionId: string; gazeDirection: any; message: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('ai.gaze_offscreen', {
       ...data,
       timestamp: new Date().toISOString(),
     });
@@ -247,6 +310,203 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     
     return { deactivated: true };
+  }
+
+  // ── MULTI-CANDIDATE EVENTS ──────────────────────────────────────────────
+
+  // ── Proctor enters verification for specific candidate ──────────────────
+  @SubscribeMessage('proctor.enterVerification')
+  handleProctorEnterVerification(
+    @MessageBody() data: { sessionId: string; candidateId: string; candidateSocketId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    // Notify the specific candidate that proctor is now verifying them
+    this.server.to(`peer:${data.candidateSocketId}`).emit('proctor.enterVerification', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      proctorSocketId: client.id,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Also activate audio for this candidate
+    this.handleProctorActivateCandidate(
+      { sessionId: data.sessionId, candidateSocketId: data.candidateSocketId },
+      client,
+    );
+    
+    return { entered: true };
+  }
+
+  // ── Proctor leaves verification for specific candidate ──────────────────
+  @SubscribeMessage('proctor.leaveVerification')
+  handleProctorLeaveVerification(
+    @MessageBody() data: { sessionId: string; candidateId: string; candidateSocketId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    // Notify the specific candidate that proctor has left
+    this.server.to(`peer:${data.candidateSocketId}`).emit('proctor.leaveVerification', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Also deactivate audio
+    this.handleProctorDeactivateCandidate({ sessionId: data.sessionId }, client);
+    
+    return { left: true };
+  }
+
+  // ── Checklist item updated for specific candidate ───────────────────────
+  @SubscribeMessage('checklist.itemUpdated')
+  handleChecklistItemUpdated(
+    @MessageBody() data: { sessionId: string; candidateId: string; itemId: string; status: string; candidateSocketId?: string },
+  ) {
+    // Notify the specific candidate about checklist update
+    if (data.candidateSocketId) {
+      this.server.to(`peer:${data.candidateSocketId}`).emit('checklist.itemUpdated', {
+        sessionId: data.sessionId,
+        candidateId: data.candidateId,
+        itemId: data.itemId,
+        status: data.status,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    
+    // Also notify proctor
+    this.server.to(`session:${data.sessionId}`).emit('checklist.itemUpdated', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      itemId: data.itemId,
+      status: data.status,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { updated: true };
+  }
+
+  // ── Candidate verification complete ──────────────────────────────────────
+  @SubscribeMessage('checklist.candidateComplete')
+  handleChecklistCandidateComplete(
+    @MessageBody() data: { sessionId: string; candidateId: string },
+  ) {
+    // Track verified candidate
+    if (!this.verifiedCandidates.has(data.sessionId)) {
+      this.verifiedCandidates.set(data.sessionId, new Set());
+    }
+    this.verifiedCandidates.get(data.sessionId).add(data.candidateId);
+    
+    // Notify all in session
+    this.server.to(`session:${data.sessionId}`).emit('checklist.candidateComplete', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { completed: true };
+  }
+
+  // ── All candidates verified ──────────────────────────────────────────────
+  @SubscribeMessage('proctor.allVerified')
+  handleProctorAllVerified(
+    @MessageBody() data: { sessionId: string; totalCandidates: number },
+  ) {
+    const verified = this.verifiedCandidates.get(data.sessionId);
+    const allVerified = verified && verified.size === data.totalCandidates;
+    
+    if (allVerified) {
+      // Notify all in session that verification is complete
+      this.server.to(`session:${data.sessionId}`).emit('proctor.allVerified', {
+        sessionId: data.sessionId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    
+    return { allVerified, verifiedCount: verified?.size || 0 };
+  }
+
+  // ── Push MCQ exam to all candidates ──────────────────────────────────────
+  @SubscribeMessage('exam.pushMCQ')
+  handleExamPushMCQ(
+    @MessageBody() data: { sessionId: string },
+  ) {
+    // Notify all candidates in session to start MCQ
+    this.server.to(`session:${data.sessionId}`).emit('exam.pushMCQ', {
+      sessionId: data.sessionId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { pushed: true };
+  }
+
+  // ── Candidate MCQ submitted ──────────────────────────────────────────────
+  @SubscribeMessage('exam.mcqSubmitted')
+  handleExamMcqSubmitted(
+    @MessageBody() data: { sessionId: string; candidateId: string; score?: number },
+  ) {
+    // Notify proctor about submission
+    this.server.to(`session:${data.sessionId}`).emit('exam.mcqSubmitted', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      score: data.score,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { submitted: true };
+  }
+
+  // ── All MCQ exams done ───────────────────────────────────────────────────
+  @SubscribeMessage('exam.allMCQDone')
+  handleExamAllMCQDone(
+    @MessageBody() data: { sessionId: string },
+  ) {
+    // Notify proctor that all MCQ are complete
+    this.server.to(`session:${data.sessionId}`).emit('exam.allMCQDone', {
+      sessionId: data.sessionId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { allDone: true };
+  }
+
+  // ── Push Practical exam to all candidates ────────────────────────────────
+  @SubscribeMessage('exam.pushPractical')
+  handleExamPushPractical(
+    @MessageBody() data: { sessionId: string; practicalTask?: any },
+  ) {
+    // Notify all candidates in session to start practical
+    this.server.to(`session:${data.sessionId}`).emit('exam.pushPractical', {
+      sessionId: data.sessionId,
+      practicalTask: data.practicalTask,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { pushed: true };
+  }
+
+  // ── Candidate disqualified ───────────────────────────────────────────────
+  @SubscribeMessage('candidate.disqualified')
+  handleCandidateDisqualified(
+    @MessageBody() data: { sessionId: string; candidateId: string; reason: string; candidateSocketId?: string },
+  ) {
+    // Notify the specific candidate
+    if (data.candidateSocketId) {
+      this.server.to(`peer:${data.candidateSocketId}`).emit('candidate.disqualified', {
+        sessionId: data.sessionId,
+        candidateId: data.candidateId,
+        reason: data.reason,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    
+    // Notify all in session
+    this.server.to(`session:${data.sessionId}`).emit('candidate.disqualified', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      reason: data.reason,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return { disqualified: true };
   }
 
   // ── Server-side emit helpers (called from services) ──────────────────────

@@ -13,12 +13,16 @@ interface UseWebRTCOptions {
   localStream: MediaStream | null
   socket: any // socket.io instance from useSessionWebSocket
   enabled?: boolean
+  candidateId?: string // For CANDIDATE role to identify themselves
+  activeCandidateId?: string // For PROCTOR role to control audio routing
 }
 
-export function useWebRTC({ sessionId, role, localStream, socket, enabled = true }: UseWebRTCOptions) {
+export function useWebRTC({ sessionId, role, localStream, socket, enabled = true, candidateId, activeCandidateId }: UseWebRTCOptions) {
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
+  const [proctorActive, setProctorActive] = useState(false)
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
+  const activeCandidateIdRef = useRef<string | undefined>(activeCandidateId)
 
   // Keep localStreamRef in sync and re-add tracks to existing peers when stream changes
   useEffect(() => {
@@ -38,6 +42,17 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       })
     }
   }, [localStream])
+
+  // Update activeCandidateId ref and control audio routing
+  useEffect(() => {
+    activeCandidateIdRef.current = activeCandidateId
+    if (role === 'PROCTOR' && localStream) {
+      const audioTrack = localStream.getAudioTracks()[0]
+      if (audioTrack) {
+        audioTrack.enabled = !!activeCandidateId
+      }
+    }
+  }, [activeCandidateId, role, localStream])
 
   const createPeer = useCallback((peerId: string, initiator: boolean): RTCPeerConnection => {
     // Close existing peer if any
@@ -132,24 +147,43 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       }
     }
 
+    // CANDIDATE: Listen for proctor activation/deactivation
+    const handleProctorAudioActive = () => {
+      setProctorActive(true)
+    }
+
+    const handleProctorAudioInactive = () => {
+      setProctorActive(false)
+    }
+
     socket.on('webrtc.offer', handleOffer)
     socket.on('webrtc.answer', handleAnswer)
     socket.on('webrtc.ice', handleIce)
     socket.on('peer.joined', handlePeerJoined)
 
-    // Announce presence to trigger peer connections
-    socket.emit('peer.announce', { sessionId, role, socketId: socket.id })
+    if (role === 'CANDIDATE') {
+      socket.on('proctor.audio_active', handleProctorAudioActive)
+      socket.on('proctor.audio_inactive', handleProctorAudioInactive)
+      // Announce with candidateId
+      socket.emit('peer.announce', { sessionId, role, socketId: socket.id, candidateId })
+    } else {
+      socket.emit('peer.announce', { sessionId, role, socketId: socket.id })
+    }
 
     return () => {
       socket.off('webrtc.offer', handleOffer)
       socket.off('webrtc.answer', handleAnswer)
       socket.off('webrtc.ice', handleIce)
       socket.off('peer.joined', handlePeerJoined)
+      if (role === 'CANDIDATE') {
+        socket.off('proctor.audio_active', handleProctorAudioActive)
+        socket.off('proctor.audio_inactive', handleProctorAudioInactive)
+      }
       peersRef.current.forEach(peer => peer.close())
       peersRef.current.clear()
       setRemoteStreams(new Map())
     }
-  }, [enabled, socket, sessionId, role, createPeer])
+  }, [enabled, socket, sessionId, role, createPeer, candidateId])
 
-  return { remoteStreams }
+  return { remoteStreams, proctorActive }
 }
