@@ -4,248 +4,415 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding assessexpert database...');
+  console.log('🌱 Starting database seed...');
+
+  // Hash password helper
+  const hashPassword = async (password: string) => {
+    return bcrypt.hash(password, 10);
+  };
+
+  // 1. Create Organizations
+  console.log('Creating organizations...');
+  
+  const assessExpertOrg = await prisma.organization.upsert({
+    where: { id: 'org-assessexpert' },
+    update: {},
+    create: {
+      id: 'org-assessexpert',
+      name: 'AssessExpert',
+      contactEmail: 'admin@assessexpert.ae',
+      contactPhone: '+971-4-1234567',
+      address: 'Dubai, UAE',
+      subscriptionTier: 'ENTERPRISE',
+      subscriptionStatus: 'ACTIVE',
+      maxConcurrentSessions: 100,
+      storageQuotaGB: 1000,
+    },
+  });
+
+  const demoCompanyOrg = await prisma.organization.upsert({
+    where: { id: 'org-democompany' },
+    update: {},
+    create: {
+      id: 'org-democompany',
+      name: 'Demo Company',
+      contactEmail: 'hr@democompany.ae',
+      contactPhone: '+971-4-7654321',
+      address: 'Abu Dhabi, UAE',
+      subscriptionTier: 'PROFESSIONAL',
+      subscriptionStatus: 'ACTIVE',
+      maxConcurrentSessions: 20,
+      storageQuotaGB: 100,
+    },
+  });
+
+  console.log('✅ Organizations created');
+
+  // 2. Create Users
+  console.log('Creating users...');
 
   // Super Admin
-  const adminHash = await bcrypt.hash('Admin@assessexpert2026!', 12);
-  const admin = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: 'admin@assessexpert.ae' },
     update: {},
     create: {
       email: 'admin@assessexpert.ae',
-      passwordHash: adminHash,
-      role: 'SUPER_ADMIN',
+      passwordHash: await hashPassword('Admin@assessexpert2026!'),
       firstName: 'Super',
       lastName: 'Admin',
-      phone: '+971500000001',
-      status: 'ACTIVE',
-      mfaEnabled: false,
+      role: 'SUPER_ADMIN',
+      organizationId: assessExpertOrg.id,
     },
   });
-  console.log('✅ Super Admin created:', admin.email);
 
   // Master Proctor
-  const mpHash = await bcrypt.hash('MasterProctor@2026!', 12);
-  const masterProctor = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: 'masterproctor@assessexpert.ae' },
     update: {},
     create: {
       email: 'masterproctor@assessexpert.ae',
-      passwordHash: mpHash,
-      role: 'MASTER_PROCTOR',
+      passwordHash: await hashPassword('MasterProctor@2026!'),
       firstName: 'Master',
       lastName: 'Proctor',
-      phone: '+971500000002',
-      status: 'ACTIVE',
-      mfaEnabled: false,
+      role: 'MASTER_PROCTOR',
+      organizationId: assessExpertOrg.id,
     },
   });
-  console.log('✅ Master Proctor created:', masterProctor.email);
 
-  // Exam Setup Master
-  const esmHash = await bcrypt.hash('ExamSetup@2026!', 12);
-  const examSetupMaster = await prisma.user.upsert({
+  // Exam Setup (using ORG_ADMIN role)
+  await prisma.user.upsert({
     where: { email: 'examsetup@assessexpert.ae' },
     update: {},
     create: {
       email: 'examsetup@assessexpert.ae',
-      passwordHash: esmHash,
-      role: 'EXAM_SETUP_MASTER',
+      passwordHash: await hashPassword('ExamSetup@2026!'),
       firstName: 'Exam',
       lastName: 'Setup',
-      phone: '+971500000003',
-      status: 'ACTIVE',
-      mfaEnabled: false,
+      role: 'ORG_ADMIN',
+      organizationId: assessExpertOrg.id,
     },
   });
-  console.log('✅ Exam Setup Master created:', examSetupMaster.email);
 
   // Proctor
-  const proctorHash = await bcrypt.hash('Proctor@2026!', 12);
-  const proctor = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: 'proctor@assessexpert.ae' },
     update: {},
     create: {
       email: 'proctor@assessexpert.ae',
-      passwordHash: proctorHash,
+      passwordHash: await hashPassword('Proctor@2026!'),
+      firstName: 'John',
+      lastName: 'Proctor',
       role: 'PROCTOR',
-      firstName: 'Ali',
-      lastName: 'Hassan',
-      phone: '+971500000004',
-      status: 'ACTIVE',
-      mfaEnabled: false,
-      certificationLevel: 'Senior',
-      certificationDomains: ['Engineering', 'IT'],
-      languages: ['en', 'ar'],
-      timezone: 'Asia/Dubai',
-      maxSessionsPerDay: 5,
+      organizationId: assessExpertOrg.id,
     },
   });
-  console.log('✅ Proctor created:', proctor.email);
 
-  // Sales Agent
-  const salesHash = await bcrypt.hash('Sales@2026!', 12);
-  const salesAgent = await prisma.user.upsert({
+  // Sales (using ORG_ADMIN role)
+  await prisma.user.upsert({
     where: { email: 'sales@assessexpert.ae' },
     update: {},
     create: {
       email: 'sales@assessexpert.ae',
-      passwordHash: salesHash,
-      role: 'SALES_AGENT',
+      passwordHash: await hashPassword('Sales@2026!'),
       firstName: 'Sales',
-      lastName: 'Agent',
-      phone: '+971500000005',
-      status: 'ACTIVE',
-      region: 'GCC',
+      lastName: 'Manager',
+      role: 'ORG_ADMIN',
+      organizationId: assessExpertOrg.id,
     },
   });
-  console.log('✅ Sales Agent created:', salesAgent.email);
-
-  // Demo Organization
-  const org = await prisma.organization.upsert({
-    where: { slug: 'demo-company-ae' },
-    update: {},
-    create: {
-      name: 'Demo Engineering Company',
-      slug: 'demo-company-ae',
-      country: 'UAE',
-      city: 'Dubai',
-      industry: 'Engineering',
-      size: '51-200',
-      status: 'ACTIVE',
-      contractStartDate: new Date(),
-      contractEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      assessmentCredits: 100,
-      assignedSalesAgentId: salesAgent.id,
-      primaryContactEmail: 'hr@democompany.ae',
-      accountTier: 'STANDARD',
-    },
-  });
-  console.log('✅ Demo Organization created:', org.name);
 
   // HR Manager
-  const hrHash = await bcrypt.hash('HRManager@2026!', 12);
-  const hrManager = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: 'hr@democompany.ae' },
     update: {},
     create: {
       email: 'hr@democompany.ae',
-      passwordHash: hrHash,
+      passwordHash: await hashPassword('HRManager@2026!'),
+      firstName: 'HR',
+      lastName: 'Manager',
       role: 'HR_MANAGER',
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      phone: '+971500000006',
-      organizationId: org.id,
+      organizationId: demoCompanyOrg.id,
+    },
+  });
+
+  console.log('✅ Users created');
+
+  // 3. Create Assessment Types
+  console.log('Creating assessment types...');
+
+  const fullStackAssessment = await prisma.assessmentType.upsert({
+    where: { id: 'assess-fullstack' },
+    update: {},
+    create: {
+      id: 'assess-fullstack',
+      name: 'Full Stack Developer',
+      description: 'Comprehensive assessment for Full Stack Developer position covering frontend, backend, and database skills.',
+      mcqCount: 25,
+      mcqDurationMinutes: 45,
+      practicalDurationMinutes: 90,
+      passingScorePercentage: 60,
       status: 'ACTIVE',
     },
   });
-  console.log('✅ HR Manager created:', hrManager.email);
 
-  // Assessment Types
-  const assessmentTypes = [
-    { name: 'AutoCAD Draftsman Level 1', shortCode: 'ACAD-L1', category: 'Engineering', industry: 'Construction', jobRole: 'AutoCAD Draftsman', practicalType: 'CAD' as const },
-    { name: 'AutoCAD Draftsman Level 2', shortCode: 'ACAD-L2', category: 'Engineering', industry: 'Construction', jobRole: 'Senior AutoCAD Draftsman', practicalType: 'CAD' as const },
-    { name: 'BIM Coordinator Level 1', shortCode: 'BIM-L1', category: 'Engineering', industry: 'Construction', jobRole: 'BIM Coordinator', practicalType: 'CAD' as const },
-    { name: 'BIM Coordinator Level 2', shortCode: 'BIM-L2', category: 'Engineering', industry: 'Construction', jobRole: 'Senior BIM Coordinator', practicalType: 'CAD' as const },
-    { name: 'Python Developer', shortCode: 'PY-DEV', category: 'IT', industry: 'Technology', jobRole: 'Python Developer', practicalType: 'CODING' as const },
-    { name: 'JavaScript Developer', shortCode: 'JS-DEV', category: 'IT', industry: 'Technology', jobRole: 'JavaScript Developer', practicalType: 'CODING' as const },
-    { name: 'Network Engineer', shortCode: 'NET-ENG', category: 'IT', industry: 'Technology', jobRole: 'Network Engineer', practicalType: 'LAB' as const },
-    { name: 'HR Generalist', shortCode: 'HR-GEN', category: 'HR', industry: 'General', jobRole: 'HR Generalist', practicalType: 'FILE' as const },
-    { name: 'Accountant Level 1', shortCode: 'ACC-L1', category: 'Finance', industry: 'Finance', jobRole: 'Accountant', practicalType: 'FILE' as const },
-    { name: 'Project Manager', shortCode: 'PM-GEN', category: 'Operations', industry: 'General', jobRole: 'Project Manager', practicalType: 'FILE' as const },
+  const frontendAssessment = await prisma.assessmentType.upsert({
+    where: { id: 'assess-frontend' },
+    update: {},
+    create: {
+      id: 'assess-frontend',
+      name: 'Frontend Developer',
+      description: 'Assessment for Frontend Developer position focusing on React, JavaScript, HTML, and CSS.',
+      mcqCount: 25,
+      mcqDurationMinutes: 40,
+      practicalDurationMinutes: 60,
+      passingScorePercentage: 60,
+      status: 'ACTIVE',
+    },
+  });
+
+  const backendAssessment = await prisma.assessmentType.upsert({
+    where: { id: 'assess-backend' },
+    update: {},
+    create: {
+      id: 'assess-backend',
+      name: 'Backend Developer',
+      description: 'Assessment for Backend Developer position covering Node.js, databases, and API design.',
+      mcqCount: 25,
+      mcqDurationMinutes: 40,
+      practicalDurationMinutes: 90,
+      passingScorePercentage: 60,
+      status: 'ACTIVE',
+    },
+  });
+
+  console.log('✅ Assessment types created');
+
+  // 4. Create Sample Questions
+  console.log('Creating sample questions...');
+
+  const questions = [
+    {
+      id: 'q1',
+      assessmentTypeId: fullStackAssessment.id,
+      content: { text: 'What is the purpose of React hooks?' },
+      options: [
+        { key: 'A', text: 'To add state and lifecycle features to functional components' },
+        { key: 'B', text: 'To style components' },
+        { key: 'C', text: 'To create class components' },
+        { key: 'D', text: 'To handle routing' },
+      ],
+      correctAnswer: 'A',
+      difficulty: 'MEDIUM',
+    },
+    {
+      id: 'q2',
+      assessmentTypeId: fullStackAssessment.id,
+      content: { text: 'Which HTTP method is used to update a resource?' },
+      options: [
+        { key: 'A', text: 'GET' },
+        { key: 'B', text: 'POST' },
+        { key: 'C', text: 'PUT' },
+        { key: 'D', text: 'DELETE' },
+      ],
+      correctAnswer: 'C',
+      difficulty: 'EASY',
+    },
+    {
+      id: 'q3',
+      assessmentTypeId: fullStackAssessment.id,
+      content: { text: 'What does SQL stand for?' },
+      options: [
+        { key: 'A', text: 'Structured Query Language' },
+        { key: 'B', text: 'Simple Query Language' },
+        { key: 'C', text: 'Standard Query Language' },
+        { key: 'D', text: 'System Query Language' },
+      ],
+      correctAnswer: 'A',
+      difficulty: 'EASY',
+    },
+    {
+      id: 'q4',
+      assessmentTypeId: fullStackAssessment.id,
+      content: { text: 'What is the purpose of middleware in Express.js?' },
+      options: [
+        { key: 'A', text: 'To handle database connections' },
+        { key: 'B', text: 'To process requests before they reach route handlers' },
+        { key: 'C', text: 'To render HTML templates' },
+        { key: 'D', text: 'To manage sessions' },
+      ],
+      correctAnswer: 'B',
+      difficulty: 'MEDIUM',
+    },
+    {
+      id: 'q5',
+      assessmentTypeId: fullStackAssessment.id,
+      content: { text: 'Which of the following is NOT a JavaScript data type?' },
+      options: [
+        { key: 'A', text: 'String' },
+        { key: 'B', text: 'Boolean' },
+        { key: 'C', text: 'Character' },
+        { key: 'D', text: 'Number' },
+      ],
+      correctAnswer: 'C',
+      difficulty: 'EASY',
+    },
   ];
 
-  for (const at of assessmentTypes) {
-    await prisma.assessmentType.upsert({
-      where: { shortCode: at.shortCode },
+  for (const question of questions) {
+    await prisma.question.upsert({
+      where: { id: question.id },
       update: {},
       create: {
-        ...at,
-        description: `Professional assessment for ${at.jobRole} role`,
-        mcqTimeLimit: 30,
-        mcqQuestionCount: 25,
-        mcqPassThreshold: 60,
-        practicalTimeLimit: 60,
-        practicalPassThreshold: 60,
+        ...question,
         status: 'ACTIVE',
-        createdBy: admin.id,
-        languages: ['en'],
       },
     });
   }
-  console.log('✅ Assessment types seeded:', assessmentTypes.length);
 
-  // Sample questions for BIM-L2
-  const bimType = await prisma.assessmentType.findUnique({ where: { shortCode: 'BIM-L2' } });
-  if (bimType) {
-    const sampleQuestions = [
-      { text: 'In Autodesk Revit, what does "Workset" refer to?', options: ['A set of view templates applied to a model', 'A shared set of elements for collaborative work', 'A collection of sheets in a project browser', 'A group of families in the project library'], correct: ['B'], domain: 'Revit Fundamentals', difficulty: 'MEDIUM' as const },
-      { text: 'What is the primary purpose of an IFC file in a BIM coordination workflow?', options: ['To store 2D drawing files for fabrication', 'To enable interoperability between different BIM software platforms', 'To define the project scheduling milestones', 'To manage construction budget allocations'], correct: ['B'], domain: 'IFC Standards', difficulty: 'MEDIUM' as const },
-      { text: 'Which IFC entity is used to represent a structural column?', options: ['IfcBeam', 'IfcColumn', 'IfcWall', 'IfcSlab'], correct: ['B'], domain: 'IFC Standards', difficulty: 'EASY' as const },
-      { text: 'What does LOD 300 represent in BIM?', options: ['Conceptual design', 'Approximate geometry', 'Precise geometry with specific assemblies', 'As-built documentation'], correct: ['C'], domain: 'BIM Standards', difficulty: 'MEDIUM' as const },
-      { text: 'In Navisworks, what is a "Clash Detective" used for?', options: ['Detecting design errors in 2D drawings', 'Identifying spatial conflicts between building elements', 'Checking code compliance', 'Reviewing project schedules'], correct: ['B'], domain: 'Clash Detection', difficulty: 'EASY' as const },
-    ];
-
-    for (const [i, q] of sampleQuestions.entries()) {
-      const existing = await prisma.question.findFirst({
-        where: { assessmentTypeId: bimType.id, domain: q.domain, status: 'ACTIVE' },
-      });
-      if (!existing) {
-        await prisma.question.create({
-          data: {
-            assessmentTypeId: bimType.id,
-            type: 'MCQ_SINGLE',
-            content: { text: q.text },
-            options: q.options.map((o, idx) => ({ key: String.fromCharCode(65 + idx), text: o })),
-            correctAnswer: q.correct,
-            difficulty: q.difficulty,
-            domain: q.domain,
-            tags: [q.domain],
-            marks: 1,
-            language: 'en',
-            status: 'ACTIVE',
-            createdBy: examSetupMaster.id,
-            version: 1,
-          },
-        });
-      }
-    }
-    console.log('✅ Sample questions seeded for BIM-L2');
-  }
-
-  // Platform settings
-  const defaultSettings = [
-    { key: 'recording_retention_days', value: 7 },
-    { key: 'fr_image_retention_days', value: 90 },
-    { key: 'max_concurrent_sessions', value: 50 },
-    { key: 'fr_similarity_threshold_verified', value: 90 },
-    { key: 'fr_similarity_threshold_review', value: 70 },
-    { key: 'fr_check_interval_seconds', value: 90 },
-    { key: 'face_absence_threshold_seconds', value: 8 },
-    { key: 'tab_switch_escalation_count', value: 3 },
-    { key: 'min_proctor_narrative_chars', value: 50 },
-    { key: 'report_sla_hours', value: 24 },
-  ];
-
-  for (const s of defaultSettings) {
-    await prisma.platformSettings.upsert({
-      where: { key: s.key },
+  // Create more questions to reach 25+ per assessment
+  for (let i = 6; i <= 30; i++) {
+    await prisma.question.upsert({
+      where: { id: `q${i}` },
       update: {},
-      create: { key: s.key, value: s.value, updatedBy: admin.id },
+      create: {
+        id: `q${i}`,
+        assessmentTypeId: fullStackAssessment.id,
+        content: { text: `Sample Question ${i} for Full Stack Developer` },
+        options: [
+          { key: 'A', text: 'Option A' },
+          { key: 'B', text: 'Option B' },
+          { key: 'C', text: 'Option C' },
+          { key: 'D', text: 'Option D' },
+        ],
+        correctAnswer: 'A',
+        difficulty: i % 3 === 0 ? 'HARD' : i % 2 === 0 ? 'MEDIUM' : 'EASY',
+        status: 'ACTIVE',
+      },
     });
   }
-  console.log('✅ Platform settings seeded');
 
-  console.log('\n🎉 Database seeded successfully!');
-  console.log('\nDefault credentials:');
-  console.log('  Super Admin:      admin@assessexpert.ae / Admin@assessexpert2026!');
-  console.log('  Master Proctor:   masterproctor@assessexpert.ae / MasterProctor@2026!');
-  console.log('  Exam Setup:       examsetup@assessexpert.ae / ExamSetup@2026!');
-  console.log('  Proctor:          proctor@assessexpert.ae / Proctor@2026!');
-  console.log('  Sales Agent:      sales@assessexpert.ae / Sales@2026!');
-  console.log('  HR Manager:       hr@democompany.ae / HRManager@2026!');
+  console.log('✅ Questions created');
+
+  // 5. Create Practical Tasks
+  console.log('Creating practical tasks...');
+
+  await prisma.practicalTask.upsert({
+    where: { id: 'task1' },
+    update: {},
+    create: {
+      id: 'task1',
+      title: 'Build a REST API',
+      description: 'Create a RESTful API with CRUD operations for a Todo application using Node.js and Express.',
+      assessmentTypeId: fullStackAssessment.id,
+      acceptedFileTypes: ['.zip', '.js', '.ts'],
+      maxFileSizeMB: 10,
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.practicalTask.upsert({
+    where: { id: 'task2' },
+    update: {},
+    create: {
+      id: 'task2',
+      title: 'React Component Development',
+      description: 'Build a responsive dashboard component with charts and data tables using React.',
+      assessmentTypeId: frontendAssessment.id,
+      acceptedFileTypes: ['.zip', '.jsx', '.tsx'],
+      maxFileSizeMB: 10,
+      status: 'ACTIVE',
+    },
+  });
+
+  console.log('✅ Practical tasks created');
+
+  // 6. Create Sample Candidates
+  console.log('Creating sample candidates...');
+
+  const candidates = [
+    {
+      id: 'cand1',
+      firstName: 'Ahmed',
+      lastName: 'Hassan',
+      email: 'ahmed.hassan@example.com',
+      phone: '+971-50-1234567',
+    },
+    {
+      id: 'cand2',
+      firstName: 'Fatima',
+      lastName: 'Ali',
+      email: 'fatima.ali@example.com',
+      phone: '+971-50-2345678',
+    },
+    {
+      id: 'cand3',
+      firstName: 'Mohammed',
+      lastName: 'Khan',
+      email: 'mohammed.khan@example.com',
+      phone: '+971-50-3456789',
+    },
+    {
+      id: 'cand4',
+      firstName: 'Sara',
+      lastName: 'Ahmed',
+      email: 'sara.ahmed@example.com',
+      phone: '+971-50-4567890',
+    },
+    {
+      id: 'cand5',
+      firstName: 'Omar',
+      lastName: 'Ibrahim',
+      email: 'omar.ibrahim@example.com',
+      phone: '+971-50-5678901',
+    },
+  ];
+
+  for (const candidate of candidates) {
+    await prisma.candidateRecord.upsert({
+      where: { id: candidate.id },
+      update: {},
+      create: candidate,
+    });
+  }
+
+  console.log('✅ Candidates created');
+
+  console.log('');
+  console.log('🎉 Database seeded successfully!');
+  console.log('');
+  console.log('📋 Demo Credentials:');
+  console.log('');
+  console.log('Super Admin:');
+  console.log('  Email: admin@assessexpert.ae');
+  console.log('  Password: Admin@assessexpert2026!');
+  console.log('');
+  console.log('Master Proctor:');
+  console.log('  Email: masterproctor@assessexpert.ae');
+  console.log('  Password: MasterProctor@2026!');
+  console.log('');
+  console.log('Exam Setup:');
+  console.log('  Email: examsetup@assessexpert.ae');
+  console.log('  Password: ExamSetup@2026!');
+  console.log('');
+  console.log('Proctor:');
+  console.log('  Email: proctor@assessexpert.ae');
+  console.log('  Password: Proctor@2026!');
+  console.log('');
+  console.log('Sales:');
+  console.log('  Email: sales@assessexpert.ae');
+  console.log('  Password: Sales@2026!');
+  console.log('');
+  console.log('HR Manager:');
+  console.log('  Email: hr@democompany.ae');
+  console.log('  Password: HRManager@2026!');
+  console.log('');
 }
 
 main()
-  .catch(e => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+  .catch((e) => {
+    console.error('❌ Seed failed:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
