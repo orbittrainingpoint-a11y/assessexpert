@@ -88,13 +88,14 @@ async function main() {
   // Super Admin
   const superAdmin = await prisma.user.upsert({
     where: { email: 'admin@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'SUPER_ADMIN', status: 'ACTIVE' },
     create: {
       email: 'admin@assessexpert.ae',
       passwordHash: await bcrypt.hash('Admin@assessexpert2026!', 10),
       firstName: 'Super',
       lastName: 'Admin',
       role: 'SUPER_ADMIN',
+      organizationId: assessExpertOrg.id,
       status: 'ACTIVE',
     },
   });
@@ -102,13 +103,14 @@ async function main() {
   // Master Proctor
   const masterProctor = await prisma.user.upsert({
     where: { email: 'masterproctor@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'MASTER_PROCTOR', status: 'ACTIVE' },
     create: {
       email: 'masterproctor@assessexpert.ae',
       passwordHash: await bcrypt.hash('MasterProctor@2026!', 10),
       firstName: 'Master',
       lastName: 'Proctor',
       role: 'MASTER_PROCTOR',
+      organizationId: assessExpertOrg.id,
       status: 'ACTIVE',
       certificationLevel: 'SENIOR',
       certificationDomains: ['CAD', 'CODING', 'LAB'],
@@ -120,13 +122,14 @@ async function main() {
   // Exam Setup Master
   const examSetup = await prisma.user.upsert({
     where: { email: 'examsetup@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'EXAM_SETUP_MASTER', status: 'ACTIVE' },
     create: {
       email: 'examsetup@assessexpert.ae',
       passwordHash: await bcrypt.hash('ExamSetup@2026!', 10),
       firstName: 'Exam',
       lastName: 'Setup',
       role: 'EXAM_SETUP_MASTER',
+      organizationId: assessExpertOrg.id,
       status: 'ACTIVE',
     },
   });
@@ -134,13 +137,14 @@ async function main() {
   // Proctor
   const proctor = await prisma.user.upsert({
     where: { email: 'proctor@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'PROCTOR', status: 'ACTIVE' },
     create: {
       email: 'proctor@assessexpert.ae',
       passwordHash: await bcrypt.hash('Proctor@2026!', 10),
       firstName: 'John',
       lastName: 'Proctor',
       role: 'PROCTOR',
+      organizationId: assessExpertOrg.id,
       status: 'ACTIVE',
       certificationLevel: 'INTERMEDIATE',
       certificationDomains: ['CAD', 'CODING'],
@@ -152,13 +156,14 @@ async function main() {
   // Sales Agent
   const sales = await prisma.user.upsert({
     where: { email: 'sales@assessexpert.ae' },
-    update: {},
+    update: { organizationId: assessExpertOrg.id, role: 'SALES_AGENT', status: 'ACTIVE' },
     create: {
       email: 'sales@assessexpert.ae',
       passwordHash: await bcrypt.hash('Sales@2026!', 10),
       firstName: 'Sales',
       lastName: 'Manager',
       role: 'SALES_AGENT',
+      organizationId: assessExpertOrg.id,
       status: 'ACTIVE',
     },
   });
@@ -166,7 +171,7 @@ async function main() {
   // HR Manager - Demo Company
   const hrDemo = await prisma.user.upsert({
     where: { email: 'hr@democompany.ae' },
-    update: {},
+    update: { organizationId: demoCompanyOrg.id, role: 'HR_MANAGER', status: 'ACTIVE' },
     create: {
       email: 'hr@democompany.ae',
       passwordHash: await bcrypt.hash('HRManager@2026!', 10),
@@ -181,7 +186,7 @@ async function main() {
   // Org Admin - Demo Company
   const orgAdminDemo = await prisma.user.upsert({
     where: { email: 'admin@democompany.ae' },
-    update: {},
+    update: { organizationId: demoCompanyOrg.id, role: 'ORG_ADMIN', status: 'ACTIVE' },
     create: {
       email: 'admin@democompany.ae',
       passwordHash: await bcrypt.hash('OrgAdmin@2026!', 10),
@@ -196,7 +201,7 @@ async function main() {
   // HR Manager - TechCorp
   const hrTech = await prisma.user.upsert({
     where: { email: 'hr@techcorp.ae' },
-    update: {},
+    update: { organizationId: techCorpOrg.id, role: 'HR_MANAGER', status: 'ACTIVE' },
     create: {
       email: 'hr@techcorp.ae',
       passwordHash: await bcrypt.hash('TechHR@2026!', 10),

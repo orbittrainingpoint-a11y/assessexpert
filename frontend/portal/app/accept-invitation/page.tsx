@@ -1,10 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import toast from 'react-hot-toast'
 
-export default function AcceptInvitationPage() {
+function AcceptInvitationForm() {
   const params = useSearchParams()
   const router = useRouter()
   const token = params.get('token') || ''
@@ -80,5 +80,17 @@ export default function AcceptInvitationPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function AcceptInvitationPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
+      </div>
+    }>
+      <AcceptInvitationForm />
+    </Suspense>
   )
 }
