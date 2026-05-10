@@ -371,7 +371,10 @@ async function main() {
     await prisma.candidateRecord.upsert({
       where: { id: candidate.id },
       update: {},
-      create: candidate,
+      create: {
+        ...candidate,
+        organizationId: demoCompanyOrg.id,
+      },
     });
   }
 
