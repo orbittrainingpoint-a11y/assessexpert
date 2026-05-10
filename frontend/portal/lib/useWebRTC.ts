@@ -43,16 +43,10 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
     }
   }, [localStream])
 
-  // Update activeCandidateId ref and control audio routing
+  // Update activeCandidateId ref
   useEffect(() => {
     activeCandidateIdRef.current = activeCandidateId
-    if (role === 'PROCTOR' && localStream) {
-      const audioTrack = localStream.getAudioTracks()[0]
-      if (audioTrack) {
-        audioTrack.enabled = !!activeCandidateId
-      }
-    }
-  }, [activeCandidateId, role, localStream])
+  }, [activeCandidateId])
 
   const createPeer = useCallback((peerId: string, initiator: boolean): RTCPeerConnection => {
     // Close existing peer if any

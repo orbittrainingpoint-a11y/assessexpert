@@ -54,7 +54,9 @@ function ExamContent() {
   const [checklist, setChecklist] = useState<any[]>([])
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const bgVideoRef = useRef<HTMLVideoElement>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const screenStreamRef = useRef<MediaStream | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
 
   // Helper: assign stream to any video element
@@ -69,14 +71,20 @@ function ExamContent() {
   // Re-assign stream whenever phase changes (new video element mounts)
   useEffect(() => {
     if (!cameraStreamRef.current) return
-    const timer = setTimeout(() => assignStream(videoRef.current), 50)
+    const timer = setTimeout(() => {
+      assignStream(videoRef.current)
+      assignStream(bgVideoRef.current)
+    }, 50)
     return () => clearTimeout(timer)
   }, [phase, assignStream])
 
   // Re-assign stream after fullscreen change (browser pauses video during transition)
   useEffect(() => {
     const onFs = () => {
-      setTimeout(() => assignStream(videoRef.current), 200)
+      setTimeout(() => {
+        assignStream(videoRef.current)
+        assignStream(bgVideoRef.current)
+      }, 200)
     }
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
@@ -131,11 +139,21 @@ function ExamContent() {
       }
     },
   })
-  // WebRTC — send candidate stream to proctor, receive proctor stream
+  // WebRTC — send candidate camera + screen stream to proctor, receive proctor stream
+  const combinedStream = useRef<MediaStream | null>(null)
+  useEffect(() => {
+    if (!cameraReady) return
+    const tracks = [
+      ...(cameraStreamRef.current?.getTracks() || []),
+      ...(screenStreamRef.current?.getVideoTracks() || []),
+    ]
+    combinedStream.current = new MediaStream(tracks)
+  }, [cameraReady])
+
   const { remoteStreams: proctorStreams, proctorActive } = useWebRTC({
     sessionId: sessionState?.id || '',
     role: 'CANDIDATE',
-    localStream: cameraReady ? cameraStreamRef.current : null,
+    localStream: cameraReady ? (combinedStream.current || cameraStreamRef.current) : null,
     socket: wsSocket,
     enabled: !!sessionState?.id && cameraReady && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
     candidateId: sessionState?.candidate?.id,
@@ -369,11 +387,20 @@ function ExamContent() {
 
   const requestScreenShare = async () => {
     try {
-      await (navigator.mediaDevices as any).getDisplayMedia({ video: true })
+      const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false })
+      screenStreamRef.current = screenStream
+      // Add screen track to existing WebRTC peers via combined stream update
+      const camTracks = cameraStreamRef.current?.getTracks() || []
+      const screenTracks = screenStream.getVideoTracks()
+      combinedStream.current = new MediaStream([...camTracks, ...screenTracks])
       setScreenShareRequested(false)
       toast.success('Screen share active')
+      // Stop screen share when user ends it via browser UI
+      screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        screenStreamRef.current = null
+      })
     } catch {
-      toast.error('Screen share required')
+      toast.error('Screen share required for this assessment')
     }
   }
 
@@ -728,7 +755,7 @@ function ExamContent() {
       )}
 
       <video
-        ref={el => { videoRef.current = el; assignStream(el) }}
+        ref={el => { bgVideoRef.current = el; assignStream(el) }}
         autoPlay muted playsInline
         style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.4 }}
       />

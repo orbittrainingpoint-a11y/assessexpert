@@ -118,7 +118,6 @@ function SessionContent() {
     localStream: cameraActive ? proctorStreamRef.current : null,
     socket: wsSocket,
     enabled: !!sessionId && cameraActive && !!session,
-    activeCandidateId,
   })
 
   const handleCandidateSelect = useCallback((candidateId: string) => {
@@ -303,7 +302,7 @@ function SessionContent() {
           <div>
             <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Your Camera</p>
             <p style={{ margin: '2px 0 0', fontSize: '12px', color: cameraActive ? 'var(--emerald)' : cameraError ? 'var(--rose)' : 'var(--text-muted)' }}>
-              {cameraActive ? 'Active — candidates can see you' : cameraError ? 'Camera access denied' : 'Starting...'}
+              {cameraActive ? 'Active — candidates can see and hear you' : cameraError ? 'Camera/mic access denied' : 'Starting...'}
             </p>
             {cameraError && <button className="btn-ghost" onClick={startProctorCamera} style={{ marginTop: '6px', padding: '4px 10px', fontSize: '11px' }}>Retry</button>}
           </div>
