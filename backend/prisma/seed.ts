@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, QuestionType, Difficulty, QuestionStatus, PracticalType, TaskStatus, AssessmentStatus, OrgStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -27,7 +27,7 @@ async function main() {
       address: 'Dubai, UAE',
       primaryContactEmail: 'admin@assessexpert.ae',
       primaryContactPhone: '+971-4-1234567',
-      status: 'ACTIVE',
+      status: OrgStatus.ACTIVE,
       maxConcurrentSessions: 100,
       accountTier: 'ENTERPRISE',
     },
@@ -46,7 +46,7 @@ async function main() {
       address: 'Abu Dhabi, UAE',
       primaryContactEmail: 'hr@democompany.ae',
       primaryContactPhone: '+971-4-7654321',
-      status: 'ACTIVE',
+      status: OrgStatus.ACTIVE,
       maxConcurrentSessions: 20,
       accountTier: 'STANDARD',
     },
@@ -162,7 +162,7 @@ async function main() {
       practicalTimeLimit: 90,
       mcqPassThreshold: 60,
       practicalPassThreshold: 60,
-      status: 'ACTIVE',
+      status: AssessmentStatus.ACTIVE,
       createdBy: 'system',
     },
   });
@@ -183,7 +183,7 @@ async function main() {
       practicalTimeLimit: 60,
       mcqPassThreshold: 60,
       practicalPassThreshold: 60,
-      status: 'ACTIVE',
+      status: AssessmentStatus.ACTIVE,
       createdBy: 'system',
     },
   });
@@ -204,7 +204,7 @@ async function main() {
       practicalTimeLimit: 90,
       mcqPassThreshold: 60,
       practicalPassThreshold: 60,
-      status: 'ACTIVE',
+      status: AssessmentStatus.ACTIVE,
       createdBy: 'system',
     },
   });
@@ -218,7 +218,7 @@ async function main() {
     {
       id: 'q1',
       assessmentTypeId: fullStackAssessment.id,
-      type: 'MCQ_SINGLE',
+      type: QuestionType.MCQ_SINGLE,
       content: { text: 'What is the purpose of React hooks?' },
       options: [
         { key: 'A', text: 'To add state and lifecycle features to functional components' },
@@ -227,7 +227,7 @@ async function main() {
         { key: 'D', text: 'To handle routing' },
       ],
       correctAnswer: ['A'],
-      difficulty: 'MEDIUM',
+      difficulty: Difficulty.MEDIUM,
       domain: 'Frontend',
       tags: ['React', 'Hooks'],
       createdBy: 'system',
@@ -235,7 +235,7 @@ async function main() {
     {
       id: 'q2',
       assessmentTypeId: fullStackAssessment.id,
-      type: 'MCQ_SINGLE',
+      type: QuestionType.MCQ_SINGLE,
       content: { text: 'Which HTTP method is used to update a resource?' },
       options: [
         { key: 'A', text: 'GET' },
@@ -244,7 +244,7 @@ async function main() {
         { key: 'D', text: 'DELETE' },
       ],
       correctAnswer: ['C'],
-      difficulty: 'EASY',
+      difficulty: Difficulty.EASY,
       domain: 'Backend',
       tags: ['HTTP', 'REST'],
       createdBy: 'system',
@@ -252,7 +252,7 @@ async function main() {
     {
       id: 'q3',
       assessmentTypeId: fullStackAssessment.id,
-      type: 'MCQ_SINGLE',
+      type: QuestionType.MCQ_SINGLE,
       content: { text: 'What does SQL stand for?' },
       options: [
         { key: 'A', text: 'Structured Query Language' },
@@ -261,7 +261,7 @@ async function main() {
         { key: 'D', text: 'System Query Language' },
       ],
       correctAnswer: ['A'],
-      difficulty: 'EASY',
+      difficulty: Difficulty.EASY,
       domain: 'Database',
       tags: ['SQL', 'Database'],
       createdBy: 'system',
@@ -269,7 +269,7 @@ async function main() {
     {
       id: 'q4',
       assessmentTypeId: fullStackAssessment.id,
-      type: 'MCQ_SINGLE',
+      type: QuestionType.MCQ_SINGLE,
       content: { text: 'What is the purpose of middleware in Express.js?' },
       options: [
         { key: 'A', text: 'To handle database connections' },
@@ -278,7 +278,7 @@ async function main() {
         { key: 'D', text: 'To manage sessions' },
       ],
       correctAnswer: ['B'],
-      difficulty: 'MEDIUM',
+      difficulty: Difficulty.MEDIUM,
       domain: 'Backend',
       tags: ['Express', 'Node.js'],
       createdBy: 'system',
@@ -286,7 +286,7 @@ async function main() {
     {
       id: 'q5',
       assessmentTypeId: fullStackAssessment.id,
-      type: 'MCQ_SINGLE',
+      type: QuestionType.MCQ_SINGLE,
       content: { text: 'Which of the following is NOT a JavaScript data type?' },
       options: [
         { key: 'A', text: 'String' },
@@ -295,7 +295,7 @@ async function main() {
         { key: 'D', text: 'Number' },
       ],
       correctAnswer: ['C'],
-      difficulty: 'EASY',
+      difficulty: Difficulty.EASY,
       domain: 'Frontend',
       tags: ['JavaScript', 'Fundamentals'],
       createdBy: 'system',
@@ -315,7 +315,7 @@ async function main() {
         difficulty: question.difficulty,
         domain: question.domain,
         tags: question.tags,
-        status: 'ACTIVE',
+        status: QuestionStatus.ACTIVE,
         createdBy: question.createdBy,
         assessmentType: {
           connect: { id: question.assessmentTypeId },
@@ -331,7 +331,7 @@ async function main() {
       update: {},
       create: {
         id: `q${i}`,
-        type: 'MCQ_SINGLE',
+        type: QuestionType.MCQ_SINGLE,
         content: { text: `Sample Question ${i} for Full Stack Developer` },
         options: [
           { key: 'A', text: 'Option A' },
@@ -340,10 +340,10 @@ async function main() {
           { key: 'D', text: 'Option D' },
         ],
         correctAnswer: ['A'],
-        difficulty: i % 3 === 0 ? 'HARD' : i % 2 === 0 ? 'MEDIUM' : 'EASY',
+        difficulty: i % 3 === 0 ? Difficulty.HARD : i % 2 === 0 ? Difficulty.MEDIUM : Difficulty.EASY,
         domain: 'General',
         tags: ['Sample'],
-        status: 'ACTIVE',
+        status: QuestionStatus.ACTIVE,
         createdBy: 'system',
         assessmentType: {
           connect: { id: fullStackAssessment.id },
@@ -364,10 +364,10 @@ async function main() {
       id: 'task1',
       title: 'Build a REST API',
       description: 'Create a RESTful API with CRUD operations for a Todo application using Node.js and Express.',
-      type: 'CODING',
+      type: PracticalType.CODING,
       rubricData: { criteria: ['Functionality', 'Code Quality', 'Best Practices'] },
       acceptedFileTypes: ['.zip', '.js', '.ts'],
-      status: 'ACTIVE',
+      status: TaskStatus.ACTIVE,
       createdBy: 'system',
       assessmentType: {
         connect: { id: fullStackAssessment.id },
@@ -382,10 +382,10 @@ async function main() {
       id: 'task2',
       title: 'React Component Development',
       description: 'Build a responsive dashboard component with charts and data tables using React.',
-      type: 'CODING',
+      type: PracticalType.CODING,
       rubricData: { criteria: ['UI/UX', 'Responsiveness', 'Code Quality'] },
       acceptedFileTypes: ['.zip', '.jsx', '.tsx'],
-      status: 'ACTIVE',
+      status: TaskStatus.ACTIVE,
       createdBy: 'system',
       assessmentType: {
         connect: { id: frontendAssessment.id },
