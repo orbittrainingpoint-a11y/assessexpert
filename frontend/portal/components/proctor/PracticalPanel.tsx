@@ -1,8 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { sessionsApi, practicalTasksApi, reportsApi } from '@/lib/api'
-import { CheckCircle, FileText, Download } from 'lucide-react'
+import { sessionsApi, practicalTasksApi, practicalSetsApi, reportsApi } from '@/lib/api'
+import { CheckCircle, FileText, Download, Layers } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
@@ -22,7 +22,9 @@ interface Props {
 }
 
 export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults, onPracticalStarted }: Props) {
+  const [mode, setMode] = useState<'set' | 'task'>('set')
   const [selectedTaskId, setSelectedTaskId] = useState('')
+  const [selectedSetId, setSelectedSetId] = useState('')
   const [assigning, setAssigning] = useState(false)
 
   const { data: tasksData } = useQuery({
@@ -31,18 +33,38 @@ export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults
     enabled: !!assessmentTypeId,
   })
 
+  const { data: setsData } = useQuery({
+    queryKey: ['practical-sets', assessmentTypeId],
+    queryFn: () => practicalSetsApi.list(assessmentTypeId).then(r => r.data),
+    enabled: !!assessmentTypeId,
+  })
+
   const tasks = tasksData?.practicalTasks || tasksData || []
+  const sets: any[] = (setsData || []).filter((s: any) => s.status === 'ACTIVE')
   const selectedTask = Array.isArray(tasks) ? tasks.find((t: any) => t.id === selectedTaskId) : null
+  const selectedSet = sets.find(s => s.id === selectedSetId)
+
+  // Default to "set" mode only if sets exist; otherwise fall back to legacy task mode
+  // (Run once on data load — naive but fine for this UI)
+  if (mode === 'set' && sets.length === 0 && tasks.length > 0 && selectedSetId === '' && selectedTaskId === '') {
+    setMode('task')
+  }
 
   const handleAssign = async () => {
-    if (!selectedTaskId) return
     setAssigning(true)
     try {
-      await sessionsApi.assignPractical(sessionId, selectedTaskId)
-      toast.success('Practical task assigned — practical phase started')
+      if (mode === 'set' && selectedSetId) {
+        await practicalSetsApi.assignToSession(sessionId, selectedSetId)
+        toast.success(`${selectedSet?.name} assigned — practical phase started`)
+      } else if (mode === 'task' && selectedTaskId) {
+        await sessionsApi.assignPractical(sessionId, selectedTaskId)
+        toast.success('Practical task assigned — practical phase started')
+      } else {
+        return
+      }
       onPracticalStarted()
     } catch (e: any) {
-      toast.error(e.response?.data?.message || 'Failed to assign task')
+      toast.error(e.response?.data?.message || 'Failed to start practical')
     } finally {
       setAssigning(false)
     }
@@ -83,54 +105,109 @@ export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults
         </div>
       </div>
 
-      {/* Task Selector */}
+      {/* Task / Set Selector */}
       <div className="glass-card" style={{ padding: '20px' }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
-          Select Practical Task
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
+            Assign Practical
+          </h3>
+          {/* Mode toggle — only show if both options exist */}
+          {sets.length > 0 && tasks.length > 0 && (
+            <div style={{ display: 'flex', gap: '0', background: 'var(--bg-elevated)', padding: '2px', borderRadius: '6px' }}>
+              <button onClick={() => setMode('set')}
+                style={{ padding: '5px 12px', fontSize: '11px', border: 'none', cursor: 'pointer', borderRadius: '4px',
+                  background: mode === 'set' ? 'var(--cyan)' : 'transparent',
+                  color: mode === 'set' ? '#000' : 'var(--text-muted)', fontWeight: 600 }}>
+                Paper Set
+              </button>
+              <button onClick={() => setMode('task')}
+                style={{ padding: '5px 12px', fontSize: '11px', border: 'none', cursor: 'pointer', borderRadius: '4px',
+                  background: mode === 'task' ? 'var(--cyan)' : 'transparent',
+                  color: mode === 'task' ? '#000' : 'var(--text-muted)', fontWeight: 600 }}>
+                Legacy Task
+              </button>
+            </div>
+          )}
+        </div>
 
-        {!Array.isArray(tasks) || !tasks.length ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No active practical tasks found for this assessment type.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-            {tasks.map((t: any) => (
-              <label key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${selectedTaskId === t.id ? 'var(--cyan)' : 'var(--border)'}`, background: selectedTaskId === t.id ? 'rgba(0,212,255,0.06)' : 'var(--bg-elevated)', cursor: 'pointer' }}>
-                <input type="radio" name="task" value={t.id} checked={selectedTaskId === t.id} onChange={() => setSelectedTaskId(t.id)}
-                  style={{ marginTop: '2px', accentColor: 'var(--cyan)' }} />
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{t.title}</p>
-                  <p style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--text-muted)' }}>{t.description?.slice(0, 100)}{t.description?.length > 100 ? '...' : ''}</p>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Type: {t.taskType}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Difficulty: {t.difficulty}</span>
-                    {t.sourceFileUrl && <span style={{ fontSize: '11px', color: 'var(--cyan)' }}>📎 Starter file</span>}
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-        )}
-
-        {selectedTask && (
-          <div style={{ marginBottom: '14px', padding: '12px', background: 'var(--bg-base)', borderRadius: '8px' }}>
-            <p style={{ margin: '0 0 6px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>CANDIDATE BRIEFING (auto-sent on assign):</p>
-            <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-              {selectedTask.description || 'Complete the assigned practical task and upload your work before the timer ends.'}
+        {mode === 'set' && (
+          sets.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+              No active paper sets for this assessment. Create one in <Link href="/master-proctor/paper-sets" style={{ color: 'var(--cyan)' }}>Practical Paper Sets</Link>.
             </p>
-            {selectedTask.sourceFileUrl && (
-              <a href={selectedTask.sourceFileUrl} target="_blank" rel="noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--cyan)', textDecoration: 'none' }}>
-                <Download size={12} /> Preview starter file
-              </a>
-            )}
-          </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                {sets.map((s: any) => (
+                  <label key={s.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${selectedSetId === s.id ? 'var(--cyan)' : 'var(--border)'}`, background: selectedSetId === s.id ? 'rgba(0,212,255,0.06)' : 'var(--bg-elevated)', cursor: 'pointer' }}>
+                    <input type="radio" name="set" value={s.id} checked={selectedSetId === s.id} onChange={() => setSelectedSetId(s.id)}
+                      style={{ marginTop: '2px', accentColor: 'var(--cyan)' }} />
+                    <Layers size={16} color="var(--cyan)" style={{ marginTop: '1px' }} />
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{s.name}</p>
+                      <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {s._count?.questions || 0} questions · {s._count?.files || 0} attached files
+                      </p>
+                      {s.description && <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>{s.description}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <button className="btn-primary" style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+                disabled={!selectedSetId || assigning}
+                onClick={handleAssign}>
+                {assigning ? 'Assigning...' : selectedSet ? `▶ Push ${selectedSet.name} & Start Practical` : '▶ Pick a set first'}
+              </button>
+            </>
+          )
         )}
 
-        <button className="btn-primary" style={{ width: '100%', padding: '12px', fontSize: '14px' }}
-          disabled={!selectedTaskId || assigning}
-          onClick={handleAssign}>
-          {assigning ? 'Assigning...' : '▶ Assign Task & Start Practical Phase'}
-        </button>
+        {mode === 'task' && (
+          <>
+            {!Array.isArray(tasks) || !tasks.length ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No active practical tasks found for this assessment type.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                {tasks.map((t: any) => (
+                  <label key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${selectedTaskId === t.id ? 'var(--cyan)' : 'var(--border)'}`, background: selectedTaskId === t.id ? 'rgba(0,212,255,0.06)' : 'var(--bg-elevated)', cursor: 'pointer' }}>
+                    <input type="radio" name="task" value={t.id} checked={selectedTaskId === t.id} onChange={() => setSelectedTaskId(t.id)}
+                      style={{ marginTop: '2px', accentColor: 'var(--cyan)' }} />
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{t.title}</p>
+                      <p style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--text-muted)' }}>{t.description?.slice(0, 100)}{t.description?.length > 100 ? '...' : ''}</p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Type: {t.taskType}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Difficulty: {t.difficulty}</span>
+                        {t.sourceFileUrl && <span style={{ fontSize: '11px', color: 'var(--cyan)' }}>📎 Starter file</span>}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {selectedTask && (
+              <div style={{ marginBottom: '14px', padding: '12px', background: 'var(--bg-base)', borderRadius: '8px' }}>
+                <p style={{ margin: '0 0 6px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>CANDIDATE BRIEFING (auto-sent on assign):</p>
+                <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                  {selectedTask.description || 'Complete the assigned practical task and upload your work before the timer ends.'}
+                </p>
+                {selectedTask.sourceFileUrl && (
+                  <a href={selectedTask.sourceFileUrl} target="_blank" rel="noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--cyan)', textDecoration: 'none' }}>
+                    <Download size={12} /> Preview starter file
+                  </a>
+                )}
+              </div>
+            )}
+
+            <button className="btn-primary" style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+              disabled={!selectedTaskId || assigning}
+              onClick={handleAssign}>
+              {assigning ? 'Assigning...' : '▶ Assign Task & Start Practical Phase'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

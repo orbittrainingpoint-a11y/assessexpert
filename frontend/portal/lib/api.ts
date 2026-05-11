@@ -140,6 +140,47 @@ export const questionsApi = {
   bulkImport: (formData: FormData) => api.post('/questions/import', formData),
 }
 
+// Practical Paper Sets — new model with file library + typed questions
+export const practicalSetsApi = {
+  list: (assessmentTypeId?: string) =>
+    api.get('/practical-sets', { params: assessmentTypeId ? { assessmentTypeId } : {} }),
+  getOne: (id: string) => api.get(`/practical-sets/${id}`),
+  create: (data: { assessmentTypeId: string; name: string; description?: string }) =>
+    api.post('/practical-sets', data),
+  update: (id: string, data: any) => api.put(`/practical-sets/${id}`, data),
+  activate: (id: string) => api.post(`/practical-sets/${id}/activate`),
+  delete: (id: string) => api.delete(`/practical-sets/${id}`),
+  uploadFile: (id: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/practical-sets/${id}/files`, fd)
+  },
+  deleteFile: (fileId: string) => api.delete(`/practical-sets/files/${fileId}`),
+  createQuestion: (setId: string, data: any) =>
+    api.post(`/practical-sets/${setId}/questions`, data),
+  updateQuestion: (questionId: string, data: any) =>
+    api.put(`/practical-sets/questions/${questionId}`, data),
+  deleteQuestion: (questionId: string) =>
+    api.delete(`/practical-sets/questions/${questionId}`),
+  reorder: (setId: string, orderedIds: string[]) =>
+    api.post(`/practical-sets/${setId}/reorder`, { orderedIds }),
+  assignToSession: (sessionId: string, setId: string, candidateId?: string) =>
+    api.post(`/practical-sets/sessions/${sessionId}/assign`, { setId, candidateId }),
+  getMyAssignedSet: (token: string) =>
+    api.get(`/practical-sets/by-token`, { params: { token } }),
+  submitAnswer: (token: string, questionId: string, payload: { numericValue?: number; textValue?: string; file?: File }) => {
+    const fd = new FormData()
+    if (payload.file) fd.append('file', payload.file)
+    if (payload.numericValue !== undefined) fd.append('numericValue', String(payload.numericValue))
+    if (payload.textValue !== undefined) fd.append('textValue', payload.textValue)
+    return api.post(`/practical-sets/answer`, fd, { params: { token, questionId } })
+  },
+  listAnswers: (sessionId: string) =>
+    api.get(`/practical-sets/sessions/${sessionId}/answers`),
+  gradeAnswer: (answerId: string, body: { marks?: number; graderNotes?: string }) =>
+    api.put(`/practical-sets/answers/${answerId}/grade`, body),
+}
+
 // Practical Tasks
 export const practicalTasksApi = {
   getAll: (filters?: any) => api.get('/practical-tasks', { params: filters }),

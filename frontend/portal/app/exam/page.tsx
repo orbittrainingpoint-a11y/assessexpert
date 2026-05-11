@@ -6,6 +6,7 @@ import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useLivekit } from '@/lib/useLivekit'
 import { useFaceDetection } from '@/lib/useFaceDetection'
 import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
+import PracticalSetView from '@/components/candidate/PracticalSetView'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
 
@@ -917,6 +918,27 @@ function ExamContent() {
           </div>
         </div>
       </div>
+    </div>
+  )
+
+  if (phase === 'practical' && (sessionState?.practicalPaperSetId || sessionState?.practicalPaperSet)) return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>assessexpert &nbsp;|&nbsp; {sessionState?.assessmentType?.name} — Practical Assessment</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>📷 <span style={{ color: 'var(--emerald)' }}>●</span> REC</span>
+          <span style={{ fontSize: '20px', fontWeight: '700', color: timerColor, fontFamily: 'var(--font-mono)' }}>⏱ {formatTime(timeRemaining)}</span>
+        </div>
+      </div>
+      <PracticalSetView
+        token={token}
+        sessionId={sessionState.id}
+        socket={wsSocket}
+        onAllSubmitted={() => {
+          toast.success('All practical answers submitted')
+          setPhase('complete')
+        }}
+      />
     </div>
   )
 

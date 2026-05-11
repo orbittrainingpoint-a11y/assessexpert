@@ -33,7 +33,7 @@ export class ExamDeliveryService {
   async getSessionState(token: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: token },
-      include: { assessmentType: true, candidate: true, practicalTask: true },
+      include: { assessmentType: true, candidate: true, practicalTask: true, practicalPaperSet: true },
     });
     if (!session) throw new NotFoundException('Session not found');
 
@@ -73,6 +73,11 @@ export class ExamDeliveryService {
         title: session.practicalTask.title,
         description: session.practicalTask.description,
         acceptedFileTypes: session.practicalTask.acceptedFileTypes,
+      } : null,
+      practicalPaperSetId: session.practicalPaperSetId,
+      practicalPaperSet: session.practicalPaperSet ? {
+        id: session.practicalPaperSet.id,
+        name: session.practicalPaperSet.name,
       } : null,
     };
   }

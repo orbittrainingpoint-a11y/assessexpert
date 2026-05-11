@@ -28,6 +28,7 @@ const NAV_CONFIG: Record<string, { label: string; icon: any; href: string }[]> =
     { label: 'All Sessions', icon: Video, href: '/master-proctor/sessions' },
     { label: 'Create & Manage Exams', icon: BookOpen, href: '/master-proctor/exams' },
     { label: 'Question Papers', icon: ClipboardList, href: '/master-proctor/questions' },
+    { label: 'Practical Paper Sets', icon: ClipboardList, href: '/master-proctor/paper-sets' },
     { label: 'Report Review', icon: FileText, href: '/master-proctor/reports' },
     { label: 'Settings', icon: Settings, href: '/master-proctor/settings' },
   ],

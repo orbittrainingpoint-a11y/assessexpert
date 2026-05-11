@@ -27,6 +27,7 @@ import { SalesModule } from './modules/sales/sales.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { LivekitModule } from './modules/livekit/livekit.module';
+import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -59,6 +60,7 @@ import { AppController } from './app.controller';
     GatewayModule,
     InterviewsModule,
     LivekitModule,
+    PracticalSetsModule,
   ],
   controllers: [AppController],
 })

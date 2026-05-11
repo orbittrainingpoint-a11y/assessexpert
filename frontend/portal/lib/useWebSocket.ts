@@ -76,6 +76,8 @@ export function useSessionWebSocket({
         'candidate.disqualified',
         'candidate.screenShareActive',
         'candidate.screenShareStopped',
+        'practical.setAssigned',
+        'practical.answerSubmitted',
         'checklist.update',
         'checklist.itemUpdated',
         'checklist.candidateComplete',

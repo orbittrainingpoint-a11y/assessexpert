@@ -103,6 +103,23 @@ enum PracticalType {
   NONE
 }
 
+enum PracticalAnswerType {
+  FILE_UPLOAD
+  NUMERIC
+  TEXT
+}
+
+enum NumericMatchMode {
+  EXACT
+  TOLERANCE
+}
+
+enum TextMatchMode {
+  EXACT
+  CONTAINS
+  MANUAL
+}
+
 enum AssessmentStatus {
   DRAFT
   ACTIVE
@@ -290,6 +307,7 @@ model AssessmentType {
   updatedAt              DateTime         @updatedAt
   questions              Question[]
   practicalTasks         PracticalTask[]
+  practicalPaperSets     PracticalPaperSet[]
   sessions               ExamSession[]
 }
 
@@ -354,6 +372,118 @@ model PracticalTask {
   sessions         ExamSession[]
 }
 
+// ── Practical Paper Sets ───────────────────────────────────────────────
+// A Paper Set groups N ordered (no shuffle) questions with shared file
+// references. Different candidates can be assigned different sets so
+// neighbours can't easily copy.
+
+model PracticalPaperSet {
+  id               String              @id @default(cuid())
+  assessmentTypeId String
+  assessmentType   AssessmentType      @relation(fields: [assessmentTypeId], references: [id])
+  name             String              // "Set 1", "Set A", etc.
+  description      String?
+  status           QuestionStatus      @default(DRAFT)
+  files            PracticalSetFile[]
+  questions        PracticalQuestion[]
+  sessions         ExamSession[]
+  createdBy        String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([assessmentTypeId, name])
+  @@index([assessmentTypeId, status])
+}
+
+// File library shared across all questions in a set. Candidates can
+// download these to use as inputs (drawings, datasheets, source code).
+model PracticalSetFile {
+  id        String            @id @default(cuid())
+  setId     String
+  set       PracticalPaperSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  fileName  String            // display name shown to candidate
+  filePath  String            // server-side storage path
+  fileSize  Int               // bytes
+  mimeType  String?
+  uploadedBy String
+  createdAt DateTime          @default(now())
+
+  questionRefs PracticalQuestionFile[]
+}
+
+model PracticalQuestion {
+  id               String              @id @default(cuid())
+  setId            String
+  set              PracticalPaperSet   @relation(fields: [setId], references: [id], onDelete: Cascade)
+  position         Int                 // order within the set, NO shuffle
+  prompt           String              // the question text
+  answerType       PracticalAnswerType
+  marks            Float               @default(1.0)
+  rubric           String?             // grader-facing notes
+
+  // FILE_UPLOAD-only fields
+  acceptedFileTypes String[]           @default([])  // e.g. [".dwg", ".pdf"]
+  maxFileSizeMB    Int?                              // hard cap
+
+  // NUMERIC-only fields
+  expectedNumericAnswer Float?
+  numericTolerance      Float?         // ± tolerance
+  numericUnit           String?        // "mm", "kg", etc.
+  numericMatchMode      NumericMatchMode @default(TOLERANCE)
+
+  // TEXT-only fields
+  expectedTextAnswer String?
+  textMatchMode      TextMatchMode    @default(MANUAL)
+  textCaseSensitive  Boolean          @default(false)
+
+  fileRefs        PracticalQuestionFile[]   // referenced PracticalSetFile rows
+  answers         PracticalAnswer[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([setId, position])
+  @@index([setId])
+}
+
+// Many-to-many between questions and the set's files
+model PracticalQuestionFile {
+  id         String           @id @default(cuid())
+  questionId String
+  question   PracticalQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  fileId     String
+  file       PracticalSetFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, fileId])
+}
+
+model PracticalAnswer {
+  id               String              @id @default(cuid())
+  sessionId        String
+  session          ExamSession         @relation(fields: [sessionId], references: [id])
+  questionId       String
+  question         PracticalQuestion   @relation(fields: [questionId], references: [id])
+
+  // Submitted answer — exactly one of these populated based on question.answerType
+  uploadedFilePath String?
+  uploadedFileName String?
+  uploadedFileSize Int?
+  numericValue     Float?
+  textValue        String?
+  submittedAt      DateTime?
+
+  // Grading
+  marks            Float?
+  maxMarks         Float?
+  isCorrect        Boolean?
+  autoGraded       Boolean             @default(false)
+  graderNotes      String?
+  gradedAt         DateTime?
+  gradedBy         String?
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+}
+
 model CandidateRecord {
   id             String          @id @default(cuid())
   organizationId String
@@ -397,6 +527,8 @@ model ExamSession {
   mcqSubmittedAt         DateTime?
   practicalTaskId        String?
   practicalTask          PracticalTask? @relation(fields: [practicalTaskId], references: [id])
+  practicalPaperSetId    String?
+  practicalPaperSet      PracticalPaperSet? @relation(fields: [practicalPaperSetId], references: [id])
   practicalStartedAt     DateTime?
   practicalSubmittedAt   DateTime?
   practicalFilePath      String?
@@ -412,6 +544,7 @@ model ExamSession {
   disqualifyReason       String?
   questionAssignment     SessionQuestionAssignment?
   answers                ExamAnswer[]
+  practicalAnswers       PracticalAnswer[]
   events                 SessionEvent[]
   frLogs                 FacialRecognitionLog[]
   checklist              ProctorChecklist?
