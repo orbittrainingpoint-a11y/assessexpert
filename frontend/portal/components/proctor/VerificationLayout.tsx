@@ -18,6 +18,7 @@ interface Props {
   onCandidateSelect: (candidateId: string, socketId?: string) => void
   onAllVerifiedClick: () => void
   allVerified: boolean
+  socket?: any
 }
 
 function VideoBox({
@@ -59,6 +60,7 @@ export default function VerificationLayout({
   onCandidateSelect,
   onAllVerifiedClick,
   allVerified,
+  socket,
 }: Props) {
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(candidates[0]?.id || null)
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
@@ -207,6 +209,19 @@ export default function VerificationLayout({
               const nextUnverified = candidates.find(c => c.id !== activeCandidateId && !verifiedIds.has(c.id))
               if (nextUnverified) {
                 setTimeout(() => handleSelect(nextUnverified.id, nextUnverified.socketId), 400)
+              }
+            }}
+            onRequestScreenShare={() => {
+              // Emit socket event to candidate to request screen share
+              const activeC = candidates.find(c => c.id === activeCandidateId)
+              if (socket?.connected) {
+                socket.emit('checklist.itemUpdated', {
+                  sessionId,
+                  candidateId: activeCandidateId,
+                  itemId: 'screen_share',
+                  status: 'active',
+                  candidateSocketId: activeC?.socketId,
+                })
               }
             }}
           />

@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000'
 
@@ -29,6 +29,7 @@ export function useSessionWebSocket({
   onEvent,
 }: UseWebSocketOptions) {
   const socketRef = useRef<any>(null)
+  const [socket, setSocket] = useState<any>(null)
   const onEventRef = useRef(onEvent)
   onEventRef.current = onEvent
 
@@ -41,11 +42,11 @@ export function useSessionWebSocket({
   useEffect(() => {
     if (!enabled || !sessionId || typeof window === 'undefined') return
 
-    let socket: any
+    let socketLocal: any
 
     const connect = async () => {
       const ioFn = await getIo()
-      socket = ioFn(WS_URL, {
+      socketLocal = ioFn(WS_URL, {
         transports: ['websocket', 'polling'],
         withCredentials: true,
         reconnection: true,
@@ -53,17 +54,18 @@ export function useSessionWebSocket({
         reconnectionDelay: 2000,
       })
 
-      socketRef.current = socket
+      socketRef.current = socketLocal
+      setSocket(socketLocal) // Reactive — consumers re-render when socket is ready
 
-      socket.on('connect', () => {
-        socket.emit('join_session', { sessionId, role, userId })
+      socketLocal.on('connect', () => {
+        socketLocal.emit('join_session', { sessionId, role, userId })
       })
 
-      socket.on('disconnect', () => {
+      socketLocal.on('disconnect', () => {
         onEventRef.current?.('disconnect', {})
       })
 
-      socket.on('connect_error', () => {
+      socketLocal.on('connect_error', () => {
         onEventRef.current?.('connect_error', {})
       })
 
@@ -71,17 +73,40 @@ export function useSessionWebSocket({
       const SESSION_EVENTS = [
         'candidate.joined',
         'candidate.status',
+        'candidate.disqualified',
         'checklist.update',
+        'checklist.itemUpdated',
+        'checklist.candidateComplete',
         'proctor.message',
+        'proctor.enterVerification',
+        'proctor.leaveVerification',
+        'proctor.allVerified',
         'ai.flag',
+        'ai.multiple_faces',
+        'ai.face_absent',
+        'ai.looking_away',
+        'ai.hand_near_face',
+        'ai.gaze_offscreen',
+        'ai.behavior_score',
         'session.pause',
         'session.phase',
+        'exam.pushMCQ',
+        'exam.pushPractical',
+        'exam.mcqSubmitted',
+        'exam.allMCQDone',
         'report.ready',
         'session.submitted',
+        'webrtc.offer',
+        'webrtc.answer',
+        'webrtc.ice',
+        'peer.joined',
+        'peer.left',
+        'proctor.audio_active',
+        'proctor.audio_inactive',
       ]
 
       SESSION_EVENTS.forEach(ev => {
-        socket.on(ev, (data: any) => {
+        socketLocal.on(ev, (data: any) => {
           onEventRef.current?.(ev, data)
         })
       })
@@ -90,13 +115,14 @@ export function useSessionWebSocket({
     connect()
 
     return () => {
-      if (socket) {
-        socket.emit('leave_session', { sessionId })
-        socket.disconnect()
+      if (socketLocal) {
+        socketLocal.emit('leave_session', { sessionId })
+        socketLocal.disconnect()
       }
       socketRef.current = null
+      setSocket(null)
     }
   }, [sessionId, role, userId, enabled])
 
-  return { emit, socket: socketRef.current }
+  return { emit, socket }
 }

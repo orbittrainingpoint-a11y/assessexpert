@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AppGateway } from '../gateway/app.gateway';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('checklist')
@@ -12,6 +13,7 @@ export class ChecklistController {
   constructor(
     private checklistService: ChecklistService,
     private prisma: PrismaService,
+    private gateway: AppGateway,
   ) {}
 
   // Public endpoint — candidate polls checklist progress using their magic token
@@ -57,7 +59,16 @@ export class ChecklistController {
     @Body() body: { notes?: string; value?: any },
     @Req() req: any,
   ) {
-    return this.checklistService.completeItem(sessionId, itemKey, body, req.user.id);
+    const result = await this.checklistService.completeItem(sessionId, itemKey, body, req.user.id);
+    // Broadcast checklist update to all session participants (including candidate) for real-time sync
+    this.gateway.emitToSession(sessionId, 'checklist.itemUpdated', {
+      sessionId,
+      itemId: itemKey,
+      itemKey,
+      status: 'done',
+      timestamp: new Date().toISOString(),
+    });
+    return result;
   }
 
   @ApiBearerAuth()

@@ -24,6 +24,7 @@ interface Props {
   sessionId: string
   candidateVideoRef: React.RefObject<HTMLVideoElement | null>
   onAllDone: () => void
+  onRequestScreenShare?: () => void
 }
 
 const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
@@ -162,35 +163,31 @@ function ItemEnvironmentScan({ saving, onComplete }: { saving: boolean; onComple
   )
 }
 
-function ItemScreenShare({ saving, onComplete }: { saving: boolean; onComplete: (d: any) => void }) {
-  const [shareStatus, setShareStatus] = useState<'unknown' | 'active' | 'inactive'>('unknown')
-  const checkShare = async () => {
-    try {
-      await (navigator.mediaDevices as any).getDisplayMedia({ video: true })
-      setShareStatus('active')
-    } catch { setShareStatus('inactive') }
+function ItemScreenShare({ saving, onComplete, onRequestCandidateScreenShare }: { saving: boolean; onComplete: (d: any) => void; onRequestCandidateScreenShare?: () => void }) {
+  const [shareStatus, setShareStatus] = useState<'unknown' | 'requested' | 'active'>('unknown')
+  const requestShare = () => {
+    // Notify candidate via socket (handled by parent)
+    onRequestCandidateScreenShare?.()
+    setShareStatus('requested')
   }
   return (
     <div style={{ padding: '0 16px 16px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-        {[
-          { label: 'Screen Share', status: shareStatus === 'active' ? 'ACTIVE' : shareStatus === 'inactive' ? 'NOT ACTIVE' : 'Checking...', color: shareStatus === 'active' ? 'var(--emerald)' : shareStatus === 'inactive' ? 'var(--rose)' : 'var(--text-muted)' },
-          { label: 'GuardPro', status: 'CONNECTED', color: 'var(--emerald)' },
-        ].map(row => (
-          <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>{row.label}</span>
-            <span style={{ color: row.color, fontWeight: '600' }}>{row.status}</span>
-          </div>
-        ))}
+      <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+        Request the candidate to share their screen. They will see a prompt on their screen.
       </div>
-      {shareStatus !== 'active' && (
-        <button className="btn-ghost" style={{ width: '100%', padding: '8px', marginBottom: '8px', fontSize: '13px' }} onClick={checkShare}>
-          Refresh Screen Share Status
+      {shareStatus === 'unknown' && (
+        <button className="btn-primary" style={{ width: '100%', padding: '10px', marginBottom: '8px' }} onClick={requestShare}>
+          Request Screen Share from Candidate
         </button>
       )}
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || shareStatus !== 'active'}
-        onClick={() => onComplete({ value: shareStatus })}>
-        {saving ? 'Saving...' : 'Screen Verified'}
+      {shareStatus === 'requested' && (
+        <div style={{ padding: '10px', background: 'rgba(0,212,255,0.06)', borderRadius: '6px', fontSize: '13px', color: 'var(--cyan)', textAlign: 'center', marginBottom: '10px' }}>
+          ⏳ Waiting for candidate to share screen...
+        </div>
+      )}
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving}
+        onClick={() => onComplete({ value: 'active' })}>
+        {saving ? 'Saving...' : 'Screen Share Confirmed'}
       </button>
     </div>
   )
@@ -255,7 +252,7 @@ function ItemGuidelines({ saving, onComplete }: { saving: boolean; onComplete: (
   )
 }
 
-export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone }: Props) {
+export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone, onRequestScreenShare }: Props) {
   const [itemStates, setItemStates] = useState<ChecklistState>({
     camera_verified:    'active',
     identity_name:      'pending',
@@ -383,7 +380,7 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone
               )}
 
               {isActive && item.key === 'screen_share' && (
-                <ItemScreenShare saving={saving} onComplete={d => completeItem('screen_share', d)} />
+                <ItemScreenShare saving={saving} onComplete={d => completeItem('screen_share', d)} onRequestCandidateScreenShare={onRequestScreenShare} />
               )}
 
               {isActive && item.key === 'guardpro' && (

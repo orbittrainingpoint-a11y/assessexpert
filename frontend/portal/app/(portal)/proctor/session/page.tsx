@@ -121,16 +121,16 @@ function SessionContent() {
     enabled: !!sessionId && cameraActive && !!session,
   })
 
-  const handleCandidateSelect = useCallback((candidateId: string) => {
+  const handleCandidateSelect = useCallback((candidateId: string, candidateSocketId?: string) => {
     if (activeCandidateId === candidateId) {
       setActiveCandidateId(undefined)
       if (wsSocket?.connected) {
-        wsSocket.emit('proctor.leaveVerification', { sessionId, candidateId })
+        wsSocket.emit('proctor.leaveVerification', { sessionId, candidateId, candidateSocketId })
       }
     } else {
       setActiveCandidateId(candidateId)
       if (wsSocket?.connected) {
-        wsSocket.emit('proctor.enterVerification', { sessionId, candidateId })
+        wsSocket.emit('proctor.enterVerification', { sessionId, candidateId, candidateSocketId })
       }
     }
   }, [activeCandidateId, sessionId, wsSocket])
@@ -149,13 +149,24 @@ function SessionContent() {
     setPhase('mcq')
   }, [sessionId, wsSocket, session?.isMultiCandidate, qc])
 
-  const handlePushMCQ = useCallback(() => {
+  const handlePushMCQ = useCallback(async () => {
+    try {
+      // Begin the session in DB so candidates can load MCQ questions
+      await sessionsApi.begin(sessionId)
+    } catch (e: any) {
+      // If already started, ignore
+      if (!e.response?.data?.message?.toLowerCase().includes('already')) {
+        toast.error(e.response?.data?.message || 'Failed to begin exam')
+        return
+      }
+    }
     if (wsSocket?.connected) {
       wsSocket.emit('exam.pushMCQ', { sessionId })
     }
     setMcqPushed(true)
+    qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
     toast.success('MCQ pushed to all candidates')
-  }, [sessionId, wsSocket])
+  }, [sessionId, wsSocket, qc])
 
   const handlePushPractical = useCallback(() => {
     if (wsSocket?.connected) {
@@ -214,6 +225,9 @@ function SessionContent() {
   const isMultiCandidate = session.isMultiCandidate
   const candidateStream: MediaStream | null = remoteStreams.size > 0 ? (Array.from(remoteStreams.values())[0] as MediaStream) : null
   
+  // For single-candidate, derive socketId from the first remote stream key
+  const firstRemoteSocketId = remoteStreams.size > 0 ? Array.from(remoteStreams.keys())[0] as string : undefined
+
   const candidates = isMultiCandidate && sessionCandidates
     ? sessionCandidates.map((sc: any) => ({
         id: sc.candidateId,
@@ -226,7 +240,7 @@ function SessionContent() {
         id: candidate?.id || sessionId,
         name: `${candidate?.firstName} ${candidate?.lastName}`,
         stream: candidateStream,
-        socketId: undefined,
+        socketId: firstRemoteSocketId,
         mcqSubmitted: session.status === 'MCQ_SUBMITTED',
       }]
 
@@ -295,6 +309,7 @@ function SessionContent() {
           onCandidateSelect={handleCandidateSelect}
           onAllVerifiedClick={handleAllVerified}
           allVerified={allVerified}
+          socket={wsSocket}
         />
       )}
 

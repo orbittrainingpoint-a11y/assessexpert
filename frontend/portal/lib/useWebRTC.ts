@@ -1,10 +1,26 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
 
-// ICE servers - include localhost for local network
+// ICE servers with TURN for NAT traversal (works behind firewalls/routers)
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  // Free TURN servers — replace with your own for production
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ]
 
 interface UseWebRTCOptions {
@@ -139,11 +155,26 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       }
     }
 
-    // When a new peer joins the session room, proctor initiates connection
+    // When a peer joins the session room — proctor always initiates the connection
+    // so we avoid both sides creating offers simultaneously (glare)
     const handlePeerJoined = ({ peerId, peerRole }: { peerId: string; peerRole: string }) => {
+      // Skip if already connected to this peer
+      if (peersRef.current.has(peerId)) return
       if (role === 'PROCTOR' && peerRole === 'CANDIDATE') {
         createPeer(peerId, true)
       }
+      // Candidate doesn't initiate; it waits for the proctor's offer
+    }
+
+    // Clean up peer when it leaves the session
+    const handlePeerLeft = ({ peerId }: { peerId: string }) => {
+      const peer = peersRef.current.get(peerId)
+      if (peer) {
+        peer.close()
+        peersRef.current.delete(peerId)
+      }
+      setRemoteStreams(prev => { const m = new Map(prev); m.delete(peerId); return m })
+      if (role === 'CANDIDATE') setProctorActive(false)
     }
 
     // CANDIDATE: Listen for proctor activation/deactivation
@@ -159,6 +190,7 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
     socket.on('webrtc.answer', handleAnswer)
     socket.on('webrtc.ice', handleIce)
     socket.on('peer.joined', handlePeerJoined)
+    socket.on('peer.left', handlePeerLeft)
 
     if (role === 'CANDIDATE') {
       socket.on('proctor.audio_active', handleProctorAudioActive)
@@ -174,6 +206,7 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       socket.off('webrtc.answer', handleAnswer)
       socket.off('webrtc.ice', handleIce)
       socket.off('peer.joined', handlePeerJoined)
+      socket.off('peer.left', handlePeerLeft)
       if (role === 'CANDIDATE') {
         socket.off('proctor.audio_active', handleProctorAudioActive)
         socket.off('proctor.audio_inactive', handleProctorAudioInactive)

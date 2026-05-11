@@ -39,8 +39,16 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     const clientData = this.clients.get(client.id);
-    if (clientData?.sessionId && clientData?.role === 'PROCTOR') {
-      this.activeAudioConnections.delete(clientData.sessionId);
+    if (clientData?.sessionId) {
+      // Notify everyone in the session that this peer left, so WebRTC peers can clean up
+      this.server.to(`session:${clientData.sessionId}`).emit('peer.left', {
+        peerId: client.id,
+        peerRole: clientData.role,
+        candidateId: clientData.candidateId,
+      });
+      if (clientData.role === 'PROCTOR') {
+        this.activeAudioConnections.delete(clientData.sessionId);
+      }
     }
     this.clients.delete(client.id);
   }
@@ -216,16 +224,48 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // ── Peer announces presence (triggers WebRTC initiation) ────────────────────────────────────────────────────
   @SubscribeMessage('peer.announce')
-  handlePeerAnnounce(
-    @MessageBody() data: { sessionId: string; role: string; socketId: string },
+  async handlePeerAnnounce(
+    @MessageBody() data: { sessionId: string; role: string; socketId: string; candidateId?: string },
     @ConnectedSocket() client: Socket,
   ) {
+    // Update our client tracking with latest info
+    const existing = this.clients.get(client.id) || {};
+    this.clients.set(client.id, {
+      ...existing,
+      sessionId: data.sessionId,
+      role: data.role,
+      candidateId: data.candidateId,
+    });
+
     // Notify all others in the session room that a new peer has joined
     client.to(`session:${data.sessionId}`).emit('peer.joined', {
       peerId: client.id,
       peerRole: data.role,
-    })
-    return { announced: true }
+      candidateId: data.candidateId,
+    });
+
+    // ALSO notify the announcer about all existing peers in the session
+    // This fixes the case where the proctor joins AFTER candidates are already in the room
+    try {
+      const room = this.server.sockets.adapter.rooms.get(`session:${data.sessionId}`);
+      if (room) {
+        for (const otherSocketId of room) {
+          if (otherSocketId === client.id) continue;
+          const other = this.clients.get(otherSocketId);
+          if (!other?.role) continue;
+          // Send peer.joined to the announcer for each existing peer
+          client.emit('peer.joined', {
+            peerId: otherSocketId,
+            peerRole: other.role,
+            candidateId: other.candidateId,
+          });
+        }
+      }
+    } catch {
+      // Fail silently — room might not be ready yet
+    }
+
+    return { announced: true };
   }
 
   // ── WebRTC Signalling ────────────────────────────────────────────────────
