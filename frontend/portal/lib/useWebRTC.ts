@@ -66,6 +66,10 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       const [remoteStream] = event.streams
       if (remoteStream) {
         setRemoteStreams(prev => new Map(prev).set(peerId, remoteStream))
+        // If candidate receives proctor stream, mark proctor as active
+        if (role === 'CANDIDATE') {
+          setProctorActive(true)
+        }
       }
     }
 
@@ -84,6 +88,7 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       if (['disconnected', 'failed', 'closed'].includes(peer.connectionState)) {
         setRemoteStreams(prev => { const m = new Map(prev); m.delete(peerId); return m })
         peersRef.current.delete(peerId)
+        if (role === 'CANDIDATE') setProctorActive(false)
       }
     }
 

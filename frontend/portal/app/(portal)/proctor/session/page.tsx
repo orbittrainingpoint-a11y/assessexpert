@@ -3,13 +3,12 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { sessionsApi, proctoringApi, reportsApi } from '@/lib/api'
 import { useSearchParams } from 'next/navigation'
-import { AlertTriangle, Video, VideoOff } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useWebRTC } from '@/lib/useWebRTC'
 import { useMediaPipe } from '@/lib/useMediaPipe'
-import ChecklistPanel from '@/components/proctor/ChecklistPanel'
 import MonitorGrid from '@/components/proctor/MonitorGrid'
 import FlagQueue from '@/components/proctor/FlagQueue'
 import PracticalPanel, { PostSessionPanel } from '@/components/proctor/PracticalPanel'
@@ -140,9 +139,15 @@ function SessionContent() {
     if (wsSocket?.connected) {
       wsSocket.emit('proctor.allVerified', { sessionId })
     }
+    // For single candidate, begin the session via API
+    if (!session?.isMultiCandidate) {
+      sessionsApi.begin(sessionId)
+        .then(() => qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] }))
+        .catch((e: any) => toast.error(e.response?.data?.message || 'Failed to begin exam'))
+    }
     setMcqPushed(true)
     setPhase('mcq')
-  }, [sessionId, wsSocket])
+  }, [sessionId, wsSocket, session?.isMultiCandidate, qc])
 
   const handlePushMCQ = useCallback(() => {
     if (wsSocket?.connected) {
@@ -282,126 +287,15 @@ function SessionContent() {
         </div>
       </div>
 
-      {!isMultiCandidate && (
-        <div className="glass-card" style={{ padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{ position: 'relative', width: '180px', flexShrink: 0 }}>
-            <video
-              ref={el => { proctorVideoRef.current = el; assignProctorStream(el) }}
-              autoPlay muted playsInline
-              style={{ width: '100%', borderRadius: '6px', background: '#000', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }}
-            />
-            {!cameraActive && (
-              <div style={{ position: 'absolute', inset: 0, background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '4px' }}>
-                {cameraError ? <VideoOff size={18} color="var(--rose)" /> : <Video size={18} color="var(--text-muted)" />}
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{cameraError ? 'Denied' : 'Starting...'}</span>
-              </div>
-            )}
-            <div style={{ position: 'absolute', bottom: '4px', left: '6px', background: 'rgba(0,0,0,0.6)', padding: '2px 5px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: cameraActive ? 'var(--emerald)' : 'var(--rose)' }} />
-              <span style={{ fontSize: '9px', color: '#fff' }}>You</span>
-            </div>
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>Your Camera & Mic</p>
-            <p style={{ margin: '2px 0 0', fontSize: '12px', color: cameraActive ? 'var(--emerald)' : cameraError ? 'var(--rose)' : 'var(--text-muted)' }}>
-              {cameraActive ? 'Active — candidates can see and hear you' : cameraError ? 'Camera/mic access denied' : 'Starting...'}
-            </p>
-            {cameraError && <button className="btn-ghost" onClick={startProctorCamera} style={{ marginTop: '6px', padding: '4px 10px', fontSize: '11px' }}>Retry</button>}
-          </div>
-        </div>
-      )}
-
       {phase === 'checklist' && (
-        isMultiCandidate ? (
-          <VerificationLayout
-            sessionId={sessionId}
-            candidates={candidates}
-            proctorStream={proctorStreamRef.current}
-            onCandidateSelect={handleCandidateSelect}
-            onAllVerifiedClick={handleAllVerified}
-            allVerified={allVerified}
-          />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Candidate stream */}
-              <div className="glass-card" style={{ padding: '10px' }}>
-                <p style={{ margin: '0 0 8px', fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Candidate Camera</p>
-                <div style={{ position: 'relative', background: '#000', borderRadius: '6px', overflow: 'hidden', aspectRatio: '16/9' }}>
-                  {candidateStream ? (
-                    <video
-                      ref={el => {
-                        candidateVideoRef.current = el
-                        if (el && candidateStream && el.srcObject !== candidateStream) {
-                          el.srcObject = candidateStream
-                          el.play().catch(() => {})
-                        }
-                      }}
-                      autoPlay muted playsInline
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px' }}>
-                      <VideoOff size={24} color="var(--text-muted)" />
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Waiting for candidate to connect...</span>
-                    </div>
-                  )}
-                  {/* Proctor PIP */}
-                  <div style={{ position: 'absolute', bottom: '8px', right: '8px', width: '120px', aspectRatio: '16/9', background: '#000', borderRadius: '5px', border: '2px solid var(--amber)', overflow: 'hidden' }}>
-                    <video
-                      ref={el => { proctorVideoRef.current = el; assignProctorStream(el) }}
-                      autoPlay muted playsInline
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                    <div style={{ position: 'absolute', bottom: '2px', left: '4px', fontSize: '8px', color: 'var(--amber)', fontWeight: '700' }}>YOU</div>
-                  </div>
-                </div>
-              </div>
-              <ChecklistPanel
-                sessionId={sessionId}
-                candidateVideoRef={candidateVideoRef}
-                onAllDone={() => {
-                  sessionsApi.begin(sessionId)
-                    .then(() => { setPhase('mcq'); qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] }) })
-                    .catch((e: any) => toast.error(e.response?.data?.message || 'Failed to begin exam'))
-                }}
-              />
-            </div>
-              <div className="glass-card" style={{ padding: '16px' }}>
-                <p style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Candidate</p>
-                {[
-                  ['Name', `${candidate?.firstName} ${candidate?.lastName}`],
-                  ['Email', candidate?.email],
-                  ['Assessment', session.assessmentType?.name],
-                  ['Scheduled', new Date(session.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
-                ].map(([l, v]) => (
-                  <div key={l} style={{ marginBottom: '8px' }}>
-                    <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>{l}</p>
-                    <p style={{ margin: '1px 0 0', fontSize: '13px', color: 'var(--text-primary)' }}>{v}</p>
-                  </div>
-                ))}
-              </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="glass-card" style={{ padding: '16px' }}>
-                <p style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Candidate</p>
-                {[
-                  ['Name', `${candidate?.firstName} ${candidate?.lastName}`],
-                  ['Email', candidate?.email],
-                  ['Assessment', session.assessmentType?.name],
-                  ['Scheduled', new Date(session.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
-                ].map(([l, v]) => (
-                  <div key={l} style={{ marginBottom: '8px' }}>
-                    <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>{l}</p>
-                    <p style={{ margin: '1px 0 0', fontSize: '13px', color: 'var(--text-primary)' }}>{v}</p>
-                  </div>
-                ))}
-              </div>
-              <AIMonitoringPanel alerts={alerts} behaviorScore={behaviorScore} isMonitoring={isMonitoring} onDismissAlert={dismissAlert} />
-              <CaptureGallery sessionId={sessionId} enabled={phase === 'checklist' || phase === 'mcq' || phase === 'practical'} />
-              <FlagQueue flags={activeFlags} onFlagActioned={id => setResolvedFlagIds(p => [...p, id])} />
-            </div>
-          </div>
-        )
+        <VerificationLayout
+          sessionId={sessionId}
+          candidates={candidates}
+          proctorStream={proctorStreamRef.current}
+          onCandidateSelect={handleCandidateSelect}
+          onAllVerifiedClick={handleAllVerified}
+          allVerified={allVerified}
+        />
       )}
 
       {phase === 'mcq' && !['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'].includes(session.status) && (
