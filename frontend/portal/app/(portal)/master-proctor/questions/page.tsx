@@ -1,13 +1,13 @@
 ﻿'use client'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { questionsApi, assessmentsApi, practicalTasksApi } from '@/lib/api'
-import { Plus, Upload, FileText, Code, ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { questionsApi, assessmentsApi, practicalTasksApi, storageApi, uploadUrl } from '@/lib/api'
+import { Plus, Upload, FileText, Code, ArrowLeft, CheckCircle2, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type View = 'list' | 'mcq' | 'practical'
 
-const BLANK_Q = { text: '', optA: '', optB: '', optC: '', optD: '', correctAnswer: 'A', difficulty: 'MEDIUM', domain: '' }
+const BLANK_Q = { text: '', optA: '', optB: '', optC: '', optD: '', correctAnswer: 'A', difficulty: 'MEDIUM', domain: '', imageUrl: '' }
 
 export default function MasterProctorQuestionsPage() {
   const qc = useQueryClient()
@@ -114,7 +114,9 @@ export default function MasterProctorQuestionsPage() {
     addMutation.mutate({
       assessmentTypeId: selected.id,
       type: 'MCQ_SINGLE',
-      content: { text: form.text },
+      content: form.imageUrl
+        ? { text: form.text, imageUrl: form.imageUrl }
+        : { text: form.text },
       options: [
         { key: 'A', text: form.optA },
         { key: 'B', text: form.optB },
@@ -129,6 +131,23 @@ export default function MasterProctorQuestionsPage() {
       language: 'en',
       status: 'ACTIVE',
     })
+  }
+
+  const [imageUploading, setImageUploading] = useState(false)
+  const handleImageUpload = async (file: File, target: 'add' | 'edit') => {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be under 5 MB'); return }
+    setImageUploading(true)
+    try {
+      const { data } = await storageApi.uploadQuestionImage(file)
+      if (target === 'add') setForm(f => ({ ...f, imageUrl: data.url }))
+      else setEditForm((f: any) => ({ ...f, imageUrl: data.url }))
+      toast.success('Image uploaded')
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Image upload failed')
+    } finally {
+      setImageUploading(false)
+    }
   }
 
   const atList: any[] = atData?.assessmentTypes || atData || []
@@ -328,7 +347,7 @@ export default function MasterProctorQuestionsPage() {
                         </button>
                       )}
                       <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(0,212,255,0.3)' }}
-                        onClick={() => { setEditQuestion(q); setEditForm({ text: (q.content as any)?.text || '', optA: opts.find((o:any)=>o.key==='A')?.text||'', optB: opts.find((o:any)=>o.key==='B')?.text||'', optC: opts.find((o:any)=>o.key==='C')?.text||'', optD: opts.find((o:any)=>o.key==='D')?.text||'', correctAnswer: correct, difficulty: q.difficulty, domain: q.domain }); setEditReason('') }}>
+                        onClick={() => { setEditQuestion(q); setEditForm({ text: (q.content as any)?.text || '', imageUrl: (q.content as any)?.imageUrl || '', optA: opts.find((o:any)=>o.key==='A')?.text||'', optB: opts.find((o:any)=>o.key==='B')?.text||'', optC: opts.find((o:any)=>o.key==='C')?.text||'', optD: opts.find((o:any)=>o.key==='D')?.text||'', correctAnswer: correct, difficulty: q.difficulty, domain: q.domain }); setEditReason('') }}>
                         Edit
                       </button>
                       <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
@@ -359,6 +378,25 @@ export default function MasterProctorQuestionsPage() {
               <div>
                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Question Text *</label>
                 <textarea className="form-input" rows={3} value={editForm.text} onChange={e => setEditForm((f: any) => ({ ...f, text: e.target.value }))} style={{ resize: 'vertical' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Image (optional)</label>
+                {editForm.imageUrl ? (
+                  <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
+                    <img src={uploadUrl(editForm.imageUrl)} alt="" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '6px', border: '1px solid var(--border)' }} />
+                    <button type="button" onClick={() => setEditForm((f: any) => ({ ...f, imageUrl: '' }))}
+                      style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.7)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', border: '1px dashed var(--border)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    <ImagePlus size={16} />
+                    {imageUploading ? 'Uploading...' : 'Upload image (JPG, PNG, GIF, WEBP — max 5MB)'}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={imageUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, 'edit'); e.target.value = '' }} />
+                  </label>
+                )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {(['A', 'B', 'C', 'D'] as const).map(l => (
@@ -395,7 +433,7 @@ export default function MasterProctorQuestionsPage() {
               <button className="btn-ghost" onClick={() => setEditQuestion(null)} style={{ flex: 1 }}>Cancel</button>
               <button className="btn-primary" style={{ flex: 1 }}
                 disabled={editReason.trim().length < 20 || editMutation.isPending}
-                onClick={() => editMutation.mutate({ id: editQuestion.id, data: { content: { text: editForm.text }, options: [{ key: 'A', text: editForm.optA }, { key: 'B', text: editForm.optB }, { key: 'C', text: editForm.optC }, { key: 'D', text: editForm.optD }], correctAnswer: [editForm.correctAnswer], difficulty: editForm.difficulty, domain: editForm.domain, editReason } })}>
+                onClick={() => editMutation.mutate({ id: editQuestion.id, data: { content: editForm.imageUrl ? { text: editForm.text, imageUrl: editForm.imageUrl } : { text: editForm.text }, options: [{ key: 'A', text: editForm.optA }, { key: 'B', text: editForm.optB }, { key: 'C', text: editForm.optC }, { key: 'D', text: editForm.optD }], correctAnswer: [editForm.correctAnswer], difficulty: editForm.difficulty, domain: editForm.domain, editReason } })}>
                 {editMutation.isPending ? 'Saving...' : 'Save Changes â€” Goes Live Immediately'}
               </button>
             </div>
@@ -413,6 +451,25 @@ export default function MasterProctorQuestionsPage() {
                 <textarea className="form-input" rows={3} required value={form.text}
                   onChange={e => setForm(f => ({ ...f, text: e.target.value }))}
                   placeholder="Enter the full question text..." style={{ resize: 'vertical' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Image (optional)</label>
+                {form.imageUrl ? (
+                  <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
+                    <img src={uploadUrl(form.imageUrl)} alt="" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '6px', border: '1px solid var(--border)' }} />
+                    <button type="button" onClick={() => setForm(f => ({ ...f, imageUrl: '' }))}
+                      style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.7)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', border: '1px dashed var(--border)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    <ImagePlus size={16} />
+                    {imageUploading ? 'Uploading...' : 'Upload image (JPG, PNG, GIF, WEBP — max 5MB)'}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={imageUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, 'add'); e.target.value = '' }} />
+                  </label>
+                )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {(['A', 'B', 'C', 'D'] as const).map(l => (

@@ -7,7 +7,7 @@ import { AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
-import { useWebRTC } from '@/lib/useWebRTC'
+import { useLivekit } from '@/lib/useLivekit'
 import { useMediaPipe } from '@/lib/useMediaPipe'
 import MonitorGrid from '@/components/proctor/MonitorGrid'
 import FlagQueue from '@/components/proctor/FlagQueue'
@@ -30,8 +30,8 @@ function SessionContent() {
   const [activeCandidateId, setActiveCandidateId] = useState<string | undefined>()
   const [verifiedCandidates, setVerifiedCandidates] = useState<Set<string>>(new Set())
   const [mcqPushed, setMcqPushed] = useState(false)
+  const [screenSharingCandidateIds, setScreenSharingCandidateIds] = useState<Set<string>>(new Set())
 
-  const socketRef = useRef<any>(null)
   const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
     sessionId,
     role: 'PROCTOR',
@@ -44,12 +44,38 @@ function SessionContent() {
       if (event === 'session.submitted') {
         qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
       }
+      if (event === 'candidate.screenShareActive') {
+        setScreenSharingCandidateIds(prev => {
+          const next = new Set(prev)
+          if (data.candidateId) next.add(data.candidateId)
+          return next
+        })
+      }
+      if (event === 'candidate.screenShareStopped') {
+        setScreenSharingCandidateIds(prev => {
+          const next = new Set(prev)
+          if (data.candidateId) next.delete(data.candidateId)
+          return next
+        })
+      }
     },
   })
-  const [cameraActive, setCameraActive] = useState(false)
-  const [cameraError, setCameraError] = useState(false)
-  const proctorStreamRef = useRef<MediaStream | null>(null)
-  const proctorVideoRef = useRef<HTMLVideoElement | null>(null)
+  // LiveKit replaces our previous getUserMedia + WebRTC P2P stack.
+  // We still get a "local" camera stream back from LiveKit for the PIP/preview.
+  const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+  const {
+    isConnected: lkConnected,
+    localCameraStream: proctorStream,
+    peers: lkPeers,
+    error: lkError,
+  } = useLivekit({
+    enabled: !!sessionId && !!jwtToken,
+    role: 'PROCTOR',
+    sessionId,
+    jwtToken,
+    publishCamera: true,
+    publishMic: true,
+  })
 
   const { alerts, behaviorScore, isMonitoring, dismissAlert } = useMediaPipe({
     sessionId,
@@ -61,32 +87,6 @@ function SessionContent() {
       }
     },
   })
-
-  const assignProctorStream = useCallback((el: HTMLVideoElement | null) => {
-    if (!el || !proctorStreamRef.current) return
-    if (el.srcObject !== proctorStreamRef.current) el.srcObject = proctorStreamRef.current
-    el.play().catch(() => {})
-  }, [])
-
-  const startProctorCamera = useCallback(async () => {
-    try {
-      if (proctorStreamRef.current) proctorStreamRef.current.getTracks().forEach(t => t.stop())
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      proctorStreamRef.current = stream
-      setCameraActive(true)
-      setCameraError(false)
-      assignProctorStream(proctorVideoRef.current)
-    } catch {
-      setCameraError(true)
-    }
-  }, [assignProctorStream])
-
-  useEffect(() => {
-    startProctorCamera()
-    return () => {
-      if (proctorStreamRef.current) proctorStreamRef.current.getTracks().forEach(t => t.stop())
-    }
-  }, [])
 
   const { data: session, isLoading } = useQuery({
     queryKey: ['proctor-session', sessionId],
@@ -113,12 +113,13 @@ function SessionContent() {
 
   const candidateVideoRef = useRef<HTMLVideoElement | null>(null)
 
-  const { remoteStreams } = useWebRTC({
-    sessionId,
-    role: 'PROCTOR',
-    localStream: cameraActive ? proctorStreamRef.current : null,
-    socket: wsSocket,
-    enabled: !!sessionId && cameraActive && !!session,
+  // Convert LiveKit peers into a Map<identity, MediaStream> compatible with old code
+  // so we don't have to rewrite VerificationLayout and MonitorGrid.
+  const remoteStreams = new Map<string, MediaStream>()
+  lkPeers.forEach((peer, identity) => {
+    if (peer.role === 'CANDIDATE' && peer.cameraStream) {
+      remoteStreams.set(identity, peer.cameraStream)
+    }
   })
 
   const handleCandidateSelect = useCallback((candidateId: string, candidateSocketId?: string) => {
@@ -232,7 +233,8 @@ function SessionContent() {
     ? sessionCandidates.map((sc: any) => ({
         id: sc.candidateId,
         name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
-        stream: remoteStreams.get(sc.socketId) || null,
+        // LiveKit identities are 'candidate-{id}'
+        stream: lkPeers.get(`candidate-${sc.candidateId}`)?.cameraStream || null,
         socketId: sc.socketId,
         mcqSubmitted: sc.status === 'MCQ_SUBMITTED',
       }))
@@ -305,11 +307,12 @@ function SessionContent() {
         <VerificationLayout
           sessionId={sessionId}
           candidates={candidates}
-          proctorStream={proctorStreamRef.current}
+          proctorStream={proctorStream}
           onCandidateSelect={handleCandidateSelect}
           onAllVerifiedClick={handleAllVerified}
           allVerified={allVerified}
           socket={wsSocket}
+          screenSharingCandidateIds={screenSharingCandidateIds}
         />
       )}
 
@@ -318,7 +321,7 @@ function SessionContent() {
           <PostVerificationLayout
             sessionId={sessionId}
             candidates={candidates.map((c: any) => ({ ...c, screenStream: c.stream, cameraStream: c.stream }))}
-            proctorStream={proctorStreamRef.current}
+            proctorStream={proctorStream}
             onPushMCQ={handlePushMCQ}
             onPushPractical={handlePushPractical}
             onDisqualify={handleDisqualify}

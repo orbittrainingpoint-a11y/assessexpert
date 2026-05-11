@@ -25,6 +25,7 @@ interface Props {
   candidateVideoRef: React.RefObject<HTMLVideoElement | null>
   onAllDone: () => void
   onRequestScreenShare?: () => void
+  candidateScreenShareActive?: boolean
 }
 
 const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
@@ -163,29 +164,43 @@ function ItemEnvironmentScan({ saving, onComplete }: { saving: boolean; onComple
   )
 }
 
-function ItemScreenShare({ saving, onComplete, onRequestCandidateScreenShare }: { saving: boolean; onComplete: (d: any) => void; onRequestCandidateScreenShare?: () => void }) {
-  const [shareStatus, setShareStatus] = useState<'unknown' | 'requested' | 'active'>('unknown')
+function ItemScreenShare({
+  saving,
+  onComplete,
+  onRequestCandidateScreenShare,
+  candidateSharing,
+}: {
+  saving: boolean
+  onComplete: (d: any) => void
+  onRequestCandidateScreenShare?: () => void
+  candidateSharing?: boolean
+}) {
+  const [requested, setRequested] = useState(false)
   const requestShare = () => {
-    // Notify candidate via socket (handled by parent)
     onRequestCandidateScreenShare?.()
-    setShareStatus('requested')
+    setRequested(true)
   }
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
         Request the candidate to share their screen. They will see a prompt on their screen.
       </div>
-      {shareStatus === 'unknown' && (
+      {!requested && !candidateSharing && (
         <button className="btn-primary" style={{ width: '100%', padding: '10px', marginBottom: '8px' }} onClick={requestShare}>
           Request Screen Share from Candidate
         </button>
       )}
-      {shareStatus === 'requested' && (
+      {requested && !candidateSharing && (
         <div style={{ padding: '10px', background: 'rgba(0,212,255,0.06)', borderRadius: '6px', fontSize: '13px', color: 'var(--cyan)', textAlign: 'center', marginBottom: '10px' }}>
           ⏳ Waiting for candidate to share screen...
         </div>
       )}
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving}
+      {candidateSharing && (
+        <div style={{ padding: '10px', background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.4)', borderRadius: '6px', fontSize: '13px', color: 'var(--emerald)', textAlign: 'center', marginBottom: '10px', fontWeight: 600 }}>
+          ✓ Candidate is sharing their screen
+        </div>
+      )}
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !candidateSharing}
         onClick={() => onComplete({ value: 'active' })}>
         {saving ? 'Saving...' : 'Screen Share Confirmed'}
       </button>
@@ -252,7 +267,7 @@ function ItemGuidelines({ saving, onComplete }: { saving: boolean; onComplete: (
   )
 }
 
-export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone, onRequestScreenShare }: Props) {
+export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
   const [itemStates, setItemStates] = useState<ChecklistState>({
     camera_verified:    'active',
     identity_name:      'pending',
@@ -380,7 +395,12 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone
               )}
 
               {isActive && item.key === 'screen_share' && (
-                <ItemScreenShare saving={saving} onComplete={d => completeItem('screen_share', d)} onRequestCandidateScreenShare={onRequestScreenShare} />
+                <ItemScreenShare
+                  saving={saving}
+                  onComplete={d => completeItem('screen_share', d)}
+                  onRequestCandidateScreenShare={onRequestScreenShare}
+                  candidateSharing={candidateScreenShareActive}
+                />
               )}
 
               {isActive && item.key === 'guardpro' && (

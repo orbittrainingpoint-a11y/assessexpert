@@ -1,0 +1,32 @@
+# nginx config to proxy wss://livekit.yourdomain.com to LiveKit server on port 7880.
+# Drop this into /etc/nginx/sites-available/ on the live server and `ln -s` to sites-enabled.
+# Then: sudo certbot --nginx -d livekit.yourdomain.com
+
+server {
+    listen 80;
+    server_name livekit.yourdomain.com;
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name livekit.yourdomain.com;
+
+    # certbot fills these in
+    # ssl_certificate /etc/letsencrypt/live/livekit.yourdomain.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/livekit.yourdomain.com/privkey.pem;
+
+    # WebSocket signalling
+    location / {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}

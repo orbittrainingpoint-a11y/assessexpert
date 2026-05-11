@@ -110,6 +110,24 @@ export const assessmentsApi = {
 }
 
 // Questions
+// Storage / uploads
+export const storageApi = {
+  uploadQuestionImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/storage/upload/question-asset', fd)
+  },
+}
+
+// Returns the absolute URL for a backend-served upload path.
+// Accepts: "/uploads/question-assets/123.png" or already-absolute URLs.
+export function uploadUrl(pathOrUrl: string | null | undefined): string {
+  if (!pathOrUrl) return ''
+  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl
+  const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/api\/?$/, '')
+  return `${base}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`
+}
+
 export const questionsApi = {
   getAll: (filters?: any) => api.get('/questions', { params: filters }),
   getOne: (id: string) => api.get(`/questions/${id}`),

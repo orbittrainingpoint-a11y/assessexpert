@@ -523,6 +523,32 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { pushed: true };
   }
 
+  // ── Candidate started screen share ───────────────────────────────────────
+  @SubscribeMessage('candidate.screenShareActive')
+  handleCandidateScreenShareActive(
+    @MessageBody() data: { sessionId: string; candidateId?: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('candidate.screenShareActive', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      timestamp: new Date().toISOString(),
+    });
+    return { broadcast: true };
+  }
+
+  // ── Candidate stopped screen share ───────────────────────────────────────
+  @SubscribeMessage('candidate.screenShareStopped')
+  handleCandidateScreenShareStopped(
+    @MessageBody() data: { sessionId: string; candidateId?: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('candidate.screenShareStopped', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      timestamp: new Date().toISOString(),
+    });
+    return { broadcast: true };
+  }
+
   // ── Candidate disqualified ───────────────────────────────────────────────
   @SubscribeMessage('candidate.disqualified')
   handleCandidateDisqualified(

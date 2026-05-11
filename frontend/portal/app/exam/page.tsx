@@ -1,9 +1,10 @@
 ﻿'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { authApi, examApi, checklistApi, api } from '@/lib/api'
+import { authApi, examApi, checklistApi, api, uploadUrl } from '@/lib/api'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
-import { useWebRTC } from '@/lib/useWebRTC'
+import { useLivekit } from '@/lib/useLivekit'
+import { useFaceDetection } from '@/lib/useFaceDetection'
 import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
@@ -55,8 +56,8 @@ function ExamContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const bgVideoRef = useRef<HTMLVideoElement>(null)
+  // We retain a copy of the LiveKit local camera stream for legacy refs (preview/face detection)
   const cameraStreamRef = useRef<MediaStream | null>(null)
-  const screenStreamRef = useRef<MediaStream | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
 
   // Helper: assign stream to any video element
@@ -144,29 +145,46 @@ function ExamContent() {
       }
     },
   })
-  // WebRTC — send candidate camera + screen stream to proctor, receive proctor stream
-  // Use state (not ref) so updates trigger re-renders and useWebRTC sees new tracks
-  const [combinedStream, setCombinedStream] = useState<MediaStream | null>(null)
-  useEffect(() => {
-    if (!cameraReady) return
-    const camTracks = cameraStreamRef.current?.getTracks() || []
-    const screenTracks = screenStreamRef.current?.getVideoTracks() || []
-    const allTracks = [...camTracks, ...screenTracks]
-    if (allTracks.length > 0) {
-      setCombinedStream(new MediaStream(allTracks))
-    }
-  }, [cameraReady])
-
-  const { remoteStreams: proctorStreams, proctorActive } = useWebRTC({
-    sessionId: sessionState?.id || '',
+  // LiveKit handles all media — publishes candidate camera + mic, receives proctor stream.
+  // Enabled once we have a session + we're past the camera check screen.
+  const livekitEnabled = !!sessionState?.id && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical')
+  const {
+    localCameraStream: lkLocalCamera,
+    localScreenStream: lkLocalScreen,
+    peers: lkPeers,
+    startScreenShare: lkStartScreenShare,
+    screenShareActive: lkScreenShareActive,
+  } = useLivekit({
+    enabled: livekitEnabled,
     role: 'CANDIDATE',
-    localStream: cameraReady ? (combinedStream || cameraStreamRef.current) : null,
+    magicToken: token,
+    publishCamera: true,
+    publishMic: true,
+  })
+
+  // Keep cameraStreamRef in sync with LiveKit so existing UI refs still work
+  useEffect(() => {
+    cameraStreamRef.current = lkLocalCamera
+    if (lkLocalCamera && !cameraReady) setCameraReady(true)
+    // Re-assign to any mounted preview videos
+    setTimeout(() => { assignStream(videoRef.current); assignStream(bgVideoRef.current) }, 50)
+  }, [lkLocalCamera])
+
+  // Find proctor stream from LiveKit peers
+  const proctorPeer = Array.from(lkPeers.values()).find(p => p.role === 'PROCTOR')
+  const proctorStream = proctorPeer?.cameraStream || null
+  const proctorActive = !!proctorStream
+
+  // Client-side MediaPipe face detection — runs locally on candidate video, emits
+  // ai.multiple_faces / ai.face_absent socket events the proctor sees in real time.
+  const faceDetectionEnabled = !!sessionState?.id && cameraReady && (phase === 'mcq' || phase === 'practical' || phase === 'verification' || phase === 'waiting')
+  useFaceDetection({
+    enabled: faceDetectionEnabled,
+    stream: lkLocalCamera,
     socket: wsSocket,
-    enabled: !!sessionState?.id && cameraReady && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    sessionId: sessionState?.id || '',
     candidateId: sessionState?.candidate?.id,
   })
-  // Show proctor stream as soon as it arrives — don't gate on proctorActive
-  const proctorStream = proctorStreams.size > 0 ? Array.from(proctorStreams.values())[0] : null
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
@@ -228,16 +246,13 @@ function ExamContent() {
     return () => clearInterval(resendIntervalRef.current)
   }, [resendTimer])
 
-  // Camera setup
+  // Camera permission pre-check — actual publishing happens via LiveKit later.
+  // We only do this to verify the browser permission state before entering the waiting room.
   const startCamera = useCallback(async () => {
     try {
-      // Stop any existing stream first
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach(t => t.stop())
-      }
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      cameraStreamRef.current = stream
-      setCameraReady(true)
+      // Stop these temporary tracks — LiveKit will acquire its own via setCameraEnabled.
+      stream.getTracks().forEach(t => t.stop())
       return true
     } catch {
       toast.error('Camera access required. Please allow camera access and try again.')
@@ -385,25 +400,37 @@ function ExamContent() {
   }, [phase, token])
 
   const requestScreenShare = async () => {
-    try {
-      const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false })
-      screenStreamRef.current = screenStream
-      // Rebuild combined stream with camera + screen tracks (new MediaStream → triggers WebRTC track replace)
-      const camTracks = cameraStreamRef.current?.getTracks() || []
-      const screenTracks = screenStream.getVideoTracks()
-      setCombinedStream(new MediaStream([...camTracks, ...screenTracks]))
+    const ok = await lkStartScreenShare()
+    if (ok) {
       setScreenShareRequested(false)
       toast.success('Screen share active')
-      screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
-        screenStreamRef.current = null
-        // Revert to camera-only stream
-        const tracks = cameraStreamRef.current?.getTracks() || []
-        setCombinedStream(tracks.length > 0 ? new MediaStream(tracks) : null)
-      })
-    } catch {
+      // Notify proctor via socket so their checklist auto-confirms
+      if (wsSocket?.connected && sessionState?.id) {
+        wsSocket.emit('candidate.screenShareActive', {
+          sessionId: sessionState.id,
+          candidateId: sessionState.candidate?.id,
+        })
+      }
+    } else {
       toast.error('Screen share required for this assessment')
     }
   }
+
+  // Notify proctor when screen share stops
+  useEffect(() => {
+    if (!wsSocket?.connected || !sessionState?.id) return
+    if (lkScreenShareActive) {
+      wsSocket.emit('candidate.screenShareActive', {
+        sessionId: sessionState.id,
+        candidateId: sessionState.candidate?.id,
+      })
+    } else {
+      wsSocket.emit('candidate.screenShareStopped', {
+        sessionId: sessionState.id,
+        candidateId: sessionState.candidate?.id,
+      })
+    }
+  }, [lkScreenShareActive, wsSocket, sessionState?.id, sessionState?.candidate?.id])
 
   const handleOtpChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return
@@ -841,6 +868,15 @@ function ExamContent() {
             <p style={{ fontSize: '17px', color: 'var(--text-primary)', lineHeight: '1.7', margin: 0 }}>
               {(currentQuestion.content as any)?.text}
             </p>
+            {(currentQuestion.content as any)?.imageUrl && (
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center' }}>
+                <img
+                  src={uploadUrl((currentQuestion.content as any).imageUrl)}
+                  alt="Question diagram"
+                  style={{ maxWidth: '100%', maxHeight: '380px', borderRadius: '8px', border: '1px solid var(--border)' }}
+                />
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>

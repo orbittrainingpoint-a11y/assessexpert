@@ -1,14 +1,22 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import * as cookieParser from 'cookie-parser';
+import * as path from 'path';
 import helmet from 'helmet';
 import * as compression from 'compression';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Serve uploaded files (question images, practical assets) at /uploads/*
+  // Storage dir layout: ./storage/question-assets/*, ./storage/practical-files/*, etc.
+  app.useStaticAssets(path.resolve(process.env.STORAGE_PATH || './storage'), {
+    prefix: '/uploads/',
+  });
 
   // Security
   app.use(helmet({

@@ -19,6 +19,8 @@ interface Props {
   onAllVerifiedClick: () => void
   allVerified: boolean
   socket?: any
+  // Set of candidateIds currently sharing their screen (from LiveKit / socket)
+  screenSharingCandidateIds?: Set<string>
 }
 
 function VideoBox({
@@ -61,6 +63,7 @@ export default function VerificationLayout({
   onAllVerifiedClick,
   allVerified,
   socket,
+  screenSharingCandidateIds,
 }: Props) {
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(candidates[0]?.id || null)
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
@@ -203,6 +206,7 @@ export default function VerificationLayout({
           <ChecklistPanel
             sessionId={sessionId}
             candidateVideoRef={{ current: null } as any}
+            candidateScreenShareActive={screenSharingCandidateIds?.has(activeCandidateId)}
             onAllDone={() => {
               setVerifiedIds(prev => new Set(prev).add(activeCandidateId!))
               // Auto-advance to next unverified candidate
