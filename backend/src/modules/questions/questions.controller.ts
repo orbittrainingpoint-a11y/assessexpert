@@ -49,6 +49,18 @@ export class QuestionsController {
     return this.questionsService.archiveQuestion(id);
   }
 
+  @Post(':id/activate')
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER')
+  async activateQuestion(@Param('id') id: string) {
+    return this.questionsService.activateQuestion(id);
+  }
+
+  @Post('bulk-activate')
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER')
+  async bulkActivate(@Body() body: { ids?: string[]; assessmentTypeId?: string }) {
+    return this.questionsService.bulkActivate(body);
+  }
+
   @Post('import')
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER')
   @UseInterceptors(FileInterceptor('file'))

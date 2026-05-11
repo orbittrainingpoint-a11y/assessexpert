@@ -116,6 +116,8 @@ export const questionsApi = {
   create: (data: any) => api.post('/questions', data),
   update: (id: string, data: any) => api.put(`/questions/${id}`, data),
   archive: (id: string) => api.post(`/questions/${id}/archive`),
+  activate: (id: string) => api.post(`/questions/${id}/activate`),
+  bulkActivate: (body: { ids?: string[]; assessmentTypeId?: string }) => api.post(`/questions/bulk-activate`, body),
   getPoolStats: (assessmentTypeId: string) => api.get(`/questions/pool-stats/${assessmentTypeId}`),
   bulkImport: (formData: FormData) => api.post('/questions/import', formData),
 }

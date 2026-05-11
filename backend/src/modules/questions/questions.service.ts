@@ -225,6 +225,31 @@ export class QuestionsService {
     });
   }
 
+  async activateQuestion(id: string) {
+    return this.prisma.question.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
+  async bulkActivate(params: { ids?: string[]; assessmentTypeId?: string }) {
+    // If ids provided, activate only those; otherwise activate all DRAFT questions
+    // for the given assessmentTypeId. At least one filter is required.
+    const where: any = { status: 'DRAFT' };
+    if (params.ids && params.ids.length > 0) {
+      where.id = { in: params.ids };
+    } else if (params.assessmentTypeId) {
+      where.assessmentTypeId = params.assessmentTypeId;
+    } else {
+      return { activated: 0, message: 'Provide ids[] or assessmentTypeId' };
+    }
+    const result = await this.prisma.question.updateMany({
+      where,
+      data: { status: 'ACTIVE' },
+    });
+    return { activated: result.count };
+  }
+
   async getPoolStats(assessmentTypeId: string) {
     const [active, draft, archived, byDifficulty, byDomain] = await Promise.all([
       this.prisma.question.count({ where: { assessmentTypeId, status: 'ACTIVE' } }),

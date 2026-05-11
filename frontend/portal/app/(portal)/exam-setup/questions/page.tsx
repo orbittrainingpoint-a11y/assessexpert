@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { questionsApi, assessmentsApi } from '@/lib/api'
-import { Plus, Upload, Archive } from 'lucide-react'
+import { Plus, Upload, Archive, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
@@ -38,6 +38,27 @@ function QuestionsContent() {
     onSuccess: () => { toast.success('Question archived'); qc.invalidateQueries({ queryKey: ['questions-esm'] }) },
   })
 
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => questionsApi.activate(id),
+    onSuccess: () => {
+      toast.success('Question activated')
+      qc.invalidateQueries({ queryKey: ['questions-esm'] })
+      qc.invalidateQueries({ queryKey: ['pool-stats-esm', assessmentTypeId] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Activation failed'),
+  })
+
+  const bulkActivateMutation = useMutation({
+    mutationFn: () => questionsApi.bulkActivate({ assessmentTypeId }),
+    onSuccess: (res: any) => {
+      const count = res?.data?.activated ?? 0
+      toast.success(count > 0 ? `${count} question${count > 1 ? 's' : ''} activated` : 'No draft questions to activate')
+      qc.invalidateQueries({ queryKey: ['questions-esm'] })
+      qc.invalidateQueries({ queryKey: ['pool-stats-esm', assessmentTypeId] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Bulk activation failed'),
+  })
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -63,6 +84,21 @@ function QuestionsContent() {
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>Target: 500 active questions per assessment type</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
+          {poolStats?.draft > 0 && assessmentTypeId && (
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                if (window.confirm(`Activate all ${poolStats.draft} draft question${poolStats.draft > 1 ? 's' : ''}?`)) {
+                  bulkActivateMutation.mutate()
+                }
+              }}
+              disabled={bulkActivateMutation.isPending}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.4)' }}
+            >
+              <CheckCircle2 size={15} />
+              {bulkActivateMutation.isPending ? 'Activating...' : `Activate ${poolStats.draft} Draft${poolStats.draft > 1 ? 's' : ''}`}
+            </button>
+          )}
           <label style={{ cursor: 'pointer' }}>
             <input type="file" accept=".csv,.xlsx" onChange={handleImport} style={{ display: 'none' }} />
             <span className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', cursor: 'pointer' }}>
@@ -83,9 +119,9 @@ function QuestionsContent() {
       {poolStats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
           {[
-            { label: 'Total', value: poolStats.total },
-            { label: 'Active', value: poolStats.active, color: poolStats.active >= 500 ? 'var(--emerald)' : 'var(--amber)' },
-            { label: 'Pending', value: poolStats.pendingApproval },
+            { label: 'Total', value: poolStats.total ?? 0 },
+            { label: 'Active', value: poolStats.active ?? 0, color: (poolStats.active ?? 0) >= 500 ? 'var(--emerald)' : 'var(--amber)' },
+            { label: 'Draft', value: poolStats.draft ?? 0, color: (poolStats.draft ?? 0) > 0 ? 'var(--amber)' : 'var(--text-muted)' },
             { label: 'Target', value: '500', color: 'var(--text-muted)' },
           ].map(s => (
             <div key={s.label} className="glass-card" style={{ padding: '16px', textAlign: 'center' }}>
@@ -121,12 +157,24 @@ function QuestionsContent() {
                 <td><span className={`badge ${q.status === 'ACTIVE' ? 'badge-pass' : q.status === 'PENDING_APPROVAL' ? 'badge-pending' : 'badge-draft'}`} style={{ fontSize: '11px' }}>{q.status.replace(/_/g, ' ')}</span></td>
                 <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{q.usageCount}×</td>
                 <td>
-                  {q.status !== 'ARCHIVED' && (
-                    <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                      onClick={() => { if (confirm('Archive this question?')) archiveMutation.mutate(q.id) }}>
-                      <Archive size={12} /> Archive
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {q.status === 'DRAFT' && (
+                      <button
+                        className="btn-ghost"
+                        style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.4)' }}
+                        disabled={activateMutation.isPending}
+                        onClick={() => activateMutation.mutate(q.id)}
+                      >
+                        <CheckCircle2 size={12} /> Activate
+                      </button>
+                    )}
+                    {q.status !== 'ARCHIVED' && (
+                      <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => { if (confirm('Archive this question?')) archiveMutation.mutate(q.id) }}>
+                        <Archive size={12} /> Archive
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

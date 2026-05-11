@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { questionsApi, assessmentsApi, practicalTasksApi } from '@/lib/api'
-import { Plus, Upload, FileText, Code, ArrowLeft } from 'lucide-react'
+import { Plus, Upload, FileText, Code, ArrowLeft, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type View = 'list' | 'mcq' | 'practical'
@@ -57,6 +57,27 @@ export default function MasterProctorQuestionsPage() {
   const archiveMutation = useMutation({
     mutationFn: (id: string) => questionsApi.archive(id),
     onSuccess: () => { toast.success('Question archived'); qc.invalidateQueries({ queryKey: ['questions-mp', selected?.id] }) },
+  })
+
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => questionsApi.activate(id),
+    onSuccess: () => {
+      toast.success('Question activated — now live in the pool')
+      qc.invalidateQueries({ queryKey: ['questions-mp', selected?.id] })
+      qc.invalidateQueries({ queryKey: ['pool-stats-mp', selected?.id] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Activation failed'),
+  })
+
+  const bulkActivateMutation = useMutation({
+    mutationFn: () => questionsApi.bulkActivate({ assessmentTypeId: selected.id }),
+    onSuccess: (res: any) => {
+      const count = res?.data?.activated ?? 0
+      toast.success(count > 0 ? `${count} question${count > 1 ? 's' : ''} activated` : 'No draft questions to activate')
+      qc.invalidateQueries({ queryKey: ['questions-mp', selected?.id] })
+      qc.invalidateQueries({ queryKey: ['pool-stats-mp', selected?.id] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Bulk activation failed'),
   })
 
 
@@ -201,6 +222,21 @@ export default function MasterProctorQuestionsPage() {
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>{selected?.shortCode} Â· {selected?.mcqQuestionCount} questions per exam Â· {selected?.mcqTimeLimit} min</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
+          {poolStats?.draft > 0 && (
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                if (window.confirm(`Activate all ${poolStats.draft} draft question${poolStats.draft > 1 ? 's' : ''} for ${selected?.name}?`)) {
+                  bulkActivateMutation.mutate()
+                }
+              }}
+              disabled={bulkActivateMutation.isPending}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '14px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.4)' }}
+            >
+              <CheckCircle2 size={14} />
+              {bulkActivateMutation.isPending ? 'Activating...' : `Activate ${poolStats.draft} Draft${poolStats.draft > 1 ? 's' : ''}`}
+            </button>
+          )}
           <label className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '8px 16px', fontSize: '14px' }}>
             <Upload size={14} /> Upload CSV
             <input type="file" accept=".csv" style={{ display: 'none' }} onChange={handleCSVUpload} />
@@ -215,9 +251,9 @@ export default function MasterProctorQuestionsPage() {
       {poolStats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
           {[
-            { label: 'Total Questions', value: poolStats.total, color: 'var(--cyan)' },
-            { label: 'Active', value: poolStats.active, color: 'var(--emerald)' },
-            { label: 'Pending Approval', value: poolStats.pendingApproval, color: 'var(--amber)' },
+            { label: 'Total Questions', value: poolStats.total ?? 0, color: 'var(--cyan)' },
+            { label: 'Active', value: poolStats.active ?? 0, color: 'var(--emerald)' },
+            { label: 'Draft (awaiting activation)', value: poolStats.draft ?? 0, color: 'var(--amber)' },
             { label: 'Pool Health', value: `${Math.min(100, Math.round(((poolStats.active || 0) / 500) * 100))}%`, color: (poolStats.active || 0) >= 500 ? 'var(--emerald)' : (poolStats.active || 0) >= 250 ? 'var(--amber)' : 'var(--rose)' },
           ].map(s => (
             <div key={s.label} className="glass-card" style={{ padding: '16px', textAlign: 'center' }}>
@@ -238,26 +274,27 @@ export default function MasterProctorQuestionsPage() {
       <div className="glass-card" style={{ overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
-            <tr><th>#</th><th>Question</th><th>Options</th><th>Answer</th><th>Domain</th><th>Difficulty</th><th>Actions</th></tr>
+            <tr><th>#</th><th>Question</th><th>Options</th><th>Answer</th><th>Domain</th><th>Difficulty</th><th>Status</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {qLoading ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
             ) : !questions.length ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No questions yet. Add your first question or upload a CSV.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No questions yet. Add your first question or upload a CSV.</td></tr>
             ) : questions.map((q: any, i: number) => {
               const opts: any[] = q.options || []
               const correct = Array.isArray(q.correctAnswer) ? q.correctAnswer[0] : q.correctAnswer
+              const isDraft = q.status === 'DRAFT'
               return (
                 <tr key={q.id}>
                   <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{i + 1}</td>
                   <td style={{ maxWidth: '300px' }}>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {(q.content as any)?.text || 'â€”'}
+                      {(q.content as any)?.text || '—'}
                     </p>
                   </td>
                   <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    {opts.map((o: any) => `${o.key}. ${o.text?.substring(0, 20)}${o.text?.length > 20 ? 'â€¦' : ''}`).join(' | ')}
+                    {opts.map((o: any) => `${o.key}. ${o.text?.substring(0, 20)}${o.text?.length > 20 ? '…' : ''}`).join(' | ')}
                   </td>
                   <td>
                     <span style={{ fontWeight: '700', color: 'var(--emerald)', fontSize: '13px' }}>{correct}</span>
@@ -269,12 +306,32 @@ export default function MasterProctorQuestionsPage() {
                     </span>
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button className={"btn-ghost"} style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(0,212,255,0.3)' }}
+                    <span
+                      className={`badge ${q.status === 'ACTIVE' ? 'badge-pass' : q.status === 'DRAFT' ? 'badge-pending' : 'badge-fail'}`}
+                      style={{ fontSize: '11px' }}
+                    >
+                      {q.status || 'DRAFT'}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {isDraft && (
+                        <button
+                          className="btn-ghost"
+                          style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.4)' }}
+                          disabled={activateMutation.isPending}
+                          onClick={() => activateMutation.mutate(q.id)}
+                          title="Activate this question — makes it available for exams"
+                        >
+                          <CheckCircle2 size={11} style={{ display: 'inline', marginRight: '3px', verticalAlign: '-2px' }} />
+                          Activate
+                        </button>
+                      )}
+                      <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(0,212,255,0.3)' }}
                         onClick={() => { setEditQuestion(q); setEditForm({ text: (q.content as any)?.text || '', optA: opts.find((o:any)=>o.key==='A')?.text||'', optB: opts.find((o:any)=>o.key==='B')?.text||'', optC: opts.find((o:any)=>o.key==='C')?.text||'', optD: opts.find((o:any)=>o.key==='D')?.text||'', correctAnswer: correct, difficulty: q.difficulty, domain: q.domain }); setEditReason('') }}>
                         Edit
                       </button>
-                      <button className={"btn-ghost"} style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
+                      <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
                         onClick={() => { if (window.confirm('Archive this question?')) archiveMutation.mutate(q.id) }}>
                         Archive
                       </button>
