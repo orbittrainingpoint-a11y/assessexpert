@@ -130,13 +130,11 @@ export function useMediaPipe({ sessionId, socket, enabled = true, onAlert }: Use
       setBehaviorScore(data)
     }
 
-    const handleMonitoringStart = () => {
-      setIsMonitoring(true)
-    }
+    const handleMonitoringStart = () => setIsMonitoring(true)
+    const handleMonitoringStop = () => setIsMonitoring(false)
 
-    const handleMonitoringStop = () => {
-      setIsMonitoring(false)
-    }
+    // Consider monitoring active when socket is connected and enabled
+    setIsMonitoring(true)
 
     socket.on('ai.multiple_faces', handleMultipleFaces)
     socket.on('ai.face_absent', handleFaceAbsent)
@@ -156,6 +154,7 @@ export function useMediaPipe({ sessionId, socket, enabled = true, onAlert }: Use
       socket.off('ai.behavior_score', handleBehaviorScore)
       socket.off('ai.monitoring_start', handleMonitoringStart)
       socket.off('ai.monitoring_stop', handleMonitoringStop)
+      setIsMonitoring(false)
       clearAlerts()
     }
   }, [enabled, socket, sessionId, addAlert, clearAlerts])

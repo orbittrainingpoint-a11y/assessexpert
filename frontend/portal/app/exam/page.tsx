@@ -142,12 +142,12 @@ function ExamContent() {
   // WebRTC — send candidate camera + screen stream to proctor, receive proctor stream
   const combinedStream = useRef<MediaStream | null>(null)
   useEffect(() => {
-    if (!cameraReady) return
-    const tracks = [
-      ...(cameraStreamRef.current?.getTracks() || []),
-      ...(screenStreamRef.current?.getVideoTracks() || []),
-    ]
-    combinedStream.current = new MediaStream(tracks)
+    const camTracks = cameraStreamRef.current?.getTracks() || []
+    const screenTracks = screenStreamRef.current?.getVideoTracks() || []
+    const allTracks = [...camTracks, ...screenTracks]
+    if (allTracks.length > 0) {
+      combinedStream.current = new MediaStream(allTracks)
+    }
   }, [cameraReady])
 
   const { remoteStreams: proctorStreams, proctorActive } = useWebRTC({
@@ -389,15 +389,16 @@ function ExamContent() {
     try {
       const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false })
       screenStreamRef.current = screenStream
-      // Add screen track to existing WebRTC peers via combined stream update
+      // Rebuild combined stream with camera + screen tracks
       const camTracks = cameraStreamRef.current?.getTracks() || []
       const screenTracks = screenStream.getVideoTracks()
       combinedStream.current = new MediaStream([...camTracks, ...screenTracks])
       setScreenShareRequested(false)
       toast.success('Screen share active')
-      // Stop screen share when user ends it via browser UI
       screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
         screenStreamRef.current = null
+        // Revert to camera only
+        combinedStream.current = cameraStreamRef.current
       })
     } catch {
       toast.error('Screen share required for this assessment')
@@ -743,7 +744,7 @@ function ExamContent() {
     </div>
   )
 
-  if (phase === 'waiting') return (
+  if (phase === 'verification') return (
     <CandidateVerificationLayout
       sessionId={sessionState?.id || ''}
       candidateId={sessionState?.candidate?.id || ''}
@@ -753,6 +754,81 @@ function ExamContent() {
       checklist={checklist}
       proctorActive={proctorActive}
     />
+  )
+
+  if (phase === 'waiting') return (
+    <div style={{ minHeight: '100vh', background: '#000', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--cyan)' }}>assessexpert</span>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{sessionState?.assessmentType?.name || 'Assessment'} — Waiting Room</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--rose)', boxShadow: '0 0 8px var(--rose)' }} />
+          <span style={{ fontSize: '11px', color: 'var(--rose)', fontWeight: '600' }}>LIVE</span>
+        </div>
+      </div>
+
+      {/* Main: candidate self-view full screen */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Full-screen self camera */}
+        <video
+          ref={el => { bgVideoRef.current = el; assignStream(el) }}
+          autoPlay muted playsInline
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.35 }}
+        />
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', border: '3px solid var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', animation: 'pulse 2s infinite' }}>
+              <Shield size={28} color="var(--cyan)" />
+            </div>
+            <h2 style={{ color: '#fff', fontSize: '22px', fontWeight: '700', margin: '0 0 8px' }}>Waiting for Proctor</h2>
+            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', margin: 0 }}>Your proctor will begin the verification shortly. Please stay on camera.</p>
+          </div>
+          {/* Checklist progress */}
+          {checklist.length > 0 && (
+            <div style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '16px 24px', minWidth: '320px', maxWidth: '480px', width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Verification Progress</span>
+                <span style={{ fontSize: '12px', color: 'var(--cyan)' }}>{checklist.filter((i: any) => i.status === 'COMPLETED').length}/{checklist.length}</span>
+              </div>
+              <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', marginBottom: '12px' }}>
+                <div style={{ height: '100%', background: 'var(--cyan)', borderRadius: '2px', width: `${checklist.length > 0 ? (checklist.filter((i: any) => i.status === 'COMPLETED').length / checklist.length) * 100 : 0}%`, transition: 'width 0.4s' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {checklist.map((item: any) => (
+                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '13px' }}>{item.status === 'COMPLETED' ? '✅' : item.status === 'IN_PROGRESS' ? '🔄' : '⬜'}</span>
+                    <span style={{ fontSize: '12px', color: item.status === 'COMPLETED' ? 'var(--emerald)' : item.status === 'IN_PROGRESS' ? 'var(--cyan)' : 'rgba(255,255,255,0.4)' }}>
+                      {item.title || item.key.replace(/ITEM_\d+_/, '').replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Proctor PIP — top right */}
+        {proctorStream && (
+          <div style={{ position: 'absolute', top: '16px', right: '16px', width: '180px', aspectRatio: '16/9', background: '#000', borderRadius: '8px', border: '2px solid var(--cyan)', overflow: 'hidden' }}>
+            <video autoPlay playsInline
+              ref={el => { if (el && proctorStream && el.srcObject !== proctorStream) { el.srcObject = proctorStream; el.play().catch(() => {}) } }}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            <div style={{ position: 'absolute', bottom: '4px', left: '6px', background: 'rgba(0,0,0,0.7)', padding: '2px 6px', borderRadius: '3px', fontSize: '9px', color: 'var(--cyan)', fontWeight: '700' }}>PROCTOR</div>
+          </div>
+        )}
+
+        {/* Self camera PIP — bottom right */}
+        <div style={{ position: 'absolute', bottom: '16px', right: '16px', width: '140px', aspectRatio: '16/9', background: '#000', borderRadius: '8px', border: '2px solid var(--emerald)', overflow: 'hidden' }}>
+          <video autoPlay muted playsInline
+            ref={el => { videoRef.current = el; assignStream(el) }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+          <div style={{ position: 'absolute', bottom: '4px', left: '6px', background: 'rgba(0,0,0,0.7)', padding: '2px 6px', borderRadius: '3px', fontSize: '9px', color: 'var(--emerald)', fontWeight: '700' }}>YOU</div>
+        </div>
+      </div>
+    </div>
   )
   if (phase === 'mcq' && currentQuestion) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

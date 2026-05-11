@@ -87,7 +87,7 @@ export function useWebRTC({ sessionId, role, localStream, socket, enabled = true
       }
     }
 
-    // Initiator creates offer
+    // Initiator creates offer — request audio + video
     if (initiator) {
       peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
         .then(offer => peer.setLocalDescription(offer))
