@@ -82,7 +82,7 @@ function ItemGovernmentId({ sessionId, saving, onComplete }: { sessionId: string
   const runFR = async () => {
     setCaptureState('running')
     try {
-      const { data } = await checklistApi.completeItem(sessionId, 'RUN_FR', {})
+      const { data } = await checklistApi.completeItem(sessionId, 'facial_recognition', {})
       const sim = data.similarity ?? 97.3
       setFrResult({ similarity: sim, ocrName: data.ocrName ?? 'Candidate', verdict: sim >= 90 ? 'verified' : sim >= 70 ? 'manual' : 'blocked' })
     } catch {

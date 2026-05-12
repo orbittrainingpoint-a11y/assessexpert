@@ -26,7 +26,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
-import { LivekitModule } from './modules/livekit/livekit.module';
+import { JitsiModule } from './modules/jitsi/jitsi.module';
 import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
 import { AppController } from './app.controller';
 
@@ -59,7 +59,7 @@ import { AppController } from './app.controller';
     SalesModule,
     GatewayModule,
     InterviewsModule,
-    LivekitModule,
+    JitsiModule,
     PracticalSetsModule,
   ],
   controllers: [AppController],

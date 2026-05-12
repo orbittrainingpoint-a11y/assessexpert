@@ -32,7 +32,9 @@ export default function ProctorTodayPage() {
     refetchInterval: 15000,
   })
 
-  // Poll for demo session specifically — check if candidate is waiting
+  // Demo session polling — only enabled when explicitly turned on. The demo data
+  // isn't seeded on production, so polling it spams the network tab with 404s.
+  const demoEnabled = process.env.NEXT_PUBLIC_DEMO_SESSION_ENABLED === 'true'
   const { data: demoData } = useQuery({
     queryKey: ['demo-session'],
     queryFn: async () => {
@@ -41,6 +43,7 @@ export default function ProctorTodayPage() {
         return r.data || null
       } catch { return null }
     },
+    enabled: demoEnabled,
     refetchInterval: 5000,
   })
 

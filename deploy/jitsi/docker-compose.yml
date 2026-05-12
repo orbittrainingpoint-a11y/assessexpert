@@ -1,0 +1,319 @@
+version: "3.9"
+
+# Self-hosted Jitsi Meet for AssessExpert.
+#
+# Run on the live server:
+#   cd deploy/jitsi
+#   cp env.example .env                    # edit secrets, domain, JWT_APP_ID, JWT_APP_SECRET
+#   ./gen-passwords.sh                     # one-time: generates random internal passwords
+#   docker compose up -d
+#
+# Required ports on the host:
+#   443/TCP    — Jitsi web UI (proxy via your existing nginx)
+#   4443/TCP   — TCP fallback for RTC
+#   10000/UDP  — main RTP media port (must be open externally)
+#
+# After it starts, set these env vars on the NestJS backend (.env):
+#   JITSI_DOMAIN=meet.assessexpert.com
+#   JITSI_APP_ID=assessexpert
+#   JITSI_APP_SECRET=<JWT_APP_SECRET from .env here>
+#   JITSI_PUBLIC_URL=https://meet.assessexpert.com
+# And on the Next.js frontend (.env.production):
+#   NEXT_PUBLIC_JITSI_DOMAIN=meet.assessexpert.com
+
+services:
+  # XMPP signalling
+  prosody:
+    image: jitsi/prosody:stable
+    restart: unless-stopped
+    expose:
+      - "5222"
+      - "5347"
+      - "5280"
+    volumes:
+      - ${CONFIG}/prosody/config:/config:Z
+      - ${CONFIG}/prosody/prosody-plugins-custom:/prosody-plugins-custom:Z
+    environment:
+      - AUTH_TYPE=jwt
+      - ENABLE_AUTH=1
+      - ENABLE_GUESTS=1
+      - GLOBAL_MODULES
+      - GLOBAL_CONFIG
+      - LDAP_URL
+      - LDAP_BASE
+      - LDAP_BINDDN
+      - LDAP_BINDPW
+      - LDAP_FILTER
+      - LDAP_AUTH_METHOD
+      - LDAP_VERSION
+      - LDAP_USE_TLS
+      - LDAP_TLS_CIPHERS
+      - LDAP_TLS_CHECK_PEER
+      - LDAP_TLS_CACERT_FILE
+      - LDAP_TLS_CACERT_DIR
+      - LDAP_START_TLS
+      - XMPP_DOMAIN
+      - XMPP_AUTH_DOMAIN
+      - XMPP_GUEST_DOMAIN
+      - XMPP_MUC_DOMAIN
+      - XMPP_INTERNAL_MUC_DOMAIN
+      - XMPP_MODULES
+      - XMPP_MUC_MODULES
+      - XMPP_INTERNAL_MUC_MODULES
+      - XMPP_RECORDER_DOMAIN
+      - XMPP_CROSS_DOMAIN
+      - JICOFO_COMPONENT_SECRET
+      - JICOFO_AUTH_USER
+      - JICOFO_AUTH_PASSWORD
+      - JVB_AUTH_USER
+      - JVB_AUTH_PASSWORD
+      - JIBRI_XMPP_USER
+      - JIBRI_XMPP_PASSWORD
+      - JIBRI_RECORDER_USER
+      - JIBRI_RECORDER_PASSWORD
+      - JIGASI_XMPP_USER
+      - JIGASI_XMPP_PASSWORD
+      - JWT_APP_ID
+      - JWT_APP_SECRET
+      - JWT_ACCEPTED_ISSUERS
+      - JWT_ACCEPTED_AUDIENCES
+      - JWT_ASAP_KEYSERVER
+      - JWT_ALLOW_EMPTY
+      - JWT_AUTH_TYPE
+      - JWT_TOKEN_AUTH_MODULE
+      - LOG_LEVEL
+      - PUBLIC_URL
+      - TZ
+    networks:
+      meet.jitsi:
+        aliases:
+          - ${XMPP_SERVER}
+
+  # Conference focus
+  jicofo:
+    image: jitsi/jicofo:stable
+    restart: unless-stopped
+    volumes:
+      - ${CONFIG}/jicofo:/config:Z
+    environment:
+      - AUTH_TYPE
+      - BRIDGE_AVG_PARTICIPANT_STRESS
+      - BRIDGE_STRESS_THRESHOLD
+      - ENABLE_AUTH
+      - ENABLE_AUTO_OWNER
+      - ENABLE_CODEC_VP8
+      - ENABLE_CODEC_VP9
+      - ENABLE_CODEC_H264
+      - ENABLE_CODEC_OPUS_RED
+      - ENABLE_JVB_XMPP_SERVER
+      - ENABLE_OCTO
+      - ENABLE_RECORDING
+      - JICOFO_AUTH_USER
+      - JICOFO_AUTH_PASSWORD
+      - JICOFO_ENABLE_HEALTH_CHECKS
+      - JICOFO_OPTS
+      - JIBRI_BREWERY_MUC
+      - JIBRI_REQUEST_RETRIES
+      - JIBRI_PENDING_TIMEOUT
+      - JIGASI_BREWERY_MUC
+      - JIGASI_SIP_URI
+      - JIGASI_TRANSCRIBER_ADVERTISE_URL
+      - JVB_BREWERY_MUC
+      - JVB_XMPP_AUTH_DOMAIN
+      - JVB_XMPP_INTERNAL_SERVER
+      - JVB_XMPP_INTERNAL_SERVER_PORT
+      - JVB_XMPP_PASSWORD
+      - JVB_XMPP_PORT
+      - JVB_XMPP_SERVER
+      - JVB_XMPP_USER
+      - MAX_BRIDGE_PARTICIPANTS
+      - OCTO_BRIDGE_SELECTION_STRATEGY
+      - SENTRY_DSN="${JICOFO_SENTRY_DSN:-0}"
+      - SENTRY_ENVIRONMENT
+      - SENTRY_RELEASE
+      - TZ
+      - XMPP_DOMAIN
+      - XMPP_AUTH_DOMAIN
+      - XMPP_INTERNAL_MUC_DOMAIN
+      - XMPP_MUC_DOMAIN
+      - XMPP_RECORDER_DOMAIN
+      - XMPP_SERVER
+      - XMPP_PORT
+    depends_on:
+      - prosody
+    networks:
+      meet.jitsi:
+
+  # Video bridge — handles the actual media routing
+  jvb:
+    image: jitsi/jvb:stable
+    restart: unless-stopped
+    ports:
+      - "${JVB_PORT}:${JVB_PORT}/udp"
+      - "${JVB_TCP_MAPPED_PORT}:${JVB_TCP_PORT}"
+    volumes:
+      - ${CONFIG}/jvb:/config:Z
+    environment:
+      - AUTH_TYPE
+      - DOCKER_HOST_ADDRESS
+      - ENABLE_COLIBRI_WEBSOCKET
+      - ENABLE_OCTO
+      - JVB_ADVERTISE_IPS
+      - JVB_AUTH_USER
+      - JVB_AUTH_PASSWORD
+      - JVB_BREWERY_MUC
+      - JVB_PORT
+      - JVB_MUC_NICKNAME
+      - JVB_TCP_HARVESTER_DISABLED
+      - JVB_TCP_PORT
+      - JVB_TCP_MAPPED_PORT
+      - JVB_STUN_SERVERS
+      - JVB_ENABLE_APIS
+      - JVB_WS_DOMAIN
+      - JVB_WS_SERVER_ID
+      - JVB_OCTO_BIND_ADDRESS
+      - JVB_OCTO_PUBLIC_ADDRESS
+      - JVB_OCTO_BIND_PORT
+      - JVB_OCTO_REGION
+      - JVB_XMPP_AUTH_DOMAIN
+      - JVB_XMPP_INTERNAL_SERVER
+      - JVB_XMPP_INTERNAL_SERVER_PORT
+      - JVB_XMPP_PASSWORD
+      - JVB_XMPP_PORT
+      - JVB_XMPP_SERVER
+      - JVB_XMPP_USER
+      - PUBLIC_URL
+      - SENTRY_DSN="${JVB_SENTRY_DSN:-0}"
+      - SENTRY_ENVIRONMENT
+      - SENTRY_RELEASE
+      - COLIBRI_REST_ENABLED
+      - SHUTDOWN_REST_ENABLED
+      - TZ
+      - XMPP_AUTH_DOMAIN
+      - XMPP_INTERNAL_MUC_DOMAIN
+      - XMPP_SERVER
+      - XMPP_PORT
+    depends_on:
+      - prosody
+    networks:
+      meet.jitsi:
+
+  # Web UI / static asset host (we won't use it directly but Jicofo + JVB need it)
+  web:
+    image: jitsi/web:stable
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT}:80"
+      - "${HTTPS_PORT}:443"
+    volumes:
+      - ${CONFIG}/web:/config:Z
+      - ${CONFIG}/web/crontabs:/var/spool/cron/crontabs:Z
+      - ${CONFIG}/transcripts:/usr/share/jitsi-meet/transcripts:Z
+    environment:
+      - AMPLITUDE_ID
+      - ANALYTICS_SCRIPT_URLS
+      - ANALYTICS_WHITELISTED_EVENTS
+      - CALLSTATS_CUSTOM_SCRIPT_URL
+      - CALLSTATS_ID
+      - CALLSTATS_SECRET
+      - CHROME_EXTENSION_BANNER_JSON
+      - CONFCODE_URL
+      - CONFIG_EXTERNAL_CONNECT
+      - DEFAULT_LANGUAGE
+      - DEPLOYMENTINFO_ENVIRONMENT
+      - DEPLOYMENTINFO_ENVIRONMENT_TYPE
+      - DEPLOYMENTINFO_USERREGION
+      - DESKTOP_SHARING_FRAMERATE_MIN
+      - DESKTOP_SHARING_FRAMERATE_MAX
+      - DIALIN_NUMBERS_URL
+      - DIALOUT_AUTH_URL
+      - DIALOUT_CODES_URL
+      - DROPBOX_APPKEY
+      - DROPBOX_REDIRECT_URI
+      - DYNAMIC_BRANDING_URL
+      - ENABLE_AUDIO_PROCESSING
+      - ENABLE_AUTH
+      - ENABLE_BREAKOUT_ROOMS
+      - ENABLE_CALENDAR
+      - ENABLE_FILE_RECORDING_SERVICE
+      - ENABLE_FILE_RECORDING_SERVICE_SHARING
+      - ENABLE_GUESTS
+      - ENABLE_HSTS
+      - ENABLE_HTTP_REDIRECT
+      - ENABLE_IPV6
+      - ENABLE_LETSENCRYPT
+      - ENABLE_LIPSYNC
+      - ENABLE_NO_AUDIO_DETECTION
+      - ENABLE_NOISY_MIC_DETECTION
+      - ENABLE_PREJOIN_PAGE
+      - ENABLE_P2P
+      - ENABLE_WELCOME_PAGE
+      - ENABLE_CLOSE_PAGE
+      - ENABLE_RECORDING
+      - ENABLE_REMB
+      - ENABLE_REQUIRE_DISPLAY_NAME
+      - ENABLE_SIMULCAST
+      - ENABLE_STATS_ID
+      - ENABLE_STEREO
+      - ENABLE_SUBDOMAINS
+      - ENABLE_TALK_WHILE_MUTED
+      - ENABLE_TCC
+      - ENABLE_TRANSCRIPTIONS
+      - ENABLE_XMPP_WEBSOCKET
+      - ETHERPAD_PUBLIC_URL
+      - ETHERPAD_URL_BASE
+      - GOOGLE_ANALYTICS_ID
+      - GOOGLE_API_APP_CLIENT_ID
+      - INVITE_SERVICE_URL
+      - JICOFO_AUTH_USER
+      - LETSENCRYPT_DOMAIN
+      - LETSENCRYPT_EMAIL
+      - LETSENCRYPT_USE_STAGING
+      - MATOMO_ENDPOINT
+      - MATOMO_SITE_ID
+      - MICROSOFT_API_APP_CLIENT_ID
+      - NGINX_RESOLVER
+      - NGINX_WORKER_PROCESSES
+      - NGINX_WORKER_CONNECTIONS
+      - PUBLIC_URL
+      - P2P_PREFERRED_CODEC
+      - RESOLUTION
+      - RESOLUTION_MIN
+      - RESOLUTION_WIDTH
+      - RESOLUTION_WIDTH_MIN
+      - START_AUDIO_MUTED
+      - START_AUDIO_ONLY
+      - START_BITRATE
+      - START_SILENT
+      - START_WITH_AUDIO_MUTED
+      - START_VIDEO_MUTED
+      - START_WITH_VIDEO_MUTED
+      - TESTING_CAP_SCREENSHARE_BITRATE
+      - TESTING_OCTO_PROBABILITY
+      - TOKEN_AUTH_URL
+      - TZ
+      - VIDEOQUALITY_BITRATE_H264_LOW
+      - VIDEOQUALITY_BITRATE_H264_STANDARD
+      - VIDEOQUALITY_BITRATE_H264_HIGH
+      - VIDEOQUALITY_BITRATE_VP8_LOW
+      - VIDEOQUALITY_BITRATE_VP8_STANDARD
+      - VIDEOQUALITY_BITRATE_VP8_HIGH
+      - VIDEOQUALITY_BITRATE_VP9_LOW
+      - VIDEOQUALITY_BITRATE_VP9_STANDARD
+      - VIDEOQUALITY_BITRATE_VP9_HIGH
+      - VIDEOQUALITY_ENFORCE_PREFERRED_CODEC
+      - VIDEOQUALITY_PREFERRED_CODEC
+      - XMPP_AUTH_DOMAIN
+      - XMPP_BOSH_URL_BASE
+      - XMPP_DOMAIN
+      - XMPP_GUEST_DOMAIN
+      - XMPP_MUC_DOMAIN
+      - XMPP_RECORDER_DOMAIN
+      - XMPP_PORT
+    depends_on:
+      - prosody
+    networks:
+      meet.jitsi:
+
+networks:
+  meet.jitsi:
