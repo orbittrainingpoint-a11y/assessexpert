@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, ForbiddenException } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -25,8 +25,12 @@ export class OrganizationsController {
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'SALES_AGENT')
-  async getOrganization(@Param('id') id: string) {
+  @Roles('SUPER_ADMIN', 'SALES_AGENT', 'ORG_ADMIN', 'HR_MANAGER')
+  async getOrganization(@Param('id') id: string, @Req() req: any) {
+    // ORG_ADMIN and HR_MANAGER can only read their own org
+    if (['ORG_ADMIN', 'HR_MANAGER'].includes(req.user.role) && req.user.organizationId !== id) {
+      throw new ForbiddenException();
+    }
     return this.orgsService.getOrganization(id);
   }
 

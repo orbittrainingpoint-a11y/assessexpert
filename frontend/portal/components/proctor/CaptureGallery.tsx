@@ -42,7 +42,7 @@ export default function CaptureGallery({ sessionId, enabled = true }: CaptureGal
 
     const fetchStats = async () => {
       try {
-        const { data } = await api.get(`/mediapipe/capture-stats?sessionId=${sessionId}`)
+        const { data } = await api.get(`/mediapipe/capture-stats/${sessionId}`)
         setStats(data)
       } catch (err) {
         console.error('Failed to fetch stats:', err)
