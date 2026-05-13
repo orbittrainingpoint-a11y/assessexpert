@@ -89,12 +89,13 @@ export function useJitsi({
     identity.startsWith('candidate-') ? identity.replace('candidate-', '') : undefined
 
   // Build the public peers map from remoteTracksRef
+  // lib-jitsi-meet exposes the raw MediaStreamTrack via track.getTrack()
   const rebuildPeers = useCallback(() => {
     const next = new Map<string, RemotePeer>()
     remoteTracksRef.current.forEach((tracks, identity) => {
-      const camMS: MediaStreamTrack | null = tracks.video?.stream?.getVideoTracks?.()[0] ?? null
-      const micMS: MediaStreamTrack | null = tracks.audio?.stream?.getAudioTracks?.()[0] ?? null
-      const scrMS: MediaStreamTrack | null = tracks.screen?.stream?.getVideoTracks?.()[0] ?? null
+      const camMS: MediaStreamTrack | null = tracks.video?.getTrack?.() ?? null
+      const micMS: MediaStreamTrack | null = tracks.audio?.getTrack?.() ?? null
+      const scrMS: MediaStreamTrack | null = tracks.screen?.getTrack?.() ?? null
       next.set(identity, {
         identity,
         name: tracks.name || identity,
@@ -151,11 +152,12 @@ export function useJitsi({
       if (!screenTrack) return false
       localTracksRef.current.screen = screenTrack
       await conf.addTrack(screenTrack)
-      const ms = new MediaStream([screenTrack.stream.getVideoTracks()[0]])
+      const rawTrack = screenTrack.getTrack()
+      const ms = new MediaStream([rawTrack])
       setLocalScreenStream(ms)
       setScreenShareActive(true)
       // Auto-detect "stop sharing" from the browser UI
-      ms.getVideoTracks()[0].addEventListener('ended', () => {
+      rawTrack.addEventListener('ended', () => {
         try { conf.removeTrack(screenTrack) } catch {}
         localTracksRef.current.screen = null
         setLocalScreenStream(null)
@@ -248,7 +250,7 @@ export function useJitsi({
 
         // 3) Join the conference room
         const conference = connection.initJitsiConference(room, {
-          openBridgeChannel: true,
+          openBridgeChannel: 'websocket',
           p2p: { enabled: false },
         })
         conferenceRef.current = conference
@@ -327,8 +329,8 @@ export function useJitsi({
             await conference.addTrack(t)
           }
           // Build local MediaStream for PIP/preview compatibility
-          const camTrack = localTracksRef.current.video?.stream?.getVideoTracks?.()[0]
-          const micTrack = localTracksRef.current.audio?.stream?.getAudioTracks?.()[0]
+          const camTrack = localTracksRef.current.video?.getTrack?.()
+          const micTrack = localTracksRef.current.audio?.getTrack?.()
           if (camTrack) {
             setLocalCameraStream(new MediaStream(micTrack ? [camTrack, micTrack] : [camTrack]))
           }
