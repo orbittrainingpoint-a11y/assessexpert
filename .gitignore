@@ -27,6 +27,10 @@ out/
 *.swo
 *~
 
+# Claude Code local state (memory, projects, settings) — never push
+.claude/
+.amazonq/
+
 # OS
 .DS_Store
 Thumbs.db
