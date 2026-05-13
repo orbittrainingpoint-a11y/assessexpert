@@ -328,11 +328,19 @@ export function useJitsi({
             else localTracksRef.current.video = t
             await conference.addTrack(t)
           }
-          // Build local MediaStream for PIP/preview compatibility
-          const camTrack = localTracksRef.current.video?.getTrack?.()
-          const micTrack = localTracksRef.current.audio?.getTrack?.()
-          if (camTrack) {
-            setLocalCameraStream(new MediaStream(micTrack ? [camTrack, micTrack] : [camTrack]))
+          // Build local MediaStream for PIP/preview — use .stream which is
+          // always populated on local JitsiTracks (unlike remote tracks)
+          const localVideoTrack = localTracksRef.current.video
+          const localAudioTrack = localTracksRef.current.audio
+          if (localVideoTrack) {
+            const camRaw = localVideoTrack.getTrack?.() || localVideoTrack.stream?.getVideoTracks?.()[0]
+            const micRaw = localAudioTrack?.getTrack?.() || localAudioTrack?.stream?.getAudioTracks?.()[0]
+            if (camRaw) {
+              setLocalCameraStream(new MediaStream(micRaw ? [camRaw, micRaw] : [camRaw]))
+            } else if (localVideoTrack.stream) {
+              // Fallback: use the JitsiTrack's own MediaStream directly
+              setLocalCameraStream(localVideoTrack.stream)
+            }
           }
         }
         if (publishScreen) await startScreenShare()
