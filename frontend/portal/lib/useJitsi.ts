@@ -110,12 +110,34 @@ export function useJitsi({
     setPeers(next)
   }, [])
 
-  // Lazy-load lib-jitsi-meet only on the client (it touches `window`).
-  const loadJitsi = async () => {
+  // Load lib-jitsi-meet from the Jitsi server's /libs path. The npm package
+  // 'lib-jitsi-meet' is a deprecated stub and does NOT expose JitsiMeetJS —
+  // the only reliable source is the same Jitsi web container that serves your
+  // meeting room. This URL works because Apache proxies / → jitsi-web:80 and
+  // jitsi-web ships lib-jitsi-meet.min.js under /libs.
+  const loadJitsi = async (publicHost: string) => {
     if (typeof window === 'undefined') return null
     if (window.JitsiMeetJS) return window.JitsiMeetJS
-    // Side-effecting import — sets window.JitsiMeetJS
-    await import('lib-jitsi-meet')
+
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>(`script[data-jitsi-lib]`)
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('lib-jitsi-meet script load failed')), { once: true })
+        return
+      }
+      const s = document.createElement('script')
+      s.src = `https://${publicHost}/libs/lib-jitsi-meet.min.js`
+      s.async = true
+      s.dataset.jitsiLib = '1'
+      s.onload = () => resolve()
+      s.onerror = () => reject(new Error(`Failed to load ${s.src}`))
+      document.head.appendChild(s)
+    })
+
+    if (!window.JitsiMeetJS) {
+      throw new Error('lib-jitsi-meet loaded but window.JitsiMeetJS is undefined')
+    }
     return window.JitsiMeetJS
   }
 
@@ -166,16 +188,8 @@ export function useJitsi({
 
     ;(async () => {
       try {
-        const J = await loadJitsi()
-        if (cancelled || !J) return
-
-        if (!initializedRef.current) {
-          J.init({ disableAudioLevels: true })
-          J.setLogLevel(J.logLevels.ERROR)
-          initializedRef.current = true
-        }
-
-        // 1) Fetch token+room+domain from backend
+        // 1) Fetch token+room+domain from backend FIRST (we need publicUrl to
+        // know where to load lib-jitsi-meet from).
         const tokenUrl = role === 'PROCTOR'
           ? `${API_URL}/jitsi/proctor-token?sessionId=${sessionId}`
           : `${API_URL}/jitsi/candidate-token?magicToken=${magicToken}`
@@ -188,12 +202,22 @@ export function useJitsi({
 
         // The XMPP domain (internal, e.g. "meet.jitsi") is what prosody expects
         // in JWT.sub and what JitsiConnection uses for hosts.*. The public URL
-        // (e.g. "https://meet.assessexpert.com") is where the websocket actually
-        // lives. They are different — must not be conflated.
+        // (e.g. "https://meet.assessexpert.com") is where the websocket and the
+        // lib-jitsi-meet script live. They are different — must not be conflated.
         const publicHost = (publicUrl || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
         if (!publicHost) throw new Error('Backend did not return publicUrl for Jitsi')
 
-        // 2) Connect to the XMPP server
+        // 2) Load lib-jitsi-meet from the Jitsi server
+        const J = await loadJitsi(publicHost)
+        if (cancelled || !J) return
+
+        if (!initializedRef.current) {
+          J.init({ disableAudioLevels: true })
+          J.setLogLevel(J.logLevels.ERROR)
+          initializedRef.current = true
+        }
+
+        // 3) Connect to the XMPP server
         const connection = new J.JitsiConnection(null, token, {
           hosts: {
             domain,
