@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { questionsApi, assessmentsApi, practicalTasksApi, storageApi, uploadUrl } from '@/lib/api'
 import { Plus, Upload, FileText, Code, ArrowLeft, CheckCircle2, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { SetsList } from '@/components/paper-sets/SetsList'
+import { SetEditor } from '@/components/paper-sets/SetEditor'
 
 type View = 'list' | 'mcq' | 'practical'
 
@@ -15,6 +17,9 @@ export default function MasterProctorQuestionsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState(BLANK_Q)
+  // When the user opens a paper set from the practical view, hold its id here
+  // so the rest of the practical view collapses into the SetEditor.
+  const [activePracticalSetId, setActivePracticalSetId] = useState<string | null>(null)
 
   const { data: atData, isLoading: atLoading } = useQuery({
     queryKey: ['at-list-mp'],
@@ -514,50 +519,46 @@ export default function MasterProctorQuestionsPage() {
     </div>
   )
 
-  // â”€â”€ PRACTICAL VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (view === 'practical') return (
-    <div>
-      <button onClick={goBack} className="btn-ghost" style={{ marginBottom: '16px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <ArrowLeft size={13} /> Back to Question Papers
-      </button>
-
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+  // ── PRACTICAL VIEW ─────────────────────────────────────────────────────
+  // Uses the same Paper Sets workflow as /master-proctor/paper-sets.
+  // - SetsList: shows all paper sets for the selected assessment, with a
+  //   working "New Paper Set" create dialog.
+  // - SetEditor: full add/edit for questions (FILE_UPLOAD / NUMERIC / TEXT)
+  //   plus the per-set file library that questions can reference.
+  if (view === 'practical') {
+    // Inside the editor view for one specific set
+    if (activePracticalSetId) {
+      return (
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>{selected?.name} â€” Practical Task</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>{selected?.practicalType} Â· {selected?.practicalTimeLimit} minutes Â· Pass: {selected?.practicalPassThreshold}%</p>
+          <SetEditor
+            setId={activePracticalSetId}
+            onBack={() => setActivePracticalSetId(null)}
+          />
         </div>
-        <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Plus size={14} /> Add Practical Task
+      )
+    }
+    // List view — sets for this assessment
+    return (
+      <div>
+        <button onClick={() => { goBack(); setActivePracticalSetId(null) }} className="btn-ghost"
+          style={{ marginBottom: '16px', padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ArrowLeft size={13} /> Back to Question Papers
         </button>
-      </div>
 
-      {!practicalTasks.length ? (
-        <div className="glass-card" style={{ padding: '40px', textAlign: 'center' }}>
-          <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginBottom: '8px' }}>No practical tasks configured for this assessment.</p>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Add a task with a brief description, starter file, and evaluation rubric.</p>
+        <div style={{ marginBottom: '8px' }}>
+          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
+            {selected?.shortCode} · {selected?.practicalType} · {selected?.practicalTimeLimit ?? '—'} min · Pass: {selected?.practicalPassThreshold ?? '—'}%
+          </p>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {practicalTasks.map((pt: any) => (
-            <div key={pt.id} className="glass-card" style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <p style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>{pt.title}</p>
-                  <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-muted)' }}>{pt.description?.substring(0, 120)}...</p>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <span className="badge badge-pending">{pt.type}</span>
-                    <span className="badge badge-pending">{pt.difficulty}</span>
-                    {pt.starterFileName && <span className="badge badge-pass">ðŸ“Ž {pt.starterFileName}</span>}
-                  </div>
-                </div>
-                <button className="btn-ghost" style={{ padding: '6px 14px', fontSize: '13px' }}>Edit</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+
+        <SetsList
+          assessmentTypeId={selected?.id}
+          lockAssessment={selected ? { id: selected.id, name: selected.name } : undefined}
+          onOpenSet={setActivePracticalSetId}
+        />
+      </div>
+    )
+  }
 
   return null
 }
