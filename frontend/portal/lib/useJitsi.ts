@@ -183,8 +183,15 @@ export function useJitsi({
         if (role === 'PROCTOR' && jwtToken) headers['Authorization'] = `Bearer ${jwtToken}`
         const res = await fetch(tokenUrl, { headers })
         if (!res.ok) throw new Error(`Token fetch failed: ${res.status}`)
-        const { token, domain, room } = await res.json()
+        const { token, domain, publicUrl, room } = await res.json()
         if (cancelled) return
+
+        // The XMPP domain (internal, e.g. "meet.jitsi") is what prosody expects
+        // in JWT.sub and what JitsiConnection uses for hosts.*. The public URL
+        // (e.g. "https://meet.assessexpert.com") is where the websocket actually
+        // lives. They are different — must not be conflated.
+        const publicHost = (publicUrl || '').replace(/^https?:\/\//, '').replace(/\/$/, '')
+        if (!publicHost) throw new Error('Backend did not return publicUrl for Jitsi')
 
         // 2) Connect to the XMPP server
         const connection = new J.JitsiConnection(null, token, {
@@ -193,7 +200,7 @@ export function useJitsi({
             muc: `conference.${domain}`,
             focus: `focus.${domain}`,
           },
-          serviceUrl: `wss://${domain}/xmpp-websocket?room=${room}`,
+          serviceUrl: `wss://${publicHost}/xmpp-websocket?room=${room}`,
           clientNode: 'https://assessexpert.com',
           enableP2P: false,
         })

@@ -105,11 +105,19 @@ sudo nginx -t && sudo systemctl reload nginx
 Append/update in `/var/www/html/assessexpert/backend/.env`:
 
 ```bash
-JITSI_DOMAIN=meet.assessexpert.com
+# JITSI_DOMAIN = the XMPP domain (internal). Must equal XMPP_DOMAIN in
+# deploy/jitsi/.env — leave as 'meet.jitsi' unless you customised that file.
+JITSI_DOMAIN=meet.jitsi
 JITSI_APP_ID=assessexpert
 JITSI_APP_SECRET=<paste the same value you set as JWT_APP_SECRET in deploy/jitsi/.env>
+# JITSI_PUBLIC_URL = the user-facing host. This is what the browser connects to.
 JITSI_PUBLIC_URL=https://meet.assessexpert.com
 ```
+
+> ⚠️ Common trap: `JITSI_DOMAIN` is **not** the public subdomain. It's the
+> internal XMPP domain (the value of `XMPP_DOMAIN` in the Jitsi container env).
+> The default is `meet.jitsi`. If you put `meet.assessexpert.com` here, prosody
+> will reject every JWT because the `sub` claim won't match.
 
 And on the frontend `/var/www/html/assessexpert/frontend/portal/.env.production`:
 
