@@ -116,7 +116,26 @@ export class CandidatesService {
     for (const k of ['firstName', 'lastName', 'email', 'phone', 'jobPosition', 'yearsExperience', 'department', 'notes']) {
       if (data[k] !== undefined) editable[k] = data[k];
     }
-    return this.prisma.candidateRecord.update({ where: { id }, data: editable });
+
+    // If the email is changing, make sure it doesn't collide with another
+    // candidate in the same org (the (email, organizationId) pair is unique).
+    if (editable.email !== undefined) {
+      const clash = await this.prisma.candidateRecord.findUnique({
+        where: { email_organizationId: { email: editable.email, organizationId } },
+      });
+      if (clash && clash.id !== id) {
+        throw new ConflictException('Another candidate in this organization already uses this email');
+      }
+    }
+
+    try {
+      return await this.prisma.candidateRecord.update({ where: { id }, data: editable });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new ConflictException('Another candidate in this organization already uses this email');
+      }
+      throw error;
+    }
   }
 
   async deleteCandidate(id: string, organizationId: string) {
