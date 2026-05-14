@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { randomBytes } from 'crypto';
@@ -193,6 +193,56 @@ export class SchedulingService {
     }
 
     return session;
+  }
+
+  async rescheduleSession(sessionId: string, newScheduledAt: Date, organizationId: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      include: { candidate: true, assessmentType: true, organization: true },
+    });
+    if (!session || session.organizationId !== organizationId) {
+      throw new NotFoundException('Session not found');
+    }
+    // Only sessions that haven't been taken yet can be moved
+    const ALLOWED = ['SCHEDULED', 'INVITED', 'NO_SHOW'];
+    if (!ALLOWED.includes(session.status)) {
+      throw new BadRequestException(
+        `Cannot reschedule a session with status ${session.status} — the exam has already started or finished.`,
+      );
+    }
+
+    // Fresh token + expiry so the old magic link is invalidated
+    const token = randomBytes(32).toString('hex');
+    const tokenExpiresAt = new Date(newScheduledAt.getTime() + 15 * 60 * 1000);
+
+    const updated = await this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: {
+        scheduledAt: newScheduledAt,
+        magicToken: token,
+        tokenExpiresAt,
+        status: 'SCHEDULED',
+        tokenUsedAt: null,
+        tokenUsedFromIp: null,
+      },
+      include: { candidate: true, assessmentType: true, organization: true },
+    });
+
+    // Re-send the invitation with the new time + link
+    const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
+    await this.notifications.sendCandidateInvitation(
+      updated.candidate.email,
+      `${updated.candidate.firstName} ${updated.candidate.lastName}`,
+      {
+        companyName: (updated as any).organization?.name || 'AssessExpert',
+        assessmentName: updated.assessmentType.name,
+        scheduledAt: newScheduledAt,
+        timezone: 'Asia/Dubai',
+        magicLink,
+      },
+    ).catch(() => {});
+
+    return updated;
   }
 
   async getDiagnostics() {

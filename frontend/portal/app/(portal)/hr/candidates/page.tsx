@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { candidatesApi, assessmentsApi, schedulingApi } from '@/lib/api'
-import { Plus, Upload, Search, Calendar, ChevronRight, Download, CheckCircle, AlertCircle, X } from 'lucide-react'
+import { Plus, Upload, Search, Calendar, ChevronRight, Download, CheckCircle, AlertCircle, X, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
@@ -237,8 +237,14 @@ export default function CandidatesPage() {
   const [showImport, setShowImport] = useState(false)
   const [form, setForm] = useState(BLANK_FORM)
 
+  // Edit candidate modal state
+  const [editCandidate, setEditCandidate] = useState<any>(null)
+  const [editForm, setEditForm] = useState(BLANK_FORM)
+
   // Schedule modal state
   const [scheduleCandidate, setScheduleCandidate] = useState<any>(null)
+  // When set, the schedule modal operates in "reschedule" mode against this session
+  const [rescheduleSessionId, setRescheduleSessionId] = useState<string | null>(null)
   const [schedAssessmentId, setSchedAssessmentId] = useState('')
   const [schedDateFrom, setSchedDateFrom] = useState('')
   const [schedDateTo, setSchedDateTo] = useState('')
@@ -273,10 +279,36 @@ export default function CandidatesPage() {
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   })
 
-  const scheduleMutation = useMutation({
-    mutationFn: (d: any) => schedulingApi.schedule(d),
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data: d }: { id: string; data: any }) => candidatesApi.update(id, d),
     onSuccess: () => {
-      toast.success('Assessment scheduled — invitation email sent to candidate')
+      toast.success('Candidate updated')
+      qc.invalidateQueries({ queryKey: ['candidates'] })
+      setEditCandidate(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to update candidate'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => candidatesApi.delete(id),
+    onSuccess: () => {
+      toast.success('Candidate deleted')
+      qc.invalidateQueries({ queryKey: ['candidates'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to delete candidate'),
+  })
+
+  const scheduleMutation = useMutation({
+    mutationFn: (d: any) =>
+      rescheduleSessionId
+        ? schedulingApi.reschedule({ sessionId: rescheduleSessionId, scheduledAt: d.scheduledAt })
+        : schedulingApi.schedule(d),
+    onSuccess: () => {
+      toast.success(
+        rescheduleSessionId
+          ? 'Assessment rescheduled — updated invitation sent to candidate'
+          : 'Assessment scheduled — invitation email sent to candidate',
+      )
       qc.invalidateQueries({ queryKey: ['candidates'] })
       closeScheduleModal()
     },
@@ -299,7 +331,21 @@ export default function CandidatesPage() {
 
   const openSchedule = (candidate: any) => {
     setScheduleCandidate(candidate)
-    setSchedAssessmentId(candidate.assessmentTypeId || '')
+    setRescheduleSessionId(null)
+    setSchedAssessmentId(candidate.assessmentTypeId || candidate.sessions?.[0]?.assessmentTypeId || '')
+    setSchedDateFrom('')
+    setSchedDateTo('')
+    setSelectedSlot(null)
+    setSlotsQueried(false)
+  }
+
+  const openReschedule = (candidate: any) => {
+    const sess = candidate.sessions?.find((s: any) => ['SCHEDULED', 'INVITED'].includes(s.status))
+      || candidate.sessions?.[0]
+    if (!sess) { toast.error('No scheduled session found to reschedule'); return }
+    setScheduleCandidate(candidate)
+    setRescheduleSessionId(sess.id)
+    setSchedAssessmentId(sess.assessmentTypeId || candidate.assessmentTypeId || '')
     setSchedDateFrom('')
     setSchedDateTo('')
     setSelectedSlot(null)
@@ -308,11 +354,32 @@ export default function CandidatesPage() {
 
   const closeScheduleModal = () => {
     setScheduleCandidate(null)
+    setRescheduleSessionId(null)
     setSchedAssessmentId('')
     setSchedDateFrom('')
     setSchedDateTo('')
     setSelectedSlot(null)
     setSlotsQueried(false)
+  }
+
+  const openEdit = (candidate: any) => {
+    setEditForm({
+      firstName: candidate.firstName || '',
+      lastName: candidate.lastName || '',
+      email: candidate.email || '',
+      phone: candidate.phone || '',
+      jobPosition: candidate.jobPosition || '',
+      yearsExperience: candidate.yearsExperience || '0-1',
+      department: candidate.department || '',
+      notes: candidate.notes || '',
+      assessmentTypeId: candidate.assessmentTypeId || '',
+    })
+    setEditCandidate(candidate)
+  }
+
+  const handleDelete = (candidate: any) => {
+    if (!window.confirm(`Delete ${candidate.firstName} ${candidate.lastName}? This cannot be undone.`)) return
+    deleteMutation.mutate(candidate.id)
   }
 
   const handleFetchSlots = () => {
@@ -396,12 +463,27 @@ export default function CandidatesPage() {
                     )}
                   </td>
                   <td>
-                    {!hasScheduled && (
-                      <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => openSchedule(c)}>
-                        <Calendar size={12} /> Schedule
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      {hasScheduled ? (
+                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => openReschedule(c)} title="Reschedule assessment">
+                          <RotateCcw size={12} /> Reschedule
+                        </button>
+                      ) : (
+                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => openSchedule(c)} title="Schedule assessment">
+                          <Calendar size={12} /> Schedule
+                        </button>
+                      )}
+                      <button className="btn-ghost" style={{ padding: '6px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center' }}
+                        onClick={() => openEdit(c)} title="Edit candidate">
+                        <Pencil size={12} />
                       </button>
-                    )}
+                      <button className="btn-ghost" style={{ padding: '6px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
+                        onClick={() => handleDelete(c)} title="Delete candidate" disabled={deleteMutation.isPending}>
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -494,13 +576,71 @@ export default function CandidatesPage() {
         </div>
       )}
 
-      {/* ── SCHEDULE MODAL ── */}
+      {/* ── EDIT CANDIDATE MODAL ── */}
+      {editCandidate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '20px' }}>
+          <div className="glass-card" style={{ width: '540px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ margin: '0 0 20px', fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Edit Candidate</h2>
+            <form onSubmit={e => { e.preventDefault(); updateMutation.mutate({ id: editCandidate.id, data: editForm }) }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>First Name *</label>
+                  <input className="form-input" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} required />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Last Name *</label>
+                  <input className="form-input" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} required />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Email *</label>
+                <input className="form-input" type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} required />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Phone</label>
+                  <input className="form-input" value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Years of Experience</label>
+                  <select className="form-input" value={editForm.yearsExperience} onChange={e => setEditForm(f => ({ ...f, yearsExperience: e.target.value }))}>
+                    {['0-1', '1-3', '3-5', '5-10', '10+'].map(v => <option key={v} value={v}>{v} years</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Job Role Applied For *</label>
+                <input className="form-input" value={editForm.jobPosition} onChange={e => setEditForm(f => ({ ...f, jobPosition: e.target.value }))} required placeholder="e.g. BIM Coordinator, CAD Draftsman" />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Department</label>
+                <input className="form-input" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Notes (internal)</label>
+                <textarea className="form-input" rows={2} value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ resize: 'vertical' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="btn-ghost" onClick={() => setEditCandidate(null)} style={{ flex: 1 }}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={updateMutation.isPending} style={{ flex: 1 }}>
+                  {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── SCHEDULE / RESCHEDULE MODAL ── */}
       {scheduleCandidate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '20px' }}>
           <div className="glass-card" style={{ width: '560px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Schedule Assessment</h2>
+            <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>
+              {rescheduleSessionId ? 'Reschedule Assessment' : 'Schedule Assessment'}
+            </h2>
             <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)' }}>
               {scheduleCandidate.firstName} {scheduleCandidate.lastName} · {scheduleCandidate.email}
+              {rescheduleSessionId && ' · picking a new slot will invalidate the old exam link'}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

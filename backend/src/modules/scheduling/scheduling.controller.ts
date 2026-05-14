@@ -37,4 +37,14 @@ export class SchedulingController {
       scheduledAt: new Date(body.scheduledAt),
     });
   }
+
+  @Post('reschedule')
+  @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
+  async rescheduleSession(@Body() body: any, @Req() req: any) {
+    return this.schedulingService.rescheduleSession(
+      body.sessionId,
+      new Date(body.scheduledAt),
+      req.user.organizationId || body.organizationId,
+    );
+  }
 }

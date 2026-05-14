@@ -195,6 +195,7 @@ export const candidatesApi = {
   getOne: (id: string) => api.get(`/candidates/${id}`),
   create: (data: any) => api.post('/candidates', data),
   update: (id: string, data: any) => api.put(`/candidates/${id}`, data),
+  delete: (id: string) => api.delete(`/candidates/${id}`),
   bulkImport: (formData: FormData) => api.post('/candidates/import', formData),
 }
 
@@ -220,6 +221,8 @@ export const schedulingApi = {
   getSlots: (assessmentTypeId: string, dateFrom: string, dateTo: string) =>
     api.get('/scheduling/slots', { params: { assessmentTypeId, dateFrom, dateTo } }),
   schedule: (data: any) => api.post('/scheduling/schedule', data),
+  reschedule: (data: { sessionId: string; scheduledAt: string }) =>
+    api.post('/scheduling/reschedule', data),
 }
 
 // Checklist

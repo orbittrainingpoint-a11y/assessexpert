@@ -110,7 +110,47 @@ export class CandidatesService {
 
   async updateCandidate(id: string, data: any, organizationId: string) {
     await this.getCandidate(id, organizationId);
-    return this.prisma.candidateRecord.update({ where: { id }, data });
+    // Whitelist editable fields — never let the client move a candidate to
+    // another org or rewrite system columns.
+    const editable: any = {};
+    for (const k of ['firstName', 'lastName', 'email', 'phone', 'jobPosition', 'yearsExperience', 'department', 'notes']) {
+      if (data[k] !== undefined) editable[k] = data[k];
+    }
+    return this.prisma.candidateRecord.update({ where: { id }, data: editable });
+  }
+
+  async deleteCandidate(id: string, organizationId: string) {
+    const candidate = await this.prisma.candidateRecord.findUnique({
+      where: { id },
+      include: { sessions: { select: { id: true, status: true } } },
+    });
+    if (!candidate || candidate.organizationId !== organizationId) {
+      throw new NotFoundException('Candidate not found');
+    }
+
+    // Sessions that have actually been taken must be preserved (audit trail).
+    const PROTECTED = [
+      'CHECKLIST', 'WAITING_ROOM', 'MCQ_IN_PROGRESS', 'PRACTICAL_IN_PROGRESS',
+      'SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED',
+    ];
+    const taken = candidate.sessions.filter(s => PROTECTED.includes(s.status));
+    if (taken.length > 0) {
+      throw new ConflictException(
+        `Cannot delete: this candidate has ${taken.length} exam session(s) that have started or completed. Exam history must be preserved.`,
+      );
+    }
+
+    // Only un-taken sessions remain (SCHEDULED / INVITED / CANCELLED / NO_SHOW) —
+    // safe to remove along with their multi-candidate links.
+    const sessionIds = candidate.sessions.map(s => s.id);
+    await this.prisma.$transaction([
+      this.prisma.sessionCandidate.deleteMany({
+        where: { OR: [{ candidateId: id }, { sessionId: { in: sessionIds } }] },
+      }),
+      this.prisma.examSession.deleteMany({ where: { id: { in: sessionIds } } }),
+      this.prisma.candidateRecord.delete({ where: { id } }),
+    ]);
+    return { deleted: true };
   }
 
   async bulkImport(rows: any[], organizationId: string) {

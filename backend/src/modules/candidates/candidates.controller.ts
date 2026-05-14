@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CandidatesService } from './candidates.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -46,6 +46,12 @@ export class CandidatesController {
   @Roles('HR_MANAGER', 'ORG_ADMIN')
   async updateCandidate(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.candidatesService.updateCandidate(id, body, req.user.organizationId);
+  }
+
+  @Delete(':id')
+  @Roles('HR_MANAGER', 'ORG_ADMIN')
+  async deleteCandidate(@Param('id') id: string, @Req() req: any) {
+    return this.candidatesService.deleteCandidate(id, req.user.organizationId);
   }
 
   @Post('import')
