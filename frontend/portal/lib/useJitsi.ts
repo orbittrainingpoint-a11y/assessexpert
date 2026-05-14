@@ -70,7 +70,10 @@ export function useJitsi({
   const connectionRef = useRef<any>(null)
   const conferenceRef = useRef<any>(null)
   const localTracksRef = useRef<LocalTracks>({ video: null, audio: null, screen: null })
-  const remoteTracksRef = useRef<Map<string, { video?: any; audio?: any; screen?: any; name?: string }>>(new Map())
+  // Keyed by the RAW jitsi participant id (always available on track events).
+  // The app identity ("candidate-xxx" / "proctor-xxx") is resolved later from
+  // the participant's display name, which may arrive after the track does.
+  const remoteTracksRef = useRef<Map<string, { video?: any; audio?: any; screen?: any }>>(new Map())
   const initializedRef = useRef(false)
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
@@ -88,17 +91,25 @@ export function useJitsi({
   const parseCandidateId = (identity: string): string | undefined =>
     identity.startsWith('candidate-') ? identity.replace('candidate-', '') : undefined
 
-  // Build the public peers map from remoteTracksRef
-  // lib-jitsi-meet exposes the raw MediaStreamTrack via track.getTrack()
+  // Build the public peers map from remoteTracksRef.
+  // - remoteTracksRef is keyed by raw jitsi participant id
+  // - the app identity ("candidate-xxx") is the participant's display name,
+  //   which we set on ourselves right after joining. Until the remote peer's
+  //   display-name presence arrives we fall back to the jitsi id (role
+  //   OBSERVER) and rebuild again when DISPLAY_NAME_CHANGED fires.
+  // - lib-jitsi-meet exposes the raw MediaStreamTrack via track.getTrack()
   const rebuildPeers = useCallback(() => {
+    const conf = conferenceRef.current
     const next = new Map<string, RemotePeer>()
-    remoteTracksRef.current.forEach((tracks, identity) => {
+    remoteTracksRef.current.forEach((tracks, jitsiId) => {
+      const part = conf?.getParticipantById?.(jitsiId)
+      const identity: string = part?.getDisplayName?.() || jitsiId
       const camMS: MediaStreamTrack | null = tracks.video?.getTrack?.() ?? null
       const micMS: MediaStreamTrack | null = tracks.audio?.getTrack?.() ?? null
       const scrMS: MediaStreamTrack | null = tracks.screen?.getTrack?.() ?? null
       next.set(identity, {
         identity,
-        name: tracks.name || identity,
+        name: identity,
         role: parseRole(identity),
         candidateId: parseCandidateId(identity),
         cameraTrack: camMS,
@@ -199,7 +210,7 @@ export function useJitsi({
         if (role === 'PROCTOR' && jwtToken) headers['Authorization'] = `Bearer ${jwtToken}`
         const res = await fetch(tokenUrl, { headers })
         if (!res.ok) throw new Error(`Token fetch failed: ${res.status}`)
-        const { token, domain, publicUrl, room } = await res.json()
+        const { token, domain, publicUrl, room, identity: myIdentity } = await res.json()
         if (cancelled) return
 
         // The XMPP domain (internal, e.g. "meet.jitsi") is what prosody expects
@@ -255,46 +266,39 @@ export function useJitsi({
         })
         conferenceRef.current = conference
 
-        // Track callbacks — feed remoteTracksRef and re-emit
+        // Track callbacks — keyed by RAW jitsi participant id. The app identity
+        // is resolved lazily in rebuildPeers() from the participant's display
+        // name, so track events don't depend on presence timing.
         const onRemoteTrackAdded = (track: any) => {
           if (track.isLocal()) return
-          const id = track.getParticipantId()
-          // resolve a human-readable identity from the participant's user info
-          const part = conference.getParticipantById(id)
-          const ctxUser = part?._identity?.user || part?.getProperty?.('user')
-          const identity = ctxUser?.id || id
-          const slot: { video?: any; audio?: any; screen?: any; name?: string } =
-            remoteTracksRef.current.get(identity) || { name: ctxUser?.name || identity }
+          const jitsiId = track.getParticipantId()
+          const slot = remoteTracksRef.current.get(jitsiId) || {}
           if (track.getType() === 'audio') slot.audio = track
-          else if (track.getVideoType() === 'desktop') slot.screen = track
+          else if (track.getVideoType?.() === 'desktop') slot.screen = track
           else slot.video = track
-          remoteTracksRef.current.set(identity, slot)
+          remoteTracksRef.current.set(jitsiId, slot)
           rebuildPeers()
         }
         const onRemoteTrackRemoved = (track: any) => {
           if (track.isLocal()) return
-          const part = conference.getParticipantById(track.getParticipantId())
-          const ctxUser = part?._identity?.user || part?.getProperty?.('user')
-          const identity = ctxUser?.id || track.getParticipantId()
-          const slot = remoteTracksRef.current.get(identity)
+          const jitsiId = track.getParticipantId()
+          const slot = remoteTracksRef.current.get(jitsiId)
           if (!slot) return
           if (track.getType() === 'audio') slot.audio = undefined
-          else if (track.getVideoType() === 'desktop') slot.screen = undefined
+          else if (track.getVideoType?.() === 'desktop') slot.screen = undefined
           else slot.video = undefined
-          remoteTracksRef.current.set(identity, slot)
+          remoteTracksRef.current.set(jitsiId, slot)
           rebuildPeers()
         }
         const onParticipantLeft = (id: string) => {
-          // Walk the map and drop any entry whose tracks all came from this id
-          // (we keyed by user identity not jitsi-id, so do a soft cleanup)
-          const part = conference.getParticipantById(id)
-          const ctxUser = part?._identity?.user || part?.getProperty?.('user')
-          const identity = ctxUser?.id || id
-          remoteTracksRef.current.delete(identity)
+          remoteTracksRef.current.delete(id)
           rebuildPeers()
         }
         const onConferenceJoined = () => {
           setConnectionState(ConnectionState.Connected)
+          // Publish our app identity as the display name so the other side can
+          // map this participant to "candidate-xxx" / "proctor-xxx".
+          try { conference.setDisplayName(myIdentity) } catch {}
         }
         const onConferenceFailed = (err: any) => {
           setError(`Conference join failed: ${err?.message || err}`)
@@ -302,10 +306,16 @@ export function useJitsi({
         const onConferenceLeft = () => {
           setConnectionState(ConnectionState.Disconnected)
         }
+        // A remote participant's display name (= their app identity) can arrive
+        // AFTER their tracks. Rebuild whenever it lands or a user joins so the
+        // role flips from OBSERVER to CANDIDATE/PROCTOR correctly.
+        const onIdentityResolvable = () => rebuildPeers()
 
         conference.on(J.events.conference.TRACK_ADDED, onRemoteTrackAdded)
         conference.on(J.events.conference.TRACK_REMOVED, onRemoteTrackRemoved)
         conference.on(J.events.conference.USER_LEFT, onParticipantLeft)
+        conference.on(J.events.conference.USER_JOINED, onIdentityResolvable)
+        conference.on(J.events.conference.DISPLAY_NAME_CHANGED, onIdentityResolvable)
         conference.on(J.events.conference.CONFERENCE_JOINED, onConferenceJoined)
         conference.on(J.events.conference.CONFERENCE_FAILED, onConferenceFailed)
         conference.on(J.events.conference.CONFERENCE_LEFT, onConferenceLeft)
