@@ -73,6 +73,7 @@ export function useSessionWebSocket({
       const SESSION_EVENTS = [
         'candidate.joined',
         'candidate.status',
+        'candidate.progress',
         'candidate.disqualified',
         'candidate.screenShareActive',
         'candidate.screenShareStopped',

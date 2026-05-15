@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuestionsService } from '../questions/questions.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { AppGateway } from '../gateway/app.gateway';
 
 @Injectable()
 export class ExamDeliveryService {
@@ -9,6 +10,7 @@ export class ExamDeliveryService {
     private prisma: PrismaService,
     private questionsService: QuestionsService,
     private sessionsService: SessionsService,
+    private gateway: AppGateway,
   ) {}
 
   async getPracticalTask(token: string) {
@@ -111,8 +113,22 @@ export class ExamDeliveryService {
 
     const result = await this.questionsService.submitAnswer(session.id, questionId, response, timeSpentSeconds);
 
+    // Emit real-time progress update to proctor
+    this.gateway.emitToSession(session.id, 'candidate.progress', {
+      sessionId: session.id,
+      candidateId: session.candidateId,
+      questionProgress: result.answeredCount,
+      totalQuestions: 25,
+      isCorrect: result.isCorrect,
+      isComplete: result.isComplete,
+    });
+
     if (result.isComplete) {
       await this.sessionsService.completeMcq(session.id);
+      this.gateway.emitToSession(session.id, 'exam.mcqSubmitted', {
+        sessionId: session.id,
+        candidateId: session.candidateId,
+      });
     }
 
     return result;

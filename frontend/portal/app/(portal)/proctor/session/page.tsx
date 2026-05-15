@@ -31,6 +31,7 @@ function SessionContent() {
   const [verifiedCandidates, setVerifiedCandidates] = useState<Set<string>>(new Set())
   const [mcqPushed, setMcqPushed] = useState(false)
   const [screenSharingCandidateIds, setScreenSharingCandidateIds] = useState<Set<string>>(new Set())
+  const [candidateProgress, setCandidateProgress] = useState<Record<string, number>>({})
 
   const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
     sessionId,
@@ -40,6 +41,15 @@ function SessionContent() {
       if (event === 'candidate.joined' || event === 'ai.flag') {
         qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
         qc.invalidateQueries({ queryKey: ['session-events', sessionId] })
+      }
+      if (event === 'candidate.progress') {
+        setCandidateProgress(prev => ({
+          ...prev,
+          [data.candidateId]: data.questionProgress,
+        }))
+      }
+      if (event === 'exam.mcqSubmitted') {
+        qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
       }
       if (event === 'session.submitted') {
         qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
@@ -266,10 +276,10 @@ function SessionContent() {
     id: candidate?.id || sessionId,
     firstName: candidate?.firstName || 'Candidate',
     lastName: candidate?.lastName || '',
-    questionProgress: session.currentQuestionIndex || 0,
+    questionProgress: candidateProgress[candidate?.id] ?? session.currentQuestionIndex ?? 0,
     totalQuestions: session.assessmentType?.mcqCount || 25,
     faceStatus: 'present' as const,
-    screenStatus: 'active' as const,
+    screenStatus: screenSharingCandidateIds.has(candidate?.id) ? 'active' as const : 'issue' as const,
     submittedPractical: session.status === 'SUBMITTED',
     stream: candidateStream,
   }]

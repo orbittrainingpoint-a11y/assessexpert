@@ -277,18 +277,24 @@ export function useJitsi({
         if (cancelled) return
         myIdentityRef.current = myIdentity
 
-        // 2) Acquire local camera + mic
+        // 2) Acquire local camera + mic FIRST before connecting socket
         if (publishCamera || publishMic) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: publishCamera,
+              video: publishCamera ? { width: 1280, height: 720 } : false,
               audio: publishMic,
             })
             localStreamRef.current = stream
             setLocalCameraStream(stream)
           } catch (e: any) {
-            setError(`Camera/mic access denied: ${e.message}`)
-            // Continue without camera — signalling still works
+            // Try video-only fallback
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ video: publishCamera, audio: false })
+              localStreamRef.current = stream
+              setLocalCameraStream(stream)
+            } catch {
+              setError(`Camera/mic access denied: ${e.message}`)
+            }
           }
         }
         if (cancelled) return
@@ -329,12 +335,14 @@ export function useJitsi({
         })
 
         // A new peer joined — WE initiate the offer to them
+        // Small delay ensures both sides have their local stream ready
         socket.on('peer.joined', async (data: { peerId: string; peerRole: string; candidateId?: string }) => {
           if (cancelled || data.peerId === socket.id) return
           const remoteIdentity = data.peerRole === 'PROCTOR'
             ? `proctor-${data.peerId}`
             : `candidate-${data.candidateId || data.peerId}`
-          await initiateOffer(data.peerId, remoteIdentity)
+          // 300ms delay so both sides finish getUserMedia before negotiating
+          setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 300)
         })
 
         // Received an offer — create answer
