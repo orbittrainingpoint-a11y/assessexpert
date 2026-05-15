@@ -109,7 +109,13 @@ export function useJitsi({
   const [error, setError] = useState<string | null>(null)
   const [screenShareActive, setScreenShareActive] = useState(false)
 
+  const mySocketIdRef = useRef<string>('')
+
   const getSocket = useCallback(() => externalSocket || ownSocketRef.current, [externalSocket])
+  const getMySocketId = useCallback(() => {
+    const sock = getSocket()
+    return sock?.id || mySocketIdRef.current
+  }, [getSocket])
 
   const parseRole = (id: string): 'PROCTOR' | 'CANDIDATE' | 'OBSERVER' => {
     if (id.startsWith('proctor-')) return 'PROCTOR'
@@ -268,16 +274,19 @@ export function useJitsi({
   // ── WebRTC signalling event handlers ─────────────────────────────────────
   // These are attached to whichever socket is active (external or own)
   const handlePeerJoined = useCallback((data: { peerId: string; peerRole: string; candidateId?: string }) => {
-    const sock = getSocket()
-    if (!sock || data.peerId === sock.id) return
+    const mySocketId = getMySocketId()
+    // Ignore self — filter by socket ID AND by role (never connect to same role)
+    if (data.peerId === mySocketId) return
+    if (data.peerRole === role) return  // proctor never connects to another proctor
     const remoteIdentity = data.peerRole === 'PROCTOR'
       ? `proctor-${data.peerId}`
       : `candidate-${data.candidateId || data.peerId}`
-    // Delay so both sides have getUserMedia done
     setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 500)
-  }, [getSocket, initiateOffer])
+  }, [getMySocketId, role, initiateOffer])
 
   const handleOffer = useCallback(async (data: { fromId: string; offer: RTCSessionDescriptionInit }) => {
+    // Ignore offers from ourselves
+    if (data.fromId === getMySocketId()) return
     let conn = peerConnsRef.current.get(data.fromId)
     if (!conn) {
       const remoteIdentity = role === 'PROCTOR' ? `candidate-${data.fromId}` : `proctor-${data.fromId}`
@@ -295,7 +304,7 @@ export function useJitsi({
     } catch (e: any) {
       setError(`Answer failed: ${e.message}`)
     }
-  }, [role, createPeerConn, getSocket])
+  }, [role, createPeerConn, getSocket, getMySocketId])
 
   const handleAnswer = useCallback(async (data: { fromId: string; answer: RTCSessionDescriptionInit }) => {
     const conn = peerConnsRef.current.get(data.fromId)
@@ -398,6 +407,7 @@ export function useJitsi({
 
           sock.on('connect', () => {
             if (cancelled) return
+            mySocketIdRef.current = sock.id
             sock.emit('join_session', { sessionId, role, userId: myIdentity })
             sock.emit('peer.announce', { sessionId, role, socketId: sock.id })
             setConnectionState(ConnectionState.Connected)
@@ -409,18 +419,17 @@ export function useJitsi({
           sock.on('peer.left', handlePeerLeft)
           sock.on('disconnect', () => setConnectionState(ConnectionState.Disconnected))
         } else {
-          // External socket already connected — just announce
-          if (externalSocket.connected) {
+          // External socket already connected — store its ID and announce
+          const announceOnSocket = () => {
+            if (cancelled) return
+            mySocketIdRef.current = externalSocket.id
             externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id })
             setConnectionState(ConnectionState.Connected)
+          }
+          if (externalSocket.connected) {
+            announceOnSocket()
           } else {
-            // Wait for connect
-            externalSocket.once('connect', () => {
-              if (!cancelled) {
-                externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id })
-                setConnectionState(ConnectionState.Connected)
-              }
-            })
+            externalSocket.once('connect', announceOnSocket)
           }
         }
 
