@@ -231,6 +231,23 @@ export function useJitsi({
         }
 
         // 3) Connect to the XMPP server
+        // ICE servers: use TURN over TCP 443 as relay fallback for candidates behind
+        // strict firewalls that block UDP 10000. The TURN server runs on the same VPS
+        // as Jitsi — coturn is included in the jitsi/jvb image on port 3478/5349.
+        const turnDomain = publicHost
+        const iceServers = [
+          { urls: `stun:${turnDomain}:3478` },
+          { urls: `stun:stun.l.google.com:19302` },
+          {
+            urls: [
+              `turn:${turnDomain}:3478?transport=udp`,
+              `turn:${turnDomain}:3478?transport=tcp`,
+              `turns:${turnDomain}:5349?transport=tcp`,
+            ],
+            username: 'assessexpert',
+            credential: process.env.NEXT_PUBLIC_TURN_SECRET || 'assessexpert-turn',
+          },
+        ]
         const connection = new J.JitsiConnection(null, token, {
           hosts: {
             domain,
@@ -240,6 +257,8 @@ export function useJitsi({
           serviceUrl: `wss://${publicHost}/xmpp-websocket?room=${room}`,
           clientNode: 'https://assessexpert.com',
           enableP2P: false,
+          p2p: { enabled: false },
+          iceServers,
         })
         connectionRef.current = connection
 

@@ -417,15 +417,19 @@ function ExamContent() {
     }
   }
 
-  // Notify proctor when screen share stops
+  // Notify proctor when screen share starts or stops
+  // Only emit 'stopped' if it was previously active (avoid false stop on mount)
+  const prevScreenShareRef = useRef(false)
   useEffect(() => {
     if (!wsSocket?.connected || !sessionState?.id) return
     if (lkScreenShareActive) {
+      prevScreenShareRef.current = true
       wsSocket.emit('candidate.screenShareActive', {
         sessionId: sessionState.id,
         candidateId: sessionState.candidate?.id,
       })
-    } else {
+    } else if (prevScreenShareRef.current) {
+      prevScreenShareRef.current = false
       wsSocket.emit('candidate.screenShareStopped', {
         sessionId: sessionState.id,
         candidateId: sessionState.candidate?.id,
