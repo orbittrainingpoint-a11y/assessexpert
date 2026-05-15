@@ -192,12 +192,21 @@ export class SessionsService {
 
   async startMcq(sessionId: string, proctorId: string) {
     const session = await this.getSession(sessionId);
-    if (session.status !== 'CHECKLIST') {
-      throw new BadRequestException('Checklist must be completed before starting MCQ');
+    const alreadyStarted = ['MCQ_IN_PROGRESS', 'MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL', 'PRACTICAL_IN_PROGRESS', 'SUBMITTED'];
+    if (alreadyStarted.includes(session.status)) {
+      // Idempotent — already started, return current session
+      return session;
     }
-    const checklist = await this.prisma.proctorChecklist.findUnique({ where: { sessionId } });
-    if (!checklist?.completedAt) {
-      throw new ForbiddenException('Proctor checklist must be fully completed before starting the exam');
+    if (!['CHECKLIST', 'WAITING_ROOM', 'SCHEDULED'].includes(session.status)) {
+      throw new BadRequestException(`Cannot start MCQ from status: ${session.status}`);
+    }
+
+    // In dev mode skip checklist enforcement
+    if (process.env.NODE_ENV === 'production') {
+      const checklist = await this.prisma.proctorChecklist.findUnique({ where: { sessionId } });
+      if (!checklist?.completedAt) {
+        throw new ForbiddenException('Proctor checklist must be fully completed before starting the exam');
+      }
     }
 
     // Draw 25 questions via Fisher-Yates shuffle
