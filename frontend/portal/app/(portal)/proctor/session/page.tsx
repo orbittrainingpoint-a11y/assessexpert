@@ -88,6 +88,7 @@ function SessionContent() {
     jwtToken,
     publishCamera: true,
     publishMic: true,
+    socket: wsSocket,
   })
 
   const { alerts, behaviorScore, isMonitoring, dismissAlert } = useMediaPipe({

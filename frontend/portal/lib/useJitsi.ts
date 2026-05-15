@@ -2,26 +2,36 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
 /**
- * Pure WebRTC hook — no Jitsi, no external media server required.
+ * Pure WebRTC hook.
  *
- * Signalling uses the existing Socket.IO gateway:
- *   peer.announce  → tells others you joined
- *   peer.joined    → someone else joined, initiate offer
- *   webrtc.offer   → forward SDP offer
- *   webrtc.answer  → forward SDP answer
- *   webrtc.ice     → forward ICE candidate
- *   peer.left      → clean up peer connection
+ * IMPORTANT: Uses the EXISTING Socket.IO socket passed in via `socket` prop
+ * instead of creating its own connection. This avoids the dual-socket problem
+ * where signalling events were going to a different socket than the one in
+ * the session room.
  *
- * Exported shape is identical to the old useLivekit/useJitsi so all
- * consumer files (proctor session page, exam page) work unchanged.
+ * If no socket is passed (e.g. candidate page before socket is ready),
+ * it falls back to creating its own socket — but the preferred path is
+ * always to pass the existing socket.
  */
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4000'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 
+// Use a TURN server for VPS/production where direct P2P UDP is blocked.
+// Falls back to STUN-only if TURN credentials are not set.
+const TURN_SECRET = process.env.NEXT_PUBLIC_TURN_SECRET || ''
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  ...(TURN_SECRET ? [{
+    urls: [
+      `turn:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:3478?transport=udp`,
+      `turn:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:3478?transport=tcp`,
+      `turns:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:5349?transport=tcp`,
+    ],
+    username: 'assessexpert',
+    credential: TURN_SECRET,
+  }] : []),
 ]
 
 export interface RemotePeer {
@@ -45,6 +55,8 @@ interface UseJitsiOptions {
   publishCamera?: boolean
   publishMic?: boolean
   publishScreen?: boolean
+  /** Pass the existing socket from useSessionWebSocket to avoid dual-socket issues */
+  socket?: any
 }
 
 export enum ConnectionState {
@@ -54,11 +66,10 @@ export enum ConnectionState {
   Reconnecting = 'reconnecting',
 }
 
-// One RTCPeerConnection per remote peer, keyed by their socket id
 interface PeerConn {
   pc: RTCPeerConnection
   socketId: string
-  identity: string   // 'candidate-xxx' or 'proctor-xxx'
+  identity: string
   cameraStream: MediaStream | null
   screenStream: MediaStream | null
 }
@@ -81,14 +92,15 @@ export function useJitsi({
   publishCamera = true,
   publishMic = true,
   publishScreen = false,
+  socket: externalSocket,
 }: UseJitsiOptions) {
-  const socketRef = useRef<any>(null)
+  const ownSocketRef = useRef<any>(null)   // only used if no external socket
   const localStreamRef = useRef<MediaStream | null>(null)
   const screenStreamRef = useRef<MediaStream | null>(null)
   const peerConnsRef = useRef<Map<string, PeerConn>>(new Map())
-  const myIdentityRef = useRef<string>('')
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
+  const myIdentityRef = useRef('')
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null)
@@ -97,29 +109,27 @@ export function useJitsi({
   const [error, setError] = useState<string | null>(null)
   const [screenShareActive, setScreenShareActive] = useState(false)
 
-  const parseRole = (identity: string): 'PROCTOR' | 'CANDIDATE' | 'OBSERVER' => {
-    if (identity.startsWith('proctor-')) return 'PROCTOR'
-    if (identity.startsWith('candidate-')) return 'CANDIDATE'
+  const getSocket = useCallback(() => externalSocket || ownSocketRef.current, [externalSocket])
+
+  const parseRole = (id: string): 'PROCTOR' | 'CANDIDATE' | 'OBSERVER' => {
+    if (id.startsWith('proctor-')) return 'PROCTOR'
+    if (id.startsWith('candidate-')) return 'CANDIDATE'
     return 'OBSERVER'
   }
   const parseCandidateId = (id: string) =>
     id.startsWith('candidate-') ? id.replace('candidate-', '') : undefined
 
-  // Rebuild the public peers map from peerConnsRef
   const rebuildPeers = useCallback(() => {
     const next = new Map<string, RemotePeer>()
     peerConnsRef.current.forEach((conn) => {
-      const camTracks = conn.cameraStream?.getVideoTracks() || []
-      const micTracks = conn.cameraStream?.getAudioTracks() || []
-      const scrTracks = conn.screenStream?.getVideoTracks() || []
       next.set(conn.identity, {
         identity: conn.identity,
         name: conn.identity,
         role: parseRole(conn.identity),
         candidateId: parseCandidateId(conn.identity),
-        cameraTrack: camTracks[0] || null,
-        micTrack: micTracks[0] || null,
-        screenTrack: scrTracks[0] || null,
+        cameraTrack: conn.cameraStream?.getVideoTracks()[0] || null,
+        micTrack: conn.cameraStream?.getAudioTracks()[0] || null,
+        screenTrack: conn.screenStream?.getVideoTracks()[0] || null,
         cameraStream: conn.cameraStream,
         screenStream: conn.screenStream,
       })
@@ -127,24 +137,27 @@ export function useJitsi({
     setPeers(next)
   }, [])
 
-  // Create a new RTCPeerConnection for a remote peer
   const createPeerConn = useCallback((remoteSocketId: string, remoteIdentity: string): PeerConn => {
+    // Close existing connection for this peer if any
+    const existing = peerConnsRef.current.get(remoteSocketId)
+    if (existing) { try { existing.pc.close() } catch {} }
+
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
     const conn: PeerConn = { pc, socketId: remoteSocketId, identity: remoteIdentity, cameraStream: null, screenStream: null }
     peerConnsRef.current.set(remoteSocketId, conn)
 
-    // Add our local tracks to this connection
+    // Add local tracks
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current!))
-    }
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(t => pc.addTrack(t, screenStreamRef.current!))
+      localStreamRef.current.getTracks().forEach(t => {
+        try { pc.addTrack(t, localStreamRef.current!) } catch {}
+      })
     }
 
-    // ICE candidates → forward via socket
     pc.onicecandidate = (e) => {
-      if (e.candidate && socketRef.current?.connected) {
-        socketRef.current.emit('webrtc.ice', {
+      if (!e.candidate) return
+      const sock = getSocket()
+      if (sock?.connected) {
+        sock.emit('webrtc.ice', {
           sessionId: sessionIdRef.current,
           targetId: remoteSocketId,
           candidate: e.candidate,
@@ -152,53 +165,58 @@ export function useJitsi({
       }
     }
 
-    // Remote tracks arriving
     pc.ontrack = (e) => {
       const stream = e.streams[0] || new MediaStream([e.track])
-      const isScreen = e.track.label?.toLowerCase().includes('screen') ||
-        e.track.label?.toLowerCase().includes('display') ||
-        (e.track.kind === 'video' && conn.cameraStream !== null)
-
-      if (e.track.kind === 'video' && !isScreen && !conn.cameraStream) {
-        conn.cameraStream = stream
-      } else if (e.track.kind === 'audio' && conn.cameraStream) {
-        // Add audio track to existing camera stream
-        conn.cameraStream.addTrack(e.track)
-      } else if (isScreen) {
-        conn.screenStream = stream
-      } else if (e.track.kind === 'video') {
-        conn.cameraStream = stream
+      if (e.track.kind === 'video') {
+        // First video = camera, second video = screen
+        if (!conn.cameraStream) {
+          conn.cameraStream = stream
+        } else {
+          conn.screenStream = stream
+        }
+      } else if (e.track.kind === 'audio') {
+        if (conn.cameraStream) {
+          // Attach audio to camera stream
+          try { conn.cameraStream.addTrack(e.track) } catch {}
+        } else {
+          conn.cameraStream = stream
+        }
       }
       rebuildPeers()
     }
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') setConnectionState(ConnectionState.Connected)
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      if (pc.connectionState === 'connected') {
+        setConnectionState(ConnectionState.Connected)
+      }
+      if (pc.connectionState === 'failed') {
+        // Try ICE restart
+        pc.restartIce()
+      }
+      if (pc.connectionState === 'closed') {
         peerConnsRef.current.delete(remoteSocketId)
         rebuildPeers()
       }
     }
 
-    return conn
-  }, [rebuildPeers])
-
-  const removePeer = useCallback((socketId: string) => {
-    const conn = peerConnsRef.current.get(socketId)
-    if (conn) {
-      conn.pc.close()
-      peerConnsRef.current.delete(socketId)
-      rebuildPeers()
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'disconnected') {
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') pc.restartIce()
+        }, 3000)
+      }
     }
-  }, [rebuildPeers])
 
-  // Initiate offer to a remote peer (called when we learn about them)
+    return conn
+  }, [rebuildPeers, getSocket])
+
   const initiateOffer = useCallback(async (remoteSocketId: string, remoteIdentity: string) => {
     const conn = createPeerConn(remoteSocketId, remoteIdentity)
     try {
-      const offer = await conn.pc.createOffer()
+      const offer = await conn.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
       await conn.pc.setLocalDescription(offer)
-      socketRef.current?.emit('webrtc.offer', {
+      const sock = getSocket()
+      sock?.emit('webrtc.offer', {
         sessionId: sessionIdRef.current,
         targetId: remoteSocketId,
         offer,
@@ -206,7 +224,7 @@ export function useJitsi({
     } catch (e: any) {
       setError(`Offer failed: ${e.message}`)
     }
-  }, [createPeerConn])
+  }, [createPeerConn, getSocket])
 
   const startScreenShare = useCallback(async () => {
     try {
@@ -215,14 +233,12 @@ export function useJitsi({
       setLocalScreenStream(stream)
       setScreenShareActive(true)
 
-      // Add screen track to all existing peer connections
       peerConnsRef.current.forEach(async (conn) => {
-        stream.getTracks().forEach(t => conn.pc.addTrack(t, stream))
-        // Renegotiate
+        stream.getTracks().forEach(t => { try { conn.pc.addTrack(t, stream) } catch {} })
         try {
           const offer = await conn.pc.createOffer()
           await conn.pc.setLocalDescription(offer)
-          socketRef.current?.emit('webrtc.offer', {
+          getSocket()?.emit('webrtc.offer', {
             sessionId: sessionIdRef.current,
             targetId: conn.socketId,
             offer,
@@ -240,7 +256,7 @@ export function useJitsi({
       setError(`Screen share failed: ${e.message}`)
       return false
     }
-  }, [])
+  }, [getSocket])
 
   const stopScreenShare = useCallback(() => {
     screenStreamRef.current?.getTracks().forEach(t => t.stop())
@@ -249,6 +265,77 @@ export function useJitsi({
     setScreenShareActive(false)
   }, [])
 
+  // ── WebRTC signalling event handlers ─────────────────────────────────────
+  // These are attached to whichever socket is active (external or own)
+  const handlePeerJoined = useCallback((data: { peerId: string; peerRole: string; candidateId?: string }) => {
+    const sock = getSocket()
+    if (!sock || data.peerId === sock.id) return
+    const remoteIdentity = data.peerRole === 'PROCTOR'
+      ? `proctor-${data.peerId}`
+      : `candidate-${data.candidateId || data.peerId}`
+    // Delay so both sides have getUserMedia done
+    setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 500)
+  }, [getSocket, initiateOffer])
+
+  const handleOffer = useCallback(async (data: { fromId: string; offer: RTCSessionDescriptionInit }) => {
+    let conn = peerConnsRef.current.get(data.fromId)
+    if (!conn) {
+      const remoteIdentity = role === 'PROCTOR' ? `candidate-${data.fromId}` : `proctor-${data.fromId}`
+      conn = createPeerConn(data.fromId, remoteIdentity)
+    }
+    try {
+      await conn.pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+      const answer = await conn.pc.createAnswer()
+      await conn.pc.setLocalDescription(answer)
+      getSocket()?.emit('webrtc.answer', {
+        sessionId: sessionIdRef.current,
+        targetId: data.fromId,
+        answer,
+      })
+    } catch (e: any) {
+      setError(`Answer failed: ${e.message}`)
+    }
+  }, [role, createPeerConn, getSocket])
+
+  const handleAnswer = useCallback(async (data: { fromId: string; answer: RTCSessionDescriptionInit }) => {
+    const conn = peerConnsRef.current.get(data.fromId)
+    if (!conn) return
+    try { await conn.pc.setRemoteDescription(new RTCSessionDescription(data.answer)) } catch {}
+  }, [])
+
+  const handleIce = useCallback(async (data: { fromId: string; candidate: RTCIceCandidateInit }) => {
+    const conn = peerConnsRef.current.get(data.fromId)
+    if (!conn) return
+    try { await conn.pc.addIceCandidate(new RTCIceCandidate(data.candidate)) } catch {}
+  }, [])
+
+  const handlePeerLeft = useCallback((data: { peerId: string }) => {
+    const conn = peerConnsRef.current.get(data.peerId)
+    if (conn) {
+      try { conn.pc.close() } catch {}
+      peerConnsRef.current.delete(data.peerId)
+      rebuildPeers()
+    }
+  }, [rebuildPeers])
+
+  // ── Attach signalling handlers to external socket when it becomes available
+  useEffect(() => {
+    if (!externalSocket || !enabled) return
+    externalSocket.on('peer.joined', handlePeerJoined)
+    externalSocket.on('webrtc.offer', handleOffer)
+    externalSocket.on('webrtc.answer', handleAnswer)
+    externalSocket.on('webrtc.ice', handleIce)
+    externalSocket.on('peer.left', handlePeerLeft)
+    return () => {
+      externalSocket.off('peer.joined', handlePeerJoined)
+      externalSocket.off('webrtc.offer', handleOffer)
+      externalSocket.off('webrtc.answer', handleAnswer)
+      externalSocket.off('webrtc.ice', handleIce)
+      externalSocket.off('peer.left', handlePeerLeft)
+    }
+  }, [externalSocket, enabled, handlePeerJoined, handleOffer, handleAnswer, handleIce, handlePeerLeft])
+
+  // ── Main effect: get camera, announce presence ────────────────────────────
   useEffect(() => {
     if (!enabled) return
     if (role === 'PROCTOR' && (!sessionId || !jwtToken)) return
@@ -259,145 +346,89 @@ export function useJitsi({
 
     ;(async () => {
       try {
-        // 1) Resolve our identity from the backend token endpoint
+        // 1) Resolve identity
         const tokenUrl = role === 'PROCTOR'
           ? `${API_URL}/jitsi/proctor-token?sessionId=${sessionId}`
           : `${API_URL}/jitsi/candidate-token?magicToken=${magicToken}`
         const headers: Record<string, string> = {}
         if (role === 'PROCTOR' && jwtToken) headers['Authorization'] = `Bearer ${jwtToken}`
 
-        let myIdentity = role === 'PROCTOR' ? `proctor-unknown` : `candidate-unknown`
+        let myIdentity = role === 'PROCTOR' ? `proctor-${sessionId}` : `candidate-unknown`
         try {
           const res = await fetch(tokenUrl, { headers })
-          if (res.ok) {
-            const data = await res.json()
-            myIdentity = data.identity || myIdentity
-          }
+          if (res.ok) { const d = await res.json(); myIdentity = d.identity || myIdentity }
         } catch {}
         if (cancelled) return
         myIdentityRef.current = myIdentity
 
-        // 2) Acquire local camera + mic FIRST before connecting socket
+        // 2) Get camera/mic FIRST
         if (publishCamera || publishMic) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: publishCamera ? { width: 1280, height: 720 } : false,
-              audio: publishMic,
+              video: publishCamera ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false,
+              audio: publishMic ? { echoCancellation: true, noiseSuppression: true } : false,
             })
+            if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
             localStreamRef.current = stream
             setLocalCameraStream(stream)
           } catch (e: any) {
-            // Try video-only fallback
+            // Fallback: video only
             try {
-              const stream = await navigator.mediaDevices.getUserMedia({ video: publishCamera, audio: false })
+              const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+              if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
               localStreamRef.current = stream
               setLocalCameraStream(stream)
             } catch {
-              setError(`Camera/mic access denied: ${e.message}`)
+              setError(`Camera denied: ${e.message}`)
             }
           }
         }
         if (cancelled) return
 
-        // 3) Connect to Socket.IO signalling server
-        const ioFn = await getIo()
-        if (cancelled) return
-
-        const socket = ioFn(WS_URL, {
-          transports: ['websocket', 'polling'],
-          withCredentials: true,
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 2000,
-        })
-        socketRef.current = socket
-
-        socket.on('connect', () => {
+        // 3) If no external socket, create our own
+        if (!externalSocket) {
+          const ioFn = await getIo()
           if (cancelled) return
-          // Join the session room
-          socket.emit('join_session', {
-            sessionId,
-            role,
-            userId: myIdentity,
+          const sock = ioFn(WS_URL, {
+            transports: ['websocket', 'polling'],
+            withCredentials: true,
+            reconnection: true,
           })
-          // Announce ourselves so existing peers know to initiate offers to us
-          socket.emit('peer.announce', {
-            sessionId,
-            role,
-            socketId: socket.id,
-            identity: myIdentity,
+          ownSocketRef.current = sock
+
+          sock.on('connect', () => {
+            if (cancelled) return
+            sock.emit('join_session', { sessionId, role, userId: myIdentity })
+            sock.emit('peer.announce', { sessionId, role, socketId: sock.id })
+            setConnectionState(ConnectionState.Connected)
           })
-          setConnectionState(ConnectionState.Connected)
-        })
-
-        socket.on('disconnect', () => {
-          setConnectionState(ConnectionState.Disconnected)
-        })
-
-        // A new peer joined — WE initiate the offer to them
-        // Small delay ensures both sides have their local stream ready
-        socket.on('peer.joined', async (data: { peerId: string; peerRole: string; candidateId?: string }) => {
-          if (cancelled || data.peerId === socket.id) return
-          const remoteIdentity = data.peerRole === 'PROCTOR'
-            ? `proctor-${data.peerId}`
-            : `candidate-${data.candidateId || data.peerId}`
-          // 300ms delay so both sides finish getUserMedia before negotiating
-          setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 300)
-        })
-
-        // Received an offer — create answer
-        socket.on('webrtc.offer', async (data: { fromId: string; offer: RTCSessionDescriptionInit }) => {
-          if (cancelled) return
-          let conn = peerConnsRef.current.get(data.fromId)
-          if (!conn) {
-            // Determine remote identity from existing peers map or fallback
-            const remoteIdentity = role === 'PROCTOR' ? `candidate-${data.fromId}` : `proctor-${data.fromId}`
-            conn = createPeerConn(data.fromId, remoteIdentity)
-          }
-          try {
-            await conn.pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-            const answer = await conn.pc.createAnswer()
-            await conn.pc.setLocalDescription(answer)
-            socket.emit('webrtc.answer', {
-              sessionId,
-              targetId: data.fromId,
-              answer,
+          sock.on('peer.joined', handlePeerJoined)
+          sock.on('webrtc.offer', handleOffer)
+          sock.on('webrtc.answer', handleAnswer)
+          sock.on('webrtc.ice', handleIce)
+          sock.on('peer.left', handlePeerLeft)
+          sock.on('disconnect', () => setConnectionState(ConnectionState.Disconnected))
+        } else {
+          // External socket already connected — just announce
+          if (externalSocket.connected) {
+            externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id })
+            setConnectionState(ConnectionState.Connected)
+          } else {
+            // Wait for connect
+            externalSocket.once('connect', () => {
+              if (!cancelled) {
+                externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id })
+                setConnectionState(ConnectionState.Connected)
+              }
             })
-          } catch (e: any) {
-            setError(`Answer failed: ${e.message}`)
           }
-        })
-
-        // Received an answer
-        socket.on('webrtc.answer', async (data: { fromId: string; answer: RTCSessionDescriptionInit }) => {
-          if (cancelled) return
-          const conn = peerConnsRef.current.get(data.fromId)
-          if (!conn) return
-          try {
-            await conn.pc.setRemoteDescription(new RTCSessionDescription(data.answer))
-          } catch {}
-        })
-
-        // Received ICE candidate
-        socket.on('webrtc.ice', async (data: { fromId: string; candidate: RTCIceCandidateInit }) => {
-          if (cancelled) return
-          const conn = peerConnsRef.current.get(data.fromId)
-          if (!conn) return
-          try {
-            await conn.pc.addIceCandidate(new RTCIceCandidate(data.candidate))
-          } catch {}
-        })
-
-        // Peer left
-        socket.on('peer.left', (data: { peerId: string }) => {
-          removePeer(data.peerId)
-        })
+        }
 
         if (publishScreen) await startScreenShare()
 
       } catch (e: any) {
         if (!cancelled) {
-          setError(e.message || 'WebRTC connection failed')
+          setError(e.message || 'WebRTC failed')
           setConnectionState(ConnectionState.Disconnected)
         }
       }
@@ -405,19 +436,16 @@ export function useJitsi({
 
     return () => {
       cancelled = true
-      // Close all peer connections
-      peerConnsRef.current.forEach(conn => conn.pc.close())
+      peerConnsRef.current.forEach(c => { try { c.pc.close() } catch {} })
       peerConnsRef.current.clear()
-      // Stop local tracks
       localStreamRef.current?.getTracks().forEach(t => t.stop())
       screenStreamRef.current?.getTracks().forEach(t => t.stop())
       localStreamRef.current = null
       screenStreamRef.current = null
-      // Disconnect socket
-      if (socketRef.current) {
-        socketRef.current.emit('leave_session', { sessionId })
-        socketRef.current.disconnect()
-        socketRef.current = null
+      if (ownSocketRef.current) {
+        ownSocketRef.current.emit('leave_session', { sessionId })
+        ownSocketRef.current.disconnect()
+        ownSocketRef.current = null
       }
       setPeers(new Map())
       setLocalCameraStream(null)

@@ -161,6 +161,7 @@ function ExamContent() {
     magicToken: token,
     publishCamera: true,
     publishMic: true,
+    socket: wsSocket,
   })
 
   // Keep cameraStreamRef in sync with LiveKit so existing UI refs still work
