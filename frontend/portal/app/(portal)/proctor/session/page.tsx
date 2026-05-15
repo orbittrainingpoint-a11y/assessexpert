@@ -276,7 +276,7 @@ function SessionContent() {
     id: candidate?.id || sessionId,
     firstName: candidate?.firstName || 'Candidate',
     lastName: candidate?.lastName || '',
-    questionProgress: candidateProgress[candidate?.id] ?? session.currentQuestionIndex ?? 0,
+    questionProgress: candidateProgress[candidate?.id] ?? 0,
     totalQuestions: session.assessmentType?.mcqCount || 25,
     faceStatus: 'present' as const,
     screenStatus: screenSharingCandidateIds.has(candidate?.id) ? 'active' as const : 'issue' as const,

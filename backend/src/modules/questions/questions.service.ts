@@ -149,12 +149,6 @@ export class QuestionsService {
     const nextPosition = answeredCount + 1;
     const isComplete = nextPosition >= 25;
 
-    // Update currentQuestionIndex on the session for real-time proctor view
-    await this.prisma.examSession.update({
-      where: { id: sessionId },
-      data: { currentQuestionIndex: nextPosition },
-    });
-
     return {
       answered: true,
       position: currentItem.position,
