@@ -47,14 +47,17 @@ function SessionContent() {
       if (event === 'candidate.screenShareActive') {
         setScreenSharingCandidateIds(prev => {
           const next = new Set(prev)
-          if (data.candidateId) next.add(data.candidateId)
+          // Accept candidateId from event, or fall back to the session's candidate
+          const cid = data.candidateId || session?.candidate?.id
+          if (cid) next.add(cid)
           return next
         })
       }
       if (event === 'candidate.screenShareStopped') {
         setScreenSharingCandidateIds(prev => {
           const next = new Set(prev)
-          if (data.candidateId) next.delete(data.candidateId)
+          const cid = data.candidateId || session?.candidate?.id
+          if (cid) next.delete(cid)
           return next
         })
       }
