@@ -542,6 +542,10 @@ model ExamSession {
   integrityScore         Float?
   disqualified           Boolean        @default(false)
   disqualifyReason       String?
+  // Pre-exam verification transcript. JSON array of utterances:
+  // [{ candidateId?, speaker: 'PROCTOR' | 'CANDIDATE', text, timestamp }]
+  // Append-only from the app; the report viewer renders it read-only.
+  verificationTranscript Json?
   questionAssignment     SessionQuestionAssignment?
   answers                ExamAnswer[]
   practicalAnswers       PracticalAnswer[]

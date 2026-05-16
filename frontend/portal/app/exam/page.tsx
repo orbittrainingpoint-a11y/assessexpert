@@ -1,7 +1,8 @@
 ﻿'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { authApi, examApi, checklistApi, legalApi, api, uploadUrl } from '@/lib/api'
+import { authApi, examApi, checklistApi, legalApi, transcriptApi, api, uploadUrl } from '@/lib/api'
+import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
@@ -422,6 +423,20 @@ function ExamContent() {
       })
     }
   }, [token, wsSocket, sessionState?.id, sessionState?.candidate?.id])
+
+  // Pre-exam verification transcription — the candidate's side of the
+  // conversation. Only runs in the verification/waiting phases (silent
+  // during MCQ / practical / completion).
+  useSpeechTranscription({
+    enabled: (phase === 'verification' || phase === 'waiting') && !!token,
+    onUtterance: (text) => {
+      transcriptApi.appendAsCandidate(token, {
+        candidateId: sessionState?.candidate?.id,
+        text,
+        timestamp: new Date().toISOString(),
+      }).catch(() => {})
+    },
+  })
 
   const handleGuidelinesDecline = useCallback(() => {
     if (wsSocket?.connected && sessionState?.id) {

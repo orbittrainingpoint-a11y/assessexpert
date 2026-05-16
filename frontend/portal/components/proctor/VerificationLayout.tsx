@@ -2,6 +2,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { User, Mic, MicOff } from 'lucide-react'
 import ChecklistPanel from './ChecklistPanel'
+import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
+import { transcriptApi } from '@/lib/api'
 
 interface Candidate {
   id: string
@@ -41,8 +43,16 @@ function VideoBox({
   useEffect(() => {
     if (!ref.current) return
     ref.current.srcObject = stream
+    // Belt-and-braces: enforce the muted state on the element after the
+    // stream is attached. Some browsers reset .muted when srcObject changes.
+    ref.current.muted = muted
     if (stream) ref.current.play().catch(() => {})
-  }, [stream])
+  }, [stream, muted])
+
+  // Also enforce it on EVERY mute prop change, even without stream change.
+  useEffect(() => {
+    if (ref.current) ref.current.muted = muted
+  }, [muted])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000', borderRadius: '8px', overflow: 'hidden', ...style }}>
@@ -70,6 +80,21 @@ export default function VerificationLayout({
 }: Props) {
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(candidates[0]?.id || null)
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
+
+  // Continuously transcribe whatever the proctor says while verifying.
+  // Each utterance is tagged with the active candidate so the report can
+  // attribute the conversation per-candidate.
+  const { supported: srSupported, listening: srListening, interim: srInterim } = useSpeechTranscription({
+    enabled: !!sessionId,
+    onUtterance: (text) => {
+      if (!sessionId) return
+      transcriptApi.appendAsProctor(sessionId, {
+        candidateId: activeCandidateId || undefined,
+        text,
+        timestamp: new Date().toISOString(),
+      }).catch(() => {})
+    },
+  })
 
   // Auto-select first candidate
   useEffect(() => {
@@ -102,11 +127,26 @@ export default function VerificationLayout({
             </span>
           </div>
 
-          {/* Audio indicator */}
-          <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 10, background: 'rgba(0,0,0,0.75)', padding: '4px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Audio + transcription indicator */}
+          <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 10, background: 'rgba(0,0,0,0.75)', padding: '4px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Mic size={12} color="var(--emerald)" />
             <span style={{ fontSize: '11px', color: 'var(--emerald)', fontWeight: '600' }}>AUDIO LIVE</span>
+            {srSupported && (
+              <>
+                <span style={{ opacity: 0.4, fontSize: '11px' }}>·</span>
+                <span style={{ fontSize: '10px', color: srListening ? 'var(--cyan)' : 'var(--text-muted)', fontWeight: '600' }}>
+                  {srListening ? '● REC TRANSCRIPT' : 'TRANSCRIPT IDLE'}
+                </span>
+              </>
+            )}
           </div>
+
+          {/* Live interim transcript caption — bottom of the candidate tile */}
+          {srInterim && (
+            <div style={{ position: 'absolute', bottom: '8px', left: '14px', right: '180px', zIndex: 10, background: 'rgba(0,0,0,0.7)', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', color: '#fff', fontStyle: 'italic' }}>
+              {srInterim}
+            </div>
+          )}
 
           {/* Candidate stream — unmuted so proctor hears candidate */}
           <div style={{ width: '100%', height: '100%' }}>

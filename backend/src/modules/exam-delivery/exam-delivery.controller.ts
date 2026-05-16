@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ExamDeliveryService } from './exam-delivery.service';
+import { SessionsService } from '../sessions/sessions.service';
 import { AppGateway } from '../gateway/app.gateway';
 import { ApiTags } from '@nestjs/swagger';
 import * as path from 'path';
@@ -11,8 +12,25 @@ import * as fs from 'fs';
 export class ExamDeliveryController {
   constructor(
     private examDeliveryService: ExamDeliveryService,
+    private sessionsService: SessionsService,
     private gateway: AppGateway,
   ) {}
+
+  // Candidate-side transcript append (magic-token auth, no JWT).
+  @Post('transcript')
+  async appendTranscriptCandidate(
+    @Query('token') token: string,
+    @Body() body: { candidateId?: string; text: string; timestamp?: string },
+  ) {
+    const session = await this.examDeliveryService.getSessionByToken(token);
+    if (!session) throw new BadRequestException('Invalid session token');
+    return this.sessionsService.appendVerificationTranscript(session.id, {
+      candidateId: body.candidateId,
+      speaker: 'CANDIDATE',
+      text: body.text,
+      timestamp: body.timestamp,
+    });
+  }
 
   @Get('session')
   async getSessionState(@Query('token') token: string) {

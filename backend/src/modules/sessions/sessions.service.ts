@@ -70,6 +70,50 @@ export class SessionsService {
     });
   }
 
+  // Append a verification-conversation utterance to the session transcript.
+  // We only accept lines while the session is in pre-exam phases — once the
+  // candidate has moved into MCQ/practical/submitted, the transcript freezes.
+  async appendVerificationTranscript(
+    sessionId: string,
+    line: { candidateId?: string; speaker: 'PROCTOR' | 'CANDIDATE'; text: string; timestamp?: string },
+  ) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, status: true, verificationTranscript: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    const FROZEN = ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'COMPLETED', 'DISQUALIFIED'];
+    if (FROZEN.includes(session.status)) {
+      // Don't error — just refuse to mutate. Caller can ignore the response.
+      return { appended: false, reason: 'transcript frozen' };
+    }
+    const text = (line.text || '').trim();
+    if (!text) return { appended: false, reason: 'empty' };
+
+    const current: any = (session.verificationTranscript as any) || { lines: [] };
+    const lines = Array.isArray(current.lines) ? current.lines : [];
+    lines.push({
+      candidateId: line.candidateId,
+      speaker: line.speaker,
+      text,
+      timestamp: line.timestamp || new Date().toISOString(),
+    });
+    await this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: { verificationTranscript: { lines } },
+    });
+    return { appended: true, count: lines.length };
+  }
+
+  async getVerificationTranscript(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { verificationTranscript: true },
+    });
+    const t: any = session?.verificationTranscript || { lines: [] };
+    return { lines: Array.isArray(t.lines) ? t.lines : [] };
+  }
+
   async getSessionCandidates(sessionId: string) {
     return this.prisma.sessionCandidate.findMany({
       where: { sessionId },

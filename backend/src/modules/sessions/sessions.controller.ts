@@ -168,6 +168,27 @@ export class SessionsController {
     return result;
   }
 
+  // Proctor appends a verification transcript line (JWT-auth).
+  @Post(':id/transcript')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  async appendTranscriptProctor(
+    @Param('id') id: string,
+    @Body() body: { candidateId?: string; text: string; timestamp?: string },
+  ) {
+    return this.sessionsService.appendVerificationTranscript(id, {
+      candidateId: body.candidateId,
+      speaker: 'PROCTOR',
+      text: body.text,
+      timestamp: body.timestamp,
+    });
+  }
+
+  @Get(':id/transcript')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
+  async getTranscript(@Param('id') id: string) {
+    return this.sessionsService.getVerificationTranscript(id);
+  }
+
   @Post(':id/proctor-message')
   @Roles('PROCTOR', 'MASTER_PROCTOR')
   async proctorMessage(

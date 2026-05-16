@@ -252,6 +252,19 @@ export const legalApi = {
   getPublic: () => api.get('/legal/public'),
 }
 
+// Pre-exam verification conversation transcript. Both sides append lines
+// as they speak; the report viewer renders the result read-only.
+export const transcriptApi = {
+  // Proctor side — JWT-authenticated
+  appendAsProctor: (sessionId: string, body: { candidateId?: string; text: string; timestamp?: string }) =>
+    api.post(`/sessions/${sessionId}/transcript`, body),
+  // Candidate side — magic-token auth
+  appendAsCandidate: (token: string, body: { candidateId?: string; text: string; timestamp?: string }) =>
+    api.post(`/exam/transcript?token=${encodeURIComponent(token)}`, body),
+  // Read (proctor / HR / admin)
+  get: (sessionId: string) => api.get(`/sessions/${sessionId}/transcript`),
+}
+
 // Reports
 export const reportsApi = {
   getAll: (filters?: any) => api.get('/reports', { params: filters }),
