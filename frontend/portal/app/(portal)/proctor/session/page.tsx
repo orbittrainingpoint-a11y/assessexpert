@@ -32,6 +32,7 @@ function SessionContent() {
   const [mcqPushed, setMcqPushed] = useState(false)
   const [screenSharingCandidateIds, setScreenSharingCandidateIds] = useState<Set<string>>(new Set())
   const [candidateProgress, setCandidateProgress] = useState<Record<string, number>>({})
+  const [mcqScores, setMcqScores] = useState<Record<string, { score: number; total: number }>>({}) 
 
   const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
     sessionId,
@@ -49,9 +50,23 @@ function SessionContent() {
         }))
       }
       if (event === 'exam.mcqSubmitted') {
+        // Fetch real score immediately
+        if (data.candidateId) {
+          setMcqScores(prev => ({
+            ...prev,
+            [data.candidateId]: { score: data.score ?? 0, total: 25 },
+          }))
+        }
         qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
       }
       if (event === 'session.submitted') {
+        qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
+      }
+      if (event === 'candidate.guidelinesAgreed') {
+        toast.success('Candidate agreed to exam guidelines', { duration: 5000 })
+      }
+      if (event === 'candidate.guidelinesDeclined') {
+        toast.error('Candidate DECLINED exam guidelines — session terminated', { duration: 8000 })
         qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
       }
       if (event === 'candidate.screenShareActive') {
@@ -243,12 +258,15 @@ function SessionContent() {
   // For single-candidate, derive socketId from the first remote stream key
   const firstRemoteSocketId = remoteStreams.size > 0 ? Array.from(remoteStreams.keys())[0] as string : undefined
 
+  const candidatePeer = Array.from(lkPeers.values()).find(p => p.role === 'CANDIDATE')
+  const candidateScreenStream = candidatePeer?.screenStream || null
+
   const candidates = isMultiCandidate && sessionCandidates
     ? sessionCandidates.map((sc: any) => ({
         id: sc.candidateId,
         name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
-        // LiveKit identities are 'candidate-{id}'
         stream: lkPeers.get(`candidate-${sc.candidateId}`)?.cameraStream || null,
+        screenStream: lkPeers.get(`candidate-${sc.candidateId}`)?.screenStream || null,
         socketId: sc.socketId,
         mcqSubmitted: sc.status === 'MCQ_SUBMITTED',
       }))
@@ -256,6 +274,7 @@ function SessionContent() {
         id: candidate?.id || sessionId,
         name: `${candidate?.firstName} ${candidate?.lastName}`,
         stream: candidateStream,
+        screenStream: candidateScreenStream,
         socketId: firstRemoteSocketId,
         mcqSubmitted: session.status === 'MCQ_SUBMITTED',
       }]
@@ -283,14 +302,24 @@ function SessionContent() {
     screenStatus: screenSharingCandidateIds.has(candidate?.id) ? 'active' as const : 'issue' as const,
     submittedPractical: session.status === 'SUBMITTED',
     stream: candidateStream,
+    screenStream: candidateScreenStream,
   }]
 
+  // Prefer the live socket score, then the backend's computed correctCount, then
+  // fall back to answers length / 0. This makes the submission view correct
+  // even after a page refresh when the live event was missed.
+  const mcqTotal: number = session.mcqTotal ?? session.assessmentType?.mcqCount ?? 25
+  const liveScore = mcqScores[candidate?.id]?.score
+  const dbScore = typeof session.mcqCorrectCount === 'number' ? session.mcqCorrectCount : undefined
+  const fallbackScore = session.answers?.filter((a: any) => a.isCorrect).length
+  const proctorScore = liveScore ?? dbScore ?? fallbackScore ?? 0
+  const passThreshold = Math.ceil(mcqTotal * 0.6)
   const mcqResults = [{
     candidateId: candidate?.id || '',
     candidateName: `${candidate?.firstName} ${candidate?.lastName}`,
-    score: session.mcqScore || 0,
-    total: session.assessmentType?.mcqCount || 25,
-    passed: (session.mcqScore || 0) >= Math.floor((session.assessmentType?.mcqCount || 25) * 0.6),
+    score: proctorScore,
+    total: mcqTotal,
+    passed: proctorScore >= passThreshold,
   }]
 
   return (

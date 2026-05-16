@@ -234,6 +234,17 @@ export const checklistApi = {
   getTemplate: () => api.get('/checklist/template'),
 }
 
+// Facial recognition capture — proctor grabs a frame from the candidate
+// stream and uploads it for storage + face detection. The backend persists
+// the image and returns capturePath + faceDetected.
+export const faceCaptureApi = {
+  captureIdVerification: (sessionId: string, imageBase64: string, checklistItemKey: string) =>
+    api.post(`/mediapipe/capture/id-verification/${sessionId}`, {
+      image: imageBase64,
+      checklistItemKey,
+    }),
+}
+
 // Reports
 export const reportsApi = {
   getAll: (filters?: any) => api.get('/reports', { params: filters }),

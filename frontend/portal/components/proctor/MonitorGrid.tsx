@@ -14,6 +14,7 @@ interface CandidateTile {
   screenStatus: 'active' | 'issue'
   submittedPractical?: boolean
   stream?: MediaStream | null
+  screenStream?: MediaStream | null
 }
 
 interface Props {
@@ -190,7 +191,7 @@ export default function MonitorGrid({ sessionId, candidates, phase, onPause, onR
               </div>
               <div>
                 <p style={{ margin: '0 0 6px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Screen Share</p>
-                <VideoTile stream={null} label="Screen share (WebRTC)" />
+                <VideoTile stream={expandedCandidate.screenStream} label="Waiting for screen share..." />
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>

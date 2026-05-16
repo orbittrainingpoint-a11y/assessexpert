@@ -206,6 +206,7 @@ export default function VerificationLayout({
           <ChecklistPanel
             sessionId={sessionId}
             candidateVideoRef={{ current: null } as any}
+            candidateStream={candidates.find(c => c.id === activeCandidateId)?.stream || null}
             candidateScreenShareActive={screenSharingCandidateIds?.has(activeCandidateId)}
             onAllDone={() => {
               setVerifiedIds(prev => new Set(prev).add(activeCandidateId!))

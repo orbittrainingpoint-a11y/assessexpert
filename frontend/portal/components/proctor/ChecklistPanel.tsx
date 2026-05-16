@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { CheckCircle, Circle } from 'lucide-react'
-import { checklistApi } from '@/lib/api'
+import { useState, useEffect, useRef } from 'react'
+import { CheckCircle, Circle, Camera, RotateCcw } from 'lucide-react'
+import { checklistApi, faceCaptureApi } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export type ChecklistItemKey =
@@ -23,6 +23,7 @@ export interface ChecklistState {
 interface Props {
   sessionId: string
   candidateVideoRef: React.RefObject<HTMLVideoElement | null>
+  candidateStream?: MediaStream | null
   onAllDone: () => void
   onRequestScreenShare?: () => void
   candidateScreenShareActive?: boolean
@@ -129,6 +130,153 @@ function ItemGovernmentId({ sessionId, saving, onComplete }: { sessionId: string
         disabled={saving || captureState !== 'done' || frResult?.verdict === 'blocked'}
         onClick={() => onComplete({ value: frResult })}>
         {saving ? 'Saving...' : 'ID Verified'}
+      </button>
+    </div>
+  )
+}
+
+function ItemFacialRecognition({
+  sessionId,
+  candidateStream,
+  saving,
+  onComplete,
+}: {
+  sessionId: string
+  candidateStream?: MediaStream | null
+  saving: boolean
+  onComplete: (d: any) => void
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [state, setState] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle')
+  const [preview, setPreview] = useState<string | null>(null)
+  const [result, setResult] = useState<{ faceDetected: boolean; capturePath?: string; quality?: any } | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (candidateStream && v.srcObject !== candidateStream) {
+      v.srcObject = candidateStream
+      v.play().catch(() => {})
+    }
+  }, [candidateStream])
+
+  const capture = async () => {
+    if (!candidateStream) {
+      setErrorMsg('Candidate camera not available — wait for the WebRTC connection.')
+      setState('error')
+      return
+    }
+    const v = videoRef.current
+    if (!v || !v.videoWidth) {
+      setErrorMsg('Video feed is not ready yet. Try again in a few seconds.')
+      setState('error')
+      return
+    }
+    setState('capturing')
+    setErrorMsg(null)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = v.videoWidth
+      canvas.height = v.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas context failed')
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+      setPreview(dataUrl)
+      const imageBase64 = dataUrl.split(',')[1]
+      const { data } = await faceCaptureApi.captureIdVerification(sessionId, imageBase64, 'facial_recognition')
+      setResult({
+        faceDetected: !!data.faceDetected,
+        capturePath: data.capturePath,
+        quality: data.quality,
+      })
+      setState('done')
+    } catch (e: any) {
+      setErrorMsg(e?.response?.data?.message || e?.message || 'Capture failed')
+      setState('error')
+    }
+  }
+
+  const retry = () => {
+    setState('idle')
+    setResult(null)
+    setPreview(null)
+    setErrorMsg(null)
+  }
+
+  return (
+    <div style={{ padding: '0 16px 16px' }}>
+      <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+        Ask the candidate to look directly at the camera. The captured image will be stored with the exam record and included in the final report.
+      </div>
+
+      {/* Hidden video element fed by the candidate's stream */}
+      <video ref={videoRef} autoPlay muted playsInline style={{ display: 'none' }} />
+
+      {state === 'idle' && (
+        <button className="btn-primary" style={{ width: '100%', padding: '10px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          onClick={capture} disabled={!candidateStream}>
+          <Camera size={14} /> Capture Candidate Face
+        </button>
+      )}
+
+      {state === 'capturing' && (
+        <div style={{ padding: '10px', background: 'rgba(0,212,255,0.06)', borderRadius: '6px', fontSize: '13px', color: 'var(--cyan)', textAlign: 'center', marginBottom: '10px' }}>
+          Uploading & running face detection...
+        </div>
+      )}
+
+      {state === 'error' && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ padding: '10px', background: 'rgba(225,29,72,0.08)', border: '1px solid rgba(225,29,72,0.2)', borderRadius: '6px', fontSize: '12px', color: 'var(--rose)', marginBottom: '8px' }}>
+            {errorMsg}
+          </div>
+          <button className="btn-ghost" style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            onClick={retry}>
+            <RotateCcw size={12} /> Try Again
+          </button>
+        </div>
+      )}
+
+      {state === 'done' && result && (
+        <div style={{ marginBottom: '10px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px' }}>
+          {preview && (
+            <img src={preview} alt="Captured face"
+              style={{ width: '100%', maxHeight: '180px', objectFit: 'contain', borderRadius: '6px', marginBottom: '8px', background: '#000' }} />
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>Face Detected</span>
+            <span style={{ color: result.faceDetected ? 'var(--emerald)' : 'var(--rose)', fontWeight: '600' }}>
+              {result.faceDetected ? 'YES' : 'NO'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>Image Quality</span>
+            <span style={{ color: result.quality?.isValid ? 'var(--emerald)' : 'var(--amber)' }}>
+              {result.quality?.isValid ? 'OK' : 'LOW'}
+            </span>
+          </div>
+          <div style={{ padding: '6px', borderRadius: '6px',
+            background: result.faceDetected ? 'rgba(5,150,105,0.1)' : 'rgba(225,29,72,0.1)',
+            border: `1px solid ${result.faceDetected ? 'rgba(5,150,105,0.3)' : 'rgba(225,29,72,0.3)'}`,
+            fontSize: '12px', fontWeight: '600',
+            color: result.faceDetected ? 'var(--emerald)' : 'var(--rose)', textAlign: 'center' }}>
+            {result.faceDetected
+              ? '✓ Stored for report — proceed if the face matches the candidate'
+              : '✗ No face detected — recapture before proceeding'}
+          </div>
+          <button className="btn-ghost" style={{ width: '100%', padding: '8px', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px' }}
+            onClick={retry}>
+            <RotateCcw size={12} /> Recapture
+          </button>
+        </div>
+      )}
+
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }}
+        disabled={saving || state !== 'done' || !result?.faceDetected}
+        onClick={() => onComplete({ value: { capturePath: result?.capturePath, faceDetected: result?.faceDetected, quality: result?.quality, capturedAt: new Date().toISOString() } })}>
+        {saving ? 'Saving...' : 'Facial Recognition Confirmed'}
       </button>
     </div>
   )
@@ -267,7 +415,7 @@ function ItemGuidelines({ saving, onComplete }: { saving: boolean; onComplete: (
   )
 }
 
-export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
+export default function ChecklistPanel({ sessionId, candidateVideoRef, candidateStream, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
   const [itemStates, setItemStates] = useState<ChecklistState>({
     camera_verified:    'active',
     identity_name:      'pending',
@@ -391,7 +539,12 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, onAllDone
               )}
 
               {isActive && item.key === 'facial_recognition' && (
-                <ItemGovernmentId sessionId={sessionId} saving={saving} onComplete={d => completeItem('facial_recognition', d)} />
+                <ItemFacialRecognition
+                  sessionId={sessionId}
+                  candidateStream={candidateStream}
+                  saving={saving}
+                  onComplete={d => completeItem('facial_recognition', d)}
+                />
               )}
 
               {isActive && item.key === 'screen_share' && (

@@ -6,6 +6,7 @@ import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
 import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
+import GuidelinesModal from '@/components/candidate/GuidelinesModal'
 import PracticalSetView from '@/components/candidate/PracticalSetView'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
@@ -349,7 +350,51 @@ function ExamContent() {
   }
 
   const [guidelinesOpen, setGuidelinesOpen] = useState(false)
+  const [guidelinesAgreed, setGuidelinesAgreed] = useState(false)
   const [screenShareRequested, setScreenShareRequested] = useState(false)
+
+  // Show the Guidelines & Agreement modal the FIRST time the candidate enters
+  // verification or waiting. Persist agreement in localStorage so a refresh
+  // doesn't re-prompt mid-session.
+  useEffect(() => {
+    if (phase !== 'verification' && phase !== 'waiting') return
+    if (!token) return
+    const storageKey = `assessexpert.agreed.${token}`
+    const already = typeof window !== 'undefined' && localStorage.getItem(storageKey) === '1'
+    if (already) {
+      setGuidelinesAgreed(true)
+      return
+    }
+    setGuidelinesOpen(true)
+  }, [phase, token])
+
+  const handleGuidelinesAgree = useCallback(() => {
+    if (typeof window !== 'undefined' && token) {
+      localStorage.setItem(`assessexpert.agreed.${token}`, '1')
+    }
+    setGuidelinesAgreed(true)
+    setGuidelinesOpen(false)
+    toast.success('Agreement recorded — your exam will start shortly')
+    if (wsSocket?.connected && sessionState?.id) {
+      wsSocket.emit('candidate.guidelinesAgreed', {
+        sessionId: sessionState.id,
+        candidateId: sessionState.candidate?.id,
+        agreedAt: new Date().toISOString(),
+      })
+    }
+  }, [token, wsSocket, sessionState?.id, sessionState?.candidate?.id])
+
+  const handleGuidelinesDecline = useCallback(() => {
+    if (wsSocket?.connected && sessionState?.id) {
+      wsSocket.emit('candidate.guidelinesDeclined', {
+        sessionId: sessionState.id,
+        candidateId: sessionState.candidate?.id,
+        declinedAt: new Date().toISOString(),
+      })
+    }
+    setGuidelinesOpen(false)
+    setPhase('terminated')
+  }, [wsSocket, sessionState?.id, sessionState?.candidate?.id])
 
   // Poll for practical phase transition (mcq-complete → practical)
   useEffect(() => {
@@ -778,17 +823,27 @@ function ExamContent() {
   )
 
   if (phase === 'verification' || phase === 'waiting') return (
-    <CandidateVerificationLayout
-      sessionId={sessionState?.id || ''}
-      candidateId={sessionState?.candidate?.id || ''}
-      examTitle={sessionState?.assessmentType?.name || 'Assessment'}
-      proctorStream={proctorStream as MediaStream | null}
-      candidateStream={cameraStreamRef.current}
-      checklist={checklist}
-      proctorActive={proctorActive}
-      screenShareRequested={screenShareRequested}
-      onRequestScreenShare={requestScreenShare}
-    />
+    <>
+      <CandidateVerificationLayout
+        sessionId={sessionState?.id || ''}
+        candidateId={sessionState?.candidate?.id || ''}
+        examTitle={sessionState?.assessmentType?.name || 'Assessment'}
+        proctorStream={proctorStream as MediaStream | null}
+        candidateStream={cameraStreamRef.current}
+        checklist={checklist}
+        proctorActive={proctorActive}
+        screenShareRequested={screenShareRequested}
+        onRequestScreenShare={requestScreenShare}
+      />
+      {guidelinesOpen && !guidelinesAgreed && (
+        <GuidelinesModal
+          examTitle={sessionState?.assessmentType?.name || 'Assessment'}
+          candidateName={sessionState?.candidate ? `${sessionState.candidate.firstName} ${sessionState.candidate.lastName}` : undefined}
+          onAgree={handleGuidelinesAgree}
+          onDecline={handleGuidelinesDecline}
+        />
+      )}
+    </>
   )
   if (phase === 'mcq' && currentQuestion) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

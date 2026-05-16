@@ -549,6 +549,32 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { broadcast: true };
   }
 
+  // ── Candidate agreed to exam guidelines (popup) ──────────────────────────
+  @SubscribeMessage('candidate.guidelinesAgreed')
+  handleCandidateGuidelinesAgreed(
+    @MessageBody() data: { sessionId: string; candidateId?: string; agreedAt?: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('candidate.guidelinesAgreed', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      agreedAt: data.agreedAt || new Date().toISOString(),
+    });
+    return { broadcast: true };
+  }
+
+  // ── Candidate declined exam guidelines (popup) ───────────────────────────
+  @SubscribeMessage('candidate.guidelinesDeclined')
+  handleCandidateGuidelinesDeclined(
+    @MessageBody() data: { sessionId: string; candidateId?: string; declinedAt?: string },
+  ) {
+    this.server.to(`session:${data.sessionId}`).emit('candidate.guidelinesDeclined', {
+      sessionId: data.sessionId,
+      candidateId: data.candidateId,
+      declinedAt: data.declinedAt || new Date().toISOString(),
+    });
+    return { broadcast: true };
+  }
+
   // ── Candidate disqualified ───────────────────────────────────────────────
   @SubscribeMessage('candidate.disqualified')
   handleCandidateDisqualified(

@@ -113,7 +113,19 @@ export class SessionsService {
     if (organizationId && session.organizationId !== organizationId) {
       throw new ForbiddenException('Access denied');
     }
-    return session;
+
+    // Attach MCQ score so the proctor's submission view can show the real count
+    // even after a page refresh (when the live socket event has been missed).
+    const [answeredCount, correctCount] = await Promise.all([
+      this.prisma.examAnswer.count({ where: { sessionId: id } }),
+      this.prisma.examAnswer.count({ where: { sessionId: id, isCorrect: true } }),
+    ]);
+    const mcqTotal = session.assessmentType?.mcqQuestionCount ?? 25;
+    return Object.assign(session, {
+      mcqAnsweredCount: answeredCount,
+      mcqCorrectCount: correctCount,
+      mcqTotal,
+    });
   }
 
   async getSessionByToken(token: string) {
