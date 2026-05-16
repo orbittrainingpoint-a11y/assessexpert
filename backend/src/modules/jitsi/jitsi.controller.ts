@@ -38,20 +38,40 @@ export class JitsiController {
     };
   }
 
-  // Candidate — magic-token auth instead of JWT
+  // Candidate — magic-token auth instead of JWT.
+  // candidateId is optional: when the link is shared by a multi-candidate
+  // slot, the candidate provides their own candidateId (resolved by OTP
+  // verification) so each candidate gets a UNIQUE WebRTC identity.
+  // Without it, we fall back to the primary candidate on the session.
   @Get('candidate-token')
-  async getCandidateToken(@Query('magicToken') magicToken: string) {
+  async getCandidateToken(
+    @Query('magicToken') magicToken: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
     if (!magicToken) throw new BadRequestException('magicToken required');
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken },
-      include: { candidate: true },
+      include: {
+        candidate: true,
+        sessionCandidates: { include: { candidate: true } },
+      },
     });
     if (!session) throw new BadRequestException('Invalid magic token');
 
-    const candidateName = `${session.candidate.firstName} ${session.candidate.lastName}`;
+    // Resolve which candidate this request represents
+    let candidate: { id: string; firstName: string; lastName: string } = session.candidate;
+    if (candidateId && candidateId !== session.candidate.id) {
+      const match = session.sessionCandidates.find(sc => sc.candidate.id === candidateId);
+      if (!match) {
+        throw new BadRequestException('candidateId is not part of this session');
+      }
+      candidate = match.candidate;
+    }
+
+    const candidateName = `${candidate.firstName} ${candidate.lastName}`;
     const room = this.jitsiService.roomNameForSession(session.id);
     const token = this.jitsiService.createToken({
-      identity: `candidate-${session.candidate.id}`,
+      identity: `candidate-${candidate.id}`,
       name: candidateName,
       room,
       role: 'CANDIDATE',
@@ -62,8 +82,11 @@ export class JitsiController {
       domain: process.env.JITSI_DOMAIN || 'meet.jitsi',
       publicUrl: process.env.JITSI_PUBLIC_URL || `https://${process.env.JITSI_DOMAIN || 'meet.jitsi'}`,
       room,
-      identity: `candidate-${session.candidate.id}`,
+      identity: `candidate-${candidate.id}`,
+      candidateId: candidate.id,
+      candidateName,
       sessionId: session.id,
+      isMultiCandidate: session.isMultiCandidate,
     };
   }
 }

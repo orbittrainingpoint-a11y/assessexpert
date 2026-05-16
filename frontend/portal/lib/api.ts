@@ -63,7 +63,7 @@ export const authApi = {
   setupMfa: () => api.post('/auth/mfa/setup'),
   enableMfa: (token: string) => api.post('/auth/mfa/enable', { token }),
   sendOtp: (email: string, sessionToken: string) => api.post('/auth/otp/send', { email, sessionToken }),
-  verifyOtp: (email: string, otp: string) => api.post('/auth/otp/verify', { email, otp }),
+  verifyOtp: (email: string, otp: string, sessionToken?: string) => api.post('/auth/otp/verify', { email, otp, sessionToken }),
   verifyMagicLink: (token: string) => api.post('/auth/magic-link/verify', { token }),
 }
 

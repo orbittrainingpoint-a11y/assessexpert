@@ -52,6 +52,12 @@ interface UseJitsiOptions {
   sessionId?: string
   magicToken?: string
   jwtToken?: string
+  /**
+   * Specific candidate that THIS browser represents. Required for
+   * multi-candidate slots where multiple candidates share one magicToken —
+   * without it, every candidate would identify as the primary and collide.
+   */
+  candidateId?: string
   publishCamera?: boolean
   publishMic?: boolean
   publishScreen?: boolean
@@ -89,6 +95,7 @@ export function useJitsi({
   sessionId,
   magicToken,
   jwtToken,
+  candidateId,
   publishCamera = true,
   publishMic = true,
   publishScreen = false,
@@ -234,7 +241,24 @@ export function useJitsi({
 
   const startScreenShare = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      // Enforce entire screen (monitor) — not a window or tab
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'monitor',  // forces full screen selection
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 5, max: 10 }, // low fps to save bandwidth
+        } as any,
+        audio: false,
+      })
+      // Reject if candidate chose a window/tab instead of entire screen
+      const track = stream.getVideoTracks()[0]
+      const settings = track.getSettings() as any
+      if (settings.displaySurface && settings.displaySurface !== 'monitor') {
+        stream.getTracks().forEach(t => t.stop())
+        setError('Please share your ENTIRE SCREEN, not a window or tab.')
+        return false
+      }
       screenStreamRef.current = stream
       setLocalScreenStream(stream)
       setScreenShareActive(true)
@@ -358,7 +382,7 @@ export function useJitsi({
         // 1) Resolve identity
         const tokenUrl = role === 'PROCTOR'
           ? `${API_URL}/jitsi/proctor-token?sessionId=${sessionId}`
-          : `${API_URL}/jitsi/candidate-token?magicToken=${magicToken}`
+          : `${API_URL}/jitsi/candidate-token?magicToken=${magicToken}${candidateId ? `&candidateId=${candidateId}` : ''}`
         const headers: Record<string, string> = {}
         if (role === 'PROCTOR' && jwtToken) headers['Authorization'] = `Bearer ${jwtToken}`
 

@@ -59,8 +59,8 @@ export class AuthController {
 
   @Post('otp/verify')
   @HttpCode(200)
-  async verifyOtp(@Body() body: { email: string; otp: string }) {
-    return this.authService.verifyCandidateOtp(body.email, body.otp);
+  async verifyOtp(@Body() body: { email: string; otp: string; sessionToken?: string }) {
+    return this.authService.verifyCandidateOtp(body.email, body.otp, body.sessionToken);
   }
 
   @Get('me')

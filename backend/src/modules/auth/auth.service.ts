@@ -159,10 +159,16 @@ export class AuthService {
       });
     }
 
-    // Return fresh session state
+    // Return fresh session state, including SessionCandidates so the frontend
+    // can decide whether to pre-fill the email (single candidate) or leave it
+    // blank for the candidate to type their own (multi-candidate slot).
     const updated = await this.prisma.examSession.findUnique({
       where: { id: session.id },
-      include: { candidate: true, assessmentType: true },
+      include: {
+        candidate: true,
+        assessmentType: true,
+        sessionCandidates: { include: { candidate: true } },
+      },
     });
     return updated;
   }
@@ -218,7 +224,7 @@ export class AuthService {
     return { sent: true };
   }
 
-  async verifyCandidateOtp(email: string, otp: string) {
+  async verifyCandidateOtp(email: string, otp: string, sessionToken?: string) {
     const stored = this.otpStore.get(email);
     if (!stored) throw new BadRequestException('No OTP found. Please request a new code.');
     if (stored.expires < new Date()) {
@@ -234,6 +240,46 @@ export class AuthService {
       throw new BadRequestException(`Incorrect code. ${3 - stored.attempts} attempts remaining.`);
     }
     this.otpStore.delete(email);
+
+    // If we have a session token, resolve which specific candidate just
+    // logged in. The caller will use this to drive the per-candidate WebRTC
+    // identity, checklist tracking, and identity validation.
+    if (sessionToken) {
+      const session = await this.prisma.examSession.findUnique({
+        where: { magicToken: sessionToken },
+        include: {
+          candidate: true,
+          sessionCandidates: { include: { candidate: true } },
+        },
+      });
+      if (session) {
+        // Primary candidate first
+        if (session.candidate.email === email) {
+          return {
+            verified: true,
+            candidateId: session.candidate.id,
+            candidateFirstName: session.candidate.firstName,
+            candidateLastName: session.candidate.lastName,
+            candidateEmail: session.candidate.email,
+            sessionId: session.id,
+            isMultiCandidate: session.isMultiCandidate,
+          };
+        }
+        // Then any SessionCandidate
+        const match = session.sessionCandidates.find(sc => sc.candidate.email === email);
+        if (match) {
+          return {
+            verified: true,
+            candidateId: match.candidate.id,
+            candidateFirstName: match.candidate.firstName,
+            candidateLastName: match.candidate.lastName,
+            candidateEmail: match.candidate.email,
+            sessionId: session.id,
+            isMultiCandidate: session.isMultiCandidate,
+          };
+        }
+      }
+    }
     return { verified: true };
   }
 

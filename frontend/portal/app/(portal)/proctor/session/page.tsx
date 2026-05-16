@@ -265,6 +265,9 @@ function SessionContent() {
     ? sessionCandidates.map((sc: any) => ({
         id: sc.candidateId,
         name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
+        firstName: sc.candidate.firstName,
+        lastName: sc.candidate.lastName,
+        email: sc.candidate.email,
         stream: lkPeers.get(`candidate-${sc.candidateId}`)?.cameraStream || null,
         screenStream: lkPeers.get(`candidate-${sc.candidateId}`)?.screenStream || null,
         socketId: sc.socketId,
@@ -273,6 +276,9 @@ function SessionContent() {
     : [{
         id: candidate?.id || sessionId,
         name: `${candidate?.firstName} ${candidate?.lastName}`,
+        firstName: candidate?.firstName,
+        lastName: candidate?.lastName,
+        email: candidate?.email,
         stream: candidateStream,
         screenStream: candidateScreenStream,
         socketId: firstRemoteSocketId,

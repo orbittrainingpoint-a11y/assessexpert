@@ -175,6 +175,10 @@ function ExamContent() {
     enabled: livekitEnabled,
     role: 'CANDIDATE',
     magicToken: token,
+    // Resolved at OTP verification — for multi-candidate slots this lets each
+    // browser identify as a UNIQUE WebRTC peer instead of all collapsing
+    // onto the primary candidate's identity.
+    candidateId: sessionState?.candidate?.id,
     publishCamera: true,
     publishMic: true,
     socket: wsSocket,
@@ -217,27 +221,47 @@ function ExamContent() {
     const verify = async () => {
       try {
         const { data } = await authApi.verifyMagicLink(token)
-        setSessionState(data)
-        
+
+        // If a previous OTP in this browser resolved a specific candidate
+        // (multi-candidate slot), restore that identity instead of falling
+        // back to the slot's primary candidate. This survives refreshes.
+        let resolved = data
+        try {
+          const savedId = typeof window !== 'undefined' ? localStorage.getItem(`assessexpert.candidateId.${token}`) : null
+          if (savedId && data.sessionCandidates?.length) {
+            const match = data.sessionCandidates.find((sc: any) => sc.candidate?.id === savedId)
+            if (match) {
+              resolved = { ...data, candidate: match.candidate }
+            }
+          }
+        } catch {}
+        setSessionState(resolved)
+
         const activeStatuses = ['WAITING_ROOM', 'CHECKLIST', 'MCQ_IN_PROGRESS', 'PRACTICAL_IN_PROGRESS', 'MCQ_COMPLETE']
         const doneStatuses = ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'COMPLETED', 'DISQUALIFIED']
 
         if (doneStatuses.includes(data.status)) {
           setPhase('link-expired')
-        } else if (activeStatuses.includes(data.status)) {
-          // Session already in progress — skip OTP, go straight to waiting/exam
-          setPhase('otp-email')
-          setEmail(data.candidate?.email || '')
         } else {
-          // SCHEDULED — check if too early (more than 60 min before start)
-          const now = new Date()
-          const scheduled = new Date(data.scheduledAt)
-          const diffMinutes = (scheduled.getTime() - now.getTime()) / (1000 * 60)
-          if (diffMinutes > 60) {
-            setPhase('not-open')
-          } else {
+          // In a multi-candidate slot, multiple people share this link — DON'T
+          // pre-fill the email, every candidate must enter their own.
+          // For a single-candidate session, pre-filling is a convenience.
+          const isMulti = !!data.isMultiCandidate
+          const prefill = isMulti ? '' : (data.candidate?.email || '')
+
+          if (activeStatuses.includes(data.status)) {
             setPhase('otp-email')
-            setEmail(data.candidate?.email || '')
+            setEmail(prefill)
+          } else {
+            const now = new Date()
+            const scheduled = new Date(data.scheduledAt)
+            const diffMinutes = (scheduled.getTime() - now.getTime()) / (1000 * 60)
+            if (diffMinutes > 60) {
+              setPhase('not-open')
+            } else {
+              setPhase('otp-email')
+              setEmail(prefill)
+            }
           }
         }
       } catch (err: any) {
@@ -549,10 +573,34 @@ function ExamContent() {
     e.preventDefault()
     const finalOtp = otpArray.join('')
     if (finalOtp.length < 6) return
-    
+
     setLoading(true)
     try {
-      await authApi.verifyOtp(email, finalOtp)
+      // Pass the session token so the backend resolves WHICH candidate just
+      // verified (the magic link can belong to multiple candidates).
+      const { data: result } = await authApi.verifyOtp(email, finalOtp, token)
+
+      // Persist the resolved candidate identity so subsequent calls
+      // (WebRTC token, exam delivery) know which candidate this browser is.
+      if (result?.candidateId) {
+        try {
+          localStorage.setItem(`assessexpert.candidateId.${token}`, result.candidateId)
+          localStorage.setItem(`assessexpert.candidateEmail.${token}`, result.candidateEmail || email)
+        } catch {}
+        // Merge the resolved candidate into sessionState so the rest of the
+        // app reads the RIGHT name/email, not the slot's primary candidate.
+        setSessionState((prev: any) => prev ? {
+          ...prev,
+          candidate: {
+            ...prev.candidate,
+            id: result.candidateId,
+            firstName: result.candidateFirstName,
+            lastName: result.candidateLastName,
+            email: result.candidateEmail,
+          },
+        } : prev)
+      }
+
       const ok = await startCamera()
       if (ok) setPhase('camera')
     } catch (err: any) {

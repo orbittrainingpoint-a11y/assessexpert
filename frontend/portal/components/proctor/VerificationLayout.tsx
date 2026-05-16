@@ -6,6 +6,9 @@ import ChecklistPanel from './ChecklistPanel'
 interface Candidate {
   id: string
   name: string
+  firstName?: string
+  lastName?: string
+  email?: string
   stream: MediaStream | null
   socketId?: string
   verified?: boolean
@@ -204,9 +207,21 @@ export default function VerificationLayout({
         </p>
         {activeCandidateId ? (
           <ChecklistPanel
+            key={activeCandidateId}
             sessionId={sessionId}
             candidateVideoRef={{ current: null } as any}
             candidateStream={candidates.find(c => c.id === activeCandidateId)?.stream || null}
+            candidate={(() => {
+              const c = candidates.find(c => c.id === activeCandidateId)
+              if (!c) return undefined
+              const [firstName, ...rest] = (c.name || '').split(' ')
+              return {
+                id: c.id,
+                firstName: c.firstName ?? firstName ?? '',
+                lastName: c.lastName ?? rest.join(' '),
+                email: c.email,
+              }
+            })()}
             candidateScreenShareActive={screenSharingCandidateIds?.has(activeCandidateId)}
             onAllDone={() => {
               setVerifiedIds(prev => new Set(prev).add(activeCandidateId!))

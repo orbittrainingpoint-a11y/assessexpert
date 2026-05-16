@@ -20,10 +20,20 @@ export interface ChecklistState {
   [key: string]: 'pending' | 'active' | 'done'
 }
 
+interface ActiveCandidate {
+  id: string
+  firstName?: string
+  lastName?: string
+  email?: string
+}
+
 interface Props {
   sessionId: string
   candidateVideoRef: React.RefObject<HTMLVideoElement | null>
   candidateStream?: MediaStream | null
+  /** The candidate currently being verified — drives identity validation
+   *  and per-candidate checklist state. */
+  candidate?: ActiveCandidate
   onAllDone: () => void
   onRequestScreenShare?: () => void
   candidateScreenShareActive?: boolean
@@ -42,33 +52,70 @@ const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
   { key: 'guidelines_agreed',  title: 'Guidelines & Agreement',     description: 'Read exam guidelines aloud and confirm candidate agrees.' },
 ]
 
-function ItemIdentityName({ saving, onComplete }: { saving: boolean; onComplete: (d: any) => void }) {
+function ItemIdentityName({
+  saving,
+  onComplete,
+  expectedName,
+}: {
+  saving: boolean
+  onComplete: (d: any) => void
+  expectedName: string
+}) {
   const [name, setName] = useState('')
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+  const matches = !!name.trim() && norm(name) === norm(expectedName)
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-        Ask the candidate to state their full legal name clearly.
+        Ask the candidate to state their full legal name. Type EXACTLY what they say — it must match the record on file.
       </div>
-      <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Full name as stated by candidate" style={{ fontSize: '13px', marginBottom: '10px' }} />
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !name.trim()}
-        onClick={() => onComplete({ value: name })}>
-        {saving ? 'Saving...' : 'Name Confirmed'}
+      <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Full name as stated by candidate"
+        style={{ fontSize: '13px', marginBottom: '8px', borderColor: !name.trim() ? undefined : matches ? 'var(--emerald)' : 'var(--rose)' }} />
+      {name.trim() && (
+        <div style={{ marginBottom: '10px', padding: '8px 10px', borderRadius: '6px',
+          background: matches ? 'rgba(5,150,105,0.08)' : 'rgba(225,29,72,0.08)',
+          border: `1px solid ${matches ? 'rgba(5,150,105,0.3)' : 'rgba(225,29,72,0.3)'}`,
+          fontSize: '12px', color: matches ? 'var(--emerald)' : 'var(--rose)' }}>
+          {matches ? '✓ Matches record' : `✗ Does NOT match — record shows "${expectedName}"`}
+        </div>
+      )}
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !matches}
+        onClick={() => onComplete({ value: name, matched: matches })}>
+        {saving ? 'Saving...' : matches ? 'Name Confirmed' : 'Name must match to continue'}
       </button>
     </div>
   )
 }
 
-function ItemIdentityEmail({ saving, onComplete }: { saving: boolean; onComplete: (d: any) => void }) {
+function ItemIdentityEmail({
+  saving,
+  onComplete,
+  expectedEmail,
+}: {
+  saving: boolean
+  onComplete: (d: any) => void
+  expectedEmail: string
+}) {
   const [email, setEmail] = useState('')
+  const matches = !!email.trim() && email.trim().toLowerCase() === expectedEmail.trim().toLowerCase()
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-        Ask the candidate to state their email address.
+        Ask the candidate to state their email address. It must match the record on file.
       </div>
-      <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email as stated by candidate" style={{ fontSize: '13px', marginBottom: '10px' }} />
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !email.trim()}
-        onClick={() => onComplete({ value: email })}>
-        {saving ? 'Saving...' : 'Email Confirmed'}
+      <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email as stated by candidate"
+        style={{ fontSize: '13px', marginBottom: '8px', borderColor: !email.trim() ? undefined : matches ? 'var(--emerald)' : 'var(--rose)' }} />
+      {email.trim() && (
+        <div style={{ marginBottom: '10px', padding: '8px 10px', borderRadius: '6px',
+          background: matches ? 'rgba(5,150,105,0.08)' : 'rgba(225,29,72,0.08)',
+          border: `1px solid ${matches ? 'rgba(5,150,105,0.3)' : 'rgba(225,29,72,0.3)'}`,
+          fontSize: '12px', color: matches ? 'var(--emerald)' : 'var(--rose)' }}>
+          {matches ? '✓ Matches record' : `✗ Does NOT match — record shows "${expectedEmail}"`}
+        </div>
+      )}
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !matches}
+        onClick={() => onComplete({ value: email, matched: matches })}>
+        {saving ? 'Saving...' : matches ? 'Email Confirmed' : 'Email must match to continue'}
       </button>
     </div>
   )
@@ -160,6 +207,19 @@ function ItemFacialRecognition({
       v.play().catch(() => {})
     }
   }, [candidateStream])
+
+  // Auto-run the capture as soon as we have a stream and we're still idle.
+  // Avoids the "click manually every time" friction the user reported. We
+  // wait a beat for the video to produce a frame, then trigger capture.
+  useEffect(() => {
+    if (state !== 'idle') return
+    if (!candidateStream) return
+    const t = setTimeout(() => {
+      if (state === 'idle' && candidateStream) capture()
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateStream, state])
 
   const capture = async () => {
     if (!candidateStream) {
@@ -415,24 +475,45 @@ function ItemGuidelines({ saving, onComplete }: { saving: boolean; onComplete: (
   )
 }
 
-export default function ChecklistPanel({ sessionId, candidateVideoRef, candidateStream, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
-  const [itemStates, setItemStates] = useState<ChecklistState>({
-    camera_verified:    'active',
-    identity_name:      'pending',
-    identity_email:     'pending',
-    government_id:      'pending',
-    background_scan:    'pending',
-    no_materials:       'pending',
-    facial_recognition: 'pending',
-    screen_share:       'pending',
-    guardpro:           'pending',
-    guidelines_agreed:  'pending',
-  })
+const INITIAL_STATE: ChecklistState = {
+  camera_verified:    'active',
+  identity_name:      'pending',
+  identity_email:     'pending',
+  government_id:      'pending',
+  background_scan:    'pending',
+  no_materials:       'pending',
+  facial_recognition: 'pending',
+  screen_share:       'pending',
+  guardpro:           'pending',
+  guidelines_agreed:  'pending',
+}
+
+export default function ChecklistPanel({ sessionId, candidateVideoRef, candidateStream, candidate, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
+  // Per-candidate checklist state so switching the active candidate shows
+  // that candidate's progress instead of bleeding state across candidates.
+  const [perCandidate, setPerCandidate] = useState<Record<string, ChecklistState>>({})
+  const candId = candidate?.id || '__single__'
+  const itemStates: ChecklistState = perCandidate[candId] || INITIAL_STATE
+  const setItemStates = (updater: (prev: ChecklistState) => ChecklistState) => {
+    setPerCandidate(prev => ({
+      ...prev,
+      [candId]: updater(prev[candId] || INITIAL_STATE),
+    }))
+  }
   const [saving, setSaving] = useState(false)
+
+  // Ensure the active candidate has an initial entry, otherwise the first
+  // item never becomes 'active'.
+  useEffect(() => {
+    setPerCandidate(prev => prev[candId] ? prev : { ...prev, [candId]: { ...INITIAL_STATE } })
+  }, [candId])
 
   useEffect(() => {
     checklistApi.init(sessionId).catch(() => {})
   }, [sessionId])
+
+  const expectedName = `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim()
+  const expectedEmail = candidate?.email || ''
 
   const doneCount = ITEMS.filter(i => itemStates[i.key] === 'done').length
   const allDone = doneCount === ITEMS.length
@@ -511,11 +592,11 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               )}
 
               {isActive && item.key === 'identity_name' && (
-                <ItemIdentityName saving={saving} onComplete={d => completeItem('identity_name', d)} />
+                <ItemIdentityName saving={saving} expectedName={expectedName} onComplete={d => completeItem('identity_name', d)} />
               )}
 
               {isActive && item.key === 'identity_email' && (
-                <ItemIdentityEmail saving={saving} onComplete={d => completeItem('identity_email', d)} />
+                <ItemIdentityEmail saving={saving} expectedEmail={expectedEmail} onComplete={d => completeItem('identity_email', d)} />
               )}
 
               {isActive && item.key === 'government_id' && (
