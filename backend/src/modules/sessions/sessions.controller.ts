@@ -17,12 +17,20 @@ export class SessionsController {
   ) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR')
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
   async getAllSessions(@Query() filters: any, @Req() req: any) {
-    // If proctor, only show their sessions
+    // Proctor sees only their own sessions
     if (req.user.role === 'PROCTOR') {
       return this.sessionsService.getSessionsForProctor(req.user.id);
     }
+    // Org-scoped roles only see sessions inside their own organization
+    if (['HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER'].includes(req.user.role)) {
+      return this.sessionsService.getAllSessions({
+        ...filters,
+        organizationId: req.user.organizationId,
+      });
+    }
+    // SUPER_ADMIN / MASTER_PROCTOR — unrestricted
     return this.sessionsService.getAllSessions(filters);
   }
 
