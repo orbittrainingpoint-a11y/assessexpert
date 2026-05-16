@@ -245,6 +245,13 @@ export const faceCaptureApi = {
     }),
 }
 
+// Public legal content — Terms & Conditions and Privacy Policy, maintained
+// by admins via /admin/settings. No auth required so candidates can see it
+// on the OTP screen before they have a JWT.
+export const legalApi = {
+  getPublic: () => api.get('/legal/public'),
+}
+
 // Reports
 export const reportsApi = {
   getAll: (filters?: any) => api.get('/reports', { params: filters }),

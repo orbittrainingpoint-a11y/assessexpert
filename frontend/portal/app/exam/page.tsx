@@ -1,7 +1,7 @@
 ﻿'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { authApi, examApi, checklistApi, api, uploadUrl } from '@/lib/api'
+import { authApi, examApi, checklistApi, legalApi, api, uploadUrl } from '@/lib/api'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
@@ -49,6 +49,21 @@ function ExamContent() {
   const [resendTimer, setResendTimer] = useState(0)
   const [devOtp, setDevOtp] = useState<string | null>(null)
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  // Legal content: fetched live from the public endpoint, displayed in modals
+  // on the OTP screen. The candidate must tick the agreement checkbox before
+  // they can submit the OTP.
+  const [legalContent, setLegalContent] = useState<{ termsAndConditions: string; privacyPolicy: string } | null>(null)
+  const [legalAgreed, setLegalAgreed] = useState(false)
+  const [legalView, setLegalView] = useState<null | 'terms' | 'privacy'>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    legalApi.getPublic()
+      .then(r => { if (!cancelled) setLegalContent(r.data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // UI States
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -731,27 +746,21 @@ function ExamContent() {
           <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>Enter Verification Code</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>A 6-digit code has been sent to <strong>{email}</strong></p>
 
-          {/* Dev mode OTP helper — always shown in dev */}
-          <div style={{ padding: '12px 16px', background: 'rgba(215,119,6,0.12)', border: '1px solid rgba(215,119,6,0.4)', borderRadius: '8px', marginBottom: '16px' }}>
-            <p style={{ margin: '0 0 8px', fontSize: '11px', color: 'var(--amber)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dev Mode — OTP</p>
-            {devOtp && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          {/* Dev-only convenience: shows the actual generated OTP when the
+              backend returns it (NEVER in production). No bypass code. */}
+          {devOtp && (
+            <div style={{ padding: '12px 16px', background: 'rgba(215,119,6,0.12)', border: '1px solid rgba(215,119,6,0.4)', borderRadius: '8px', marginBottom: '16px' }}>
+              <p style={{ margin: '0 0 8px', fontSize: '11px', color: 'var(--amber)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dev Mode — OTP</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Generated code:</span>
                 <button type="button" onClick={() => setOtpArray(devOtp.split(''))}
                   style={{ fontSize: '20px', fontWeight: '700', color: 'var(--amber)', letterSpacing: '6px', fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline dotted' }}>
                   {devOtp}
                 </button>
               </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Or use bypass code:</span>
-              <button type="button" onClick={() => setOtpArray(['0','0','0','0','0','0'])}
-                style={{ fontSize: '20px', fontWeight: '700', color: 'var(--cyan)', letterSpacing: '6px', fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline dotted' }}>
-                000000
-              </button>
+              <p style={{ margin: '6px 0 0', fontSize: '10px', color: 'var(--text-muted)' }}>Click to auto-fill · Dev only — hidden in production</p>
             </div>
-            <p style={{ margin: '6px 0 0', fontSize: '10px', color: 'var(--text-muted)' }}>Click any code to auto-fill · Dev only</p>
-          </div>
+          )}
 
           <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
@@ -770,7 +779,36 @@ function ExamContent() {
                 />
               ))}
             </div>
-            <button className="btn-primary" type="submit" disabled={loading || otpArray.some(d => !d)} style={{ width: '100%', padding: '12px' }}>
+            {/* Terms & Conditions + Privacy Policy agreement.
+                Candidate must tick this before they can verify the OTP. */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: '10px',
+              padding: '12px 14px', background: 'var(--bg-elevated)',
+              borderRadius: '8px', cursor: 'pointer',
+              border: `1px solid ${legalAgreed ? 'rgba(5,150,105,0.4)' : 'var(--border)'}`,
+            }}>
+              <input
+                type="checkbox"
+                checked={legalAgreed}
+                onChange={e => setLegalAgreed(e.target.checked)}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--emerald)', marginTop: '2px', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                I have read and agree to the{' '}
+                <button type="button" onClick={() => setLegalView('terms')}
+                  style={{ background: 'none', border: 'none', color: 'var(--cyan)', textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: '12px' }}>
+                  Terms & Conditions
+                </button>
+                {' '}and the{' '}
+                <button type="button" onClick={() => setLegalView('privacy')}
+                  style={{ background: 'none', border: 'none', color: 'var(--cyan)', textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: '12px' }}>
+                  Privacy Policy
+                </button>
+                .
+              </span>
+            </label>
+
+            <button className="btn-primary" type="submit" disabled={loading || otpArray.some(d => !d) || !legalAgreed} style={{ width: '100%', padding: '12px', opacity: legalAgreed ? 1 : 0.5 }}>
               {loading ? 'Verifying...' : 'Verify & Continue â†’'}
             </button>
             <div style={{ textAlign: 'center' }}>
@@ -784,7 +822,51 @@ function ExamContent() {
                 {resendTimer > 0 ? `Resend Code in ${resendTimer}s` : 'Didn\'t receive it? Resend Code'}
               </button>
             </div>
-            <button type="button" className="btn-ghost" onClick={() => setPhase('otp-email')} style={{ width: '100%', color: 'var(--text-muted)' }}>â† Back</button>
+            <button type="button" className="btn-ghost" onClick={() => setPhase('otp-email')} style={{ width: '100%', color: 'var(--text-muted)' }}>← Back</button>
+
+          {/* Legal content modal (Terms or Privacy) */}
+          {legalView && (
+            <div style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+              zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px',
+            }}>
+              <div className="glass-card" style={{
+                width: '100%', maxWidth: '720px', maxHeight: '88vh',
+                display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden',
+              }}>
+                <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ margin: 0, fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    {legalView === 'terms' ? 'Terms & Conditions' : 'Privacy Policy'}
+                  </h2>
+                  <button onClick={() => setLegalView(null)} type="button"
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '20px', padding: '4px 8px' }}>
+                    ×
+                  </button>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px' }}>
+                  {legalContent && (legalView === 'terms' ? legalContent.termsAndConditions : legalContent.privacyPolicy) ? (
+                    <div
+                      style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}
+                      dangerouslySetInnerHTML={{
+                        __html: legalView === 'terms' ? legalContent.termsAndConditions : legalContent.privacyPolicy,
+                      }}
+                    />
+                  ) : (
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      This document has not been published yet. Please contact your assessment coordinator.
+                    </p>
+                  )}
+                </div>
+                <div style={{ padding: '14px 22px', borderTop: '1px solid var(--border)', display: 'flex', gap: '10px' }}>
+                  <button className="btn-ghost" onClick={() => setLegalView(null)} type="button" style={{ flex: 1 }}>Close</button>
+                  <button className="btn-primary" onClick={() => { setLegalAgreed(true); setLegalView(null) }} type="button" style={{ flex: 2 }}>
+                    I Have Read & Agree
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           </form>
         </div>
       </div>

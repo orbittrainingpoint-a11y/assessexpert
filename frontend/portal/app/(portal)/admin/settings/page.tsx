@@ -32,9 +32,11 @@ const FEATURE_FLAGS = [
 const AUDIT_EVENT_TYPES = ['', 'LOGIN', 'REPORT_PUBLISHED', 'COMPANY_CREATED', 'USER_CREATED', 'QUESTION_MODIFIED', 'SESSION_TERMINATED', 'SETTINGS_CHANGED']
 
 export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'flags' | 'audit'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'flags' | 'legal' | 'audit'>('general')
   const [values, setValues] = useState<Record<string, any>>({})
   const [flags, setFlags] = useState<Record<string, boolean>>({})
+  const [terms, setTerms] = useState('')
+  const [privacy, setPrivacy] = useState('')
   const [auditSearch, setAuditSearch] = useState('')
   const [auditEventType, setAuditEventType] = useState('')
   const [auditPage, setAuditPage] = useState(1)
@@ -57,6 +59,9 @@ export default function AdminSettingsPage() {
       const f: Record<string, boolean> = {}
       FEATURE_FLAGS.forEach(ff => { f[ff.key] = settings[ff.key] ?? false })
       setFlags(f)
+      // Legal content lives in the same settings map
+      setTerms(typeof settings.terms_and_conditions === 'string' ? settings.terms_and_conditions : '')
+      setPrivacy(typeof settings.privacy_policy === 'string' ? settings.privacy_policy : '')
     }
   }, [settings])
 
@@ -73,6 +78,15 @@ export default function AdminSettingsPage() {
     onError: () => toast.error('Failed to save settings'),
   })
 
+  const legalSaveMutation = useMutation({
+    mutationFn: async () => {
+      await adminApi.updateSetting('terms_and_conditions', terms)
+      await adminApi.updateSetting('privacy_policy', privacy)
+    },
+    onSuccess: () => toast.success('Legal content published — candidates will see the new version on their next OTP screen'),
+    onError: () => toast.error('Failed to publish legal content'),
+  })
+
   const auditLogs: any[] = auditData?.logs || auditData || []
   const auditTotal: number = auditData?.total || 0
 
@@ -85,7 +99,7 @@ export default function AdminSettingsPage() {
           <h1 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>Platform Settings</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>Global configuration for all platform behaviour</p>
         </div>
-        {activeTab !== 'audit' && (
+        {activeTab !== 'audit' && activeTab !== 'legal' && (
           <button className="btn-primary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Save size={15} /> {saveMutation.isPending ? 'Saving...' : 'Save All'}
           </button>
@@ -94,7 +108,7 @@ export default function AdminSettingsPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0', marginBottom: '24px', borderBottom: '1px solid var(--border)' }}>
-        {[['general', 'General Settings'], ['flags', 'Feature Flags'], ['audit', 'Audit Log']].map(([tab, label]) => (
+        {[['general', 'General Settings'], ['flags', 'Feature Flags'], ['legal', 'Legal Content'], ['audit', 'Audit Log']].map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab as any)}
             style={{ padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: activeTab === tab ? '600' : '400', color: activeTab === tab ? 'var(--cyan)' : 'var(--text-muted)', borderBottom: activeTab === tab ? '2px solid var(--cyan)' : '2px solid transparent' }}>
             {label}
@@ -134,6 +148,62 @@ export default function AdminSettingsPage() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* LEGAL CONTENT */}
+      {activeTab === 'legal' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="glass-card" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>Terms & Conditions</p>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{terms.length} chars</span>
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Shown to candidates on the OTP verification screen. Plain text or simple HTML — basic tags only (p, b, ul, li, a, br).
+            </p>
+            <textarea
+              className="form-input"
+              value={terms}
+              onChange={e => setTerms(e.target.value)}
+              rows={14}
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: '13px', resize: 'vertical', lineHeight: '1.6' }}
+              placeholder="Paste your full Terms & Conditions here..."
+            />
+          </div>
+
+          <div className="glass-card" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>Privacy Policy</p>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{privacy.length} chars</span>
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Linked from the OTP screen and the candidate's exam page. Same formatting rules as above.
+            </p>
+            <textarea
+              className="form-input"
+              value={privacy}
+              onChange={e => setPrivacy(e.target.value)}
+              rows={14}
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: '13px', resize: 'vertical', lineHeight: '1.6' }}
+              placeholder="Paste your full Privacy Policy here..."
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              className="btn-primary"
+              onClick={() => legalSaveMutation.mutate()}
+              disabled={legalSaveMutation.isPending || (!terms.trim() && !privacy.trim())}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px' }}>
+              <Save size={15} /> {legalSaveMutation.isPending ? 'Publishing...' : 'Publish Legal Content'}
+            </button>
+          </div>
+
+          <div style={{ padding: '12px 14px', background: 'rgba(0,212,255,0.06)', borderRadius: '8px', border: '1px solid rgba(0,212,255,0.2)', fontSize: '12px', color: 'var(--cyan)', lineHeight: '1.6' }}>
+            Candidates must tick a checkbox confirming they have read these documents before they can verify their OTP and start the exam.
+            The latest published version is fetched live — there is no caching.
+          </div>
         </div>
       )}
 

@@ -28,6 +28,7 @@ import { GatewayModule } from './modules/gateway/gateway.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JitsiModule } from './modules/jitsi/jitsi.module';
 import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
+import { LegalModule } from './modules/legal/legal.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -61,6 +62,7 @@ import { AppController } from './app.controller';
     InterviewsModule,
     JitsiModule,
     PracticalSetsModule,
+    LegalModule,
   ],
   controllers: [AppController],
 })

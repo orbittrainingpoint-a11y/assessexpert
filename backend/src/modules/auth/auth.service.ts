@@ -207,10 +207,6 @@ export class AuthService {
   }
 
   async verifyCandidateOtp(email: string, otp: string) {
-    // DEMO bypass — always accept '000000' in dev mode
-    if (process.env.NODE_ENV !== 'production' && otp === '000000') {
-      return { verified: true };
-    }
     const stored = this.otpStore.get(email);
     if (!stored) throw new BadRequestException('No OTP found. Please request a new code.');
     if (stored.expires < new Date()) {
