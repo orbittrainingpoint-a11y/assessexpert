@@ -149,6 +149,11 @@ function ExamContent() {
         if ((itemKey === 'screen_share' || itemKey === 'ITEM_5_SCREEN_SHARE') && status === 'active') {
           setScreenShareRequested(true)
         }
+        // Guidelines & Agreement — proctor reached this step, show the modal.
+        // (Skip if this browser already agreed in a prior session.)
+        if (itemKey === 'guidelines_agreed' && status === 'active' && !guidelinesAgreed) {
+          setGuidelinesOpen(true)
+        }
       }
       if (event === 'proctor.message') {
         setAiWarning({ message: data.message, type: 'warning' })
@@ -393,20 +398,15 @@ function ExamContent() {
   const [guidelinesAgreed, setGuidelinesAgreed] = useState(false)
   const [screenShareRequested, setScreenShareRequested] = useState(false)
 
-  // Show the Guidelines & Agreement modal the FIRST time the candidate enters
-  // verification or waiting. Persist agreement in localStorage so a refresh
-  // doesn't re-prompt mid-session.
+  // Restore the agreed flag from a previous OTP'd browser tab so the popup
+  // doesn't re-prompt across refreshes. We DON'T auto-open the modal here —
+  // the proctor triggers it when their checklist reaches `guidelines_agreed`.
   useEffect(() => {
-    if (phase !== 'verification' && phase !== 'waiting') return
     if (!token) return
     const storageKey = `assessexpert.agreed.${token}`
     const already = typeof window !== 'undefined' && localStorage.getItem(storageKey) === '1'
-    if (already) {
-      setGuidelinesAgreed(true)
-      return
-    }
-    setGuidelinesOpen(true)
-  }, [phase, token])
+    if (already) setGuidelinesAgreed(true)
+  }, [token])
 
   const handleGuidelinesAgree = useCallback(() => {
     if (typeof window !== 'undefined' && token) {

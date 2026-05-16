@@ -37,6 +37,10 @@ interface Props {
   onAllDone: () => void
   onRequestScreenShare?: () => void
   candidateScreenShareActive?: boolean
+  /** Emit a socket request to the candidate to open the guidelines popup. */
+  onRequestGuidelinesAgreement?: () => void
+  /** True once the candidate has accepted the guidelines on their side. */
+  candidateAgreedToGuidelines?: boolean
 }
 
 const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
@@ -442,34 +446,56 @@ function ItemTechCheck({ saving, onComplete }: { saving: boolean; onComplete: (d
   )
 }
 
-function ItemGuidelines({ saving, onComplete }: { saving: boolean; onComplete: (d: any) => void }) {
-  const [agreed, setAgreed] = useState<'yes' | 'no' | null>(null)
+function ItemGuidelines({
+  saving,
+  onComplete,
+  candidateAgreed,
+  onRequestAgreement,
+}: {
+  saving: boolean
+  onComplete: (d: any) => void
+  candidateAgreed?: boolean
+  onRequestAgreement?: () => void
+}) {
+  const [sent, setSent] = useState(false)
+
+  // Send the popup request to the candidate as soon as this step is active.
+  useEffect(() => {
+    if (sent) return
+    onRequestAgreement?.()
+    setSent(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-complete the checklist item once the candidate ticks "I Agree" on
+  // their side. Proctor still sees the status; no manual button needed.
+  useEffect(() => {
+    if (candidateAgreed && !saving) {
+      onComplete({ value: { agreed: 'yes', by: 'candidate' } })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateAgreed])
+
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '14px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8', borderLeft: '3px solid var(--cyan)' }}>
-        <p style={{ margin: '0 0 8px', fontWeight: '600', color: 'var(--cyan)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Read aloud to candidate:</p>
-        <p style={{ margin: '0 0 4px' }}>• Your camera must remain active at all times.</p>
-        <p style={{ margin: '0 0 4px' }}>• You may not use any external references, websites, notes, or assistance.</p>
-        <p style={{ margin: '0 0 4px' }}>• Do not minimise, switch, or close this browser window.</p>
-        <p style={{ margin: '0 0 4px' }}>• Questions are delivered one at a time — no back navigation.</p>
-        <p style={{ margin: 0 }}>• Any violation will be recorded and may result in disqualification.</p>
+        <p style={{ margin: 0, fontSize: '12px' }}>
+          The exam guidelines have been displayed to the candidate. The checklist
+          will advance automatically when they tick <strong style={{ color: 'var(--cyan)' }}>"I Agree"</strong>.
+        </p>
       </div>
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-        <button onClick={() => setAgreed('yes')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${agreed === 'yes' ? 'var(--emerald)' : 'var(--border)'}`, background: agreed === 'yes' ? 'rgba(5,150,105,0.12)' : 'var(--bg-base)', color: agreed === 'yes' ? 'var(--emerald)' : 'var(--text-secondary)', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>
-          YES — Agreed
-        </button>
-        <button onClick={() => setAgreed('no')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${agreed === 'no' ? 'var(--rose)' : 'var(--border)'}`, background: agreed === 'no' ? 'rgba(225,29,72,0.1)' : 'var(--bg-base)', color: agreed === 'no' ? 'var(--rose)' : 'var(--text-secondary)', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>
-          NO — Declined
-        </button>
-      </div>
-      {agreed === 'no' && (
-        <div style={{ marginBottom: '12px', padding: '10px', background: 'rgba(225,29,72,0.08)', borderRadius: '6px', fontSize: '12px', color: 'var(--rose)', border: '1px solid rgba(225,29,72,0.2)' }}>
-          Candidate declined. You must terminate this session and notify HR.
+      {!candidateAgreed ? (
+        <div style={{ padding: '10px 12px', background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: '6px', fontSize: '13px', color: 'var(--cyan)', textAlign: 'center', marginBottom: '10px' }}>
+          ⏳ Waiting for candidate to read & agree...
+        </div>
+      ) : (
+        <div style={{ padding: '10px 12px', background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.3)', borderRadius: '6px', fontSize: '13px', color: 'var(--emerald)', textAlign: 'center', marginBottom: '10px', fontWeight: 600 }}>
+          ✓ Candidate agreed to the exam guidelines
         </div>
       )}
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || !agreed || agreed === 'no'}
-        onClick={() => onComplete({ value: { agreed } })}>
-        {saving ? 'Saving...' : 'Guidelines Read & Agreement Recorded'}
+      <button className="btn-ghost" style={{ width: '100%', padding: '8px', fontSize: '12px' }}
+        onClick={() => onRequestAgreement?.()} disabled={saving}>
+        Re-send agreement popup
       </button>
     </div>
   )
@@ -488,7 +514,7 @@ const INITIAL_STATE: ChecklistState = {
   guidelines_agreed:  'pending',
 }
 
-export default function ChecklistPanel({ sessionId, candidateVideoRef, candidateStream, candidate, onAllDone, onRequestScreenShare, candidateScreenShareActive }: Props) {
+export default function ChecklistPanel({ sessionId, candidateVideoRef, candidateStream, candidate, onAllDone, onRequestScreenShare, candidateScreenShareActive, onRequestGuidelinesAgreement, candidateAgreedToGuidelines }: Props) {
   // Per-candidate checklist state so switching the active candidate shows
   // that candidate's progress instead of bleeding state across candidates.
   const [perCandidate, setPerCandidate] = useState<Record<string, ChecklistState>>({})
@@ -642,7 +668,12 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               )}
 
               {isActive && item.key === 'guidelines_agreed' && (
-                <ItemGuidelines saving={saving} onComplete={d => completeItem('guidelines_agreed', d)} />
+                <ItemGuidelines
+                  saving={saving}
+                  candidateAgreed={candidateAgreedToGuidelines}
+                  onRequestAgreement={onRequestGuidelinesAgreement}
+                  onComplete={d => completeItem('guidelines_agreed', d)}
+                />
               )}
             </div>
           )

@@ -80,6 +80,26 @@ export default function VerificationLayout({
 }: Props) {
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(candidates[0]?.id || null)
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
+  // Set of candidate ids who have accepted the exam guidelines popup
+  const [agreedIds, setAgreedIds] = useState<Set<string>>(new Set())
+
+  // Listen for "candidate agreed" event from the candidate browser so we
+  // can mark the proctor's checklist item complete automatically.
+  useEffect(() => {
+    if (!socket) return
+    const handler = (data: any) => {
+      const cid = data?.candidateId
+      if (!cid) return
+      setAgreedIds(prev => {
+        if (prev.has(cid)) return prev
+        const next = new Set(prev)
+        next.add(cid)
+        return next
+      })
+    }
+    socket.on('candidate.guidelinesAgreed', handler)
+    return () => { socket.off('candidate.guidelinesAgreed', handler) }
+  }, [socket])
 
   // Continuously transcribe whatever the proctor says while verifying.
   // Each utterance is tagged with the active candidate so the report can
@@ -263,6 +283,20 @@ export default function VerificationLayout({
               }
             })()}
             candidateScreenShareActive={screenSharingCandidateIds?.has(activeCandidateId)}
+            candidateAgreedToGuidelines={activeCandidateId ? agreedIds.has(activeCandidateId) : false}
+            onRequestGuidelinesAgreement={() => {
+              const activeC = candidates.find(c => c.id === activeCandidateId)
+              if (socket?.connected) {
+                socket.emit('checklist.itemUpdated', {
+                  sessionId,
+                  candidateId: activeCandidateId,
+                  itemId: 'guidelines_agreed',
+                  itemKey: 'guidelines_agreed',
+                  status: 'active',
+                  candidateSocketId: activeC?.socketId,
+                })
+              }
+            }}
             onAllDone={() => {
               setVerifiedIds(prev => new Set(prev).add(activeCandidateId!))
               // Auto-advance to next unverified candidate

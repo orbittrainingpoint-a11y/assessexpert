@@ -7,7 +7,7 @@ import { FileText, Clock } from 'lucide-react'
 export default function ProctorReportsPage() {
   const { data: pending, isLoading: loadingPending } = useQuery({
     queryKey: ['proctor-reports-pending'],
-    queryFn: () => reportsApi.getAll({ status: 'PENDING_PROCTOR_REVIEW', limit: 100 }).then(r => r.data),
+    queryFn: () => reportsApi.getAll({ status: 'PENDING_REVIEW', limit: 100 }).then(r => r.data),
     refetchInterval: 30000,
   })
 

@@ -17,12 +17,12 @@ export default function MasterProctorDashboard() {
   })
   const { data: pendingReports } = useQuery({
     queryKey: ['mp-pending-reports'],
-    queryFn: () => reportsApi.getAll({ status: 'PENDING_PROCTOR_REVIEW', limit: 200 }).then(r => r.data),
+    queryFn: () => reportsApi.getAll({ status: 'PENDING_REVIEW', limit: 200 }).then(r => r.data),
     refetchInterval: 30000,
   })
   const { data: flaggedReports } = useQuery({
     queryKey: ['mp-flagged-reports'],
-    queryFn: () => reportsApi.getAll({ status: 'RETURNED_FOR_MODIFICATION', limit: 200 }).then(r => r.data),
+    queryFn: () => reportsApi.getAll({ status: 'RETURNED', limit: 200 }).then(r => r.data),
   })
   const { data: proctorsData } = useQuery({
     queryKey: ['mp-proctors'],

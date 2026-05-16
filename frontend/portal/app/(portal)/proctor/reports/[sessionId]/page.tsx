@@ -7,11 +7,20 @@ import { CheckCircle, FileText, Download, Play } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
-const PRACTICAL_VERDICTS = ['Excellent', 'Good', 'Satisfactory', 'Below Standard'] as const
+// Values match the Prisma PracticalQuality enum. Labels are display-only.
+const PRACTICAL_VERDICTS = [
+  { value: 'EXCELLENT',     label: 'Excellent' },
+  { value: 'GOOD',          label: 'Good' },
+  { value: 'SATISFACTORY',  label: 'Satisfactory' },
+  { value: 'POOR',          label: 'Below Standard' },
+  { value: 'DID_NOT_SUBMIT', label: 'Did Not Submit' },
+] as const
+// Values match the Prisma ProctorVerdict enum.
 const OVERALL_VERDICTS = [
-  { value: 'CLEAN', label: 'Clean — No concerns' },
-  { value: 'CLEAN_MINOR', label: 'Clean — Minor observations noted' },
-  { value: 'FLAGGED', label: 'Flagged — Integrity concerns; recommend caution' },
+  { value: 'PASS',         label: 'Pass — No concerns' },
+  { value: 'CONDITIONAL',  label: 'Conditional — Minor observations noted' },
+  { value: 'FLAGGED',      label: 'Flagged — Integrity concerns; recommend caution' },
+  { value: 'FAIL',         label: 'Fail — Did not meet bar' },
   { value: 'DISQUALIFIED', label: 'Disqualified — Clear violation; do not hire' },
 ] as const
 
@@ -46,7 +55,13 @@ function ReportReviewContent() {
 
   const publishMutation = useMutation({
     mutationFn: async () => {
-      await reportsApi.updateProctorFields(sessionId, { narrative, practicalVerdict, overallVerdict })
+      // Match the backend's expected shape (Prisma column names):
+      // proctorNarrative, proctorVerdict (ProctorVerdict), practicalQuality (PracticalQuality).
+      await reportsApi.updateProctorFields(sessionId, {
+        proctorNarrative: narrative,
+        proctorVerdict: overallVerdict,
+        practicalQuality: practicalVerdict,
+      })
       await reportsApi.publish(sessionId)
     },
     onSuccess: () => {
@@ -257,9 +272,9 @@ function ReportReviewContent() {
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '6px' }}>
                 {PRACTICAL_VERDICTS.map(v => (
-                  <button key={v} onClick={() => setPracticalVerdict(v)}
-                    style={{ padding: '8px', borderRadius: '6px', border: `1px solid ${practicalVerdict === v ? 'var(--cyan)' : 'var(--border)'}`, background: practicalVerdict === v ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)', color: practicalVerdict === v ? 'var(--cyan)' : 'var(--text-secondary)', fontSize: '12px', cursor: 'pointer', fontWeight: practicalVerdict === v ? '600' : '400' }}>
-                    {v}
+                  <button key={v.value} onClick={() => setPracticalVerdict(v.value)}
+                    style={{ padding: '8px', borderRadius: '6px', border: `1px solid ${practicalVerdict === v.value ? 'var(--cyan)' : 'var(--border)'}`, background: practicalVerdict === v.value ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)', color: practicalVerdict === v.value ? 'var(--cyan)' : 'var(--text-secondary)', fontSize: '12px', cursor: 'pointer', fontWeight: practicalVerdict === v.value ? '600' : '400' }}>
+                    {v.label}
                   </button>
                 ))}
               </div>

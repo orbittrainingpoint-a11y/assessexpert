@@ -279,6 +279,8 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     if (!organizationId) {
       return { reports: [], total: 0 };
     }
+    // HR only ever sees PUBLISHED reports, unless they explicitly filter
+    // (and even then it's still scoped to PUBLISHED for safety).
     const where: any = { organizationId, status: 'PUBLISHED' };
     if (filters?.from) where.publishedAt = { gte: new Date(filters.from) };
     const [reports, total] = await Promise.all([
@@ -309,9 +311,26 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     });
   }
 
+  // Map old/long status names from the frontend to the actual Prisma enum.
+  // The UI uses descriptive labels for clarity but the DB has shorter values.
+  private normalizeReportStatus(s?: string): string | undefined {
+    if (!s) return undefined;
+    const map: Record<string, string> = {
+      PENDING_PROCTOR_REVIEW: 'PENDING_REVIEW',
+      RETURNED_FOR_MODIFICATION: 'RETURNED',
+      // Accept canonical values too
+      DRAFT: 'DRAFT',
+      PENDING_REVIEW: 'PENDING_REVIEW',
+      RETURNED: 'RETURNED',
+      PUBLISHED: 'PUBLISHED',
+    };
+    return map[s] ?? s;
+  }
+
   async getAllReports(filters?: any) {
     const where: any = {};
-    if (filters?.status) where.status = filters.status;
+    const normalized = this.normalizeReportStatus(filters?.status);
+    if (normalized) where.status = normalized;
     if (filters?.organizationId) where.organizationId = filters.organizationId;
     return this.prisma.report.findMany({
       where,
