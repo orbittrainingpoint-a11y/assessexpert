@@ -173,9 +173,21 @@ export class AuthService {
   async sendCandidateOtp(email: string, sessionToken: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: sessionToken },
-      include: { candidate: true },
+      include: {
+        candidate: true,
+        sessionCandidates: { include: { candidate: true } },
+      },
     });
-    if (!session || session.candidate.email !== email) {
+    if (!session) {
+      throw new BadRequestException('Email does not match session');
+    }
+    // In multi-candidate sessions the email may belong to any candidate
+    // in the slot, not just the primary candidate. Accept all of them.
+    const allEmails = new Set<string>([
+      session.candidate.email,
+      ...session.sessionCandidates.map(sc => sc.candidate.email),
+    ]);
+    if (!allEmails.has(email)) {
       throw new BadRequestException('Email does not match session');
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();

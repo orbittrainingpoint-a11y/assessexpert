@@ -107,10 +107,6 @@ export class SchedulingService {
     scheduledAt: Date;
     proctorId?: string;
   }) {
-    const token = randomBytes(32).toString('hex');
-    // Token valid from 15 minutes before scheduled time until 15 minutes after
-    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
-
     // Auto-assign proctor if not specified
     let proctorId = data.proctorId;
     if (!proctorId) {
@@ -119,6 +115,90 @@ export class SchedulingService {
       });
       proctorId = proctor?.id;
     }
+
+    // Auto-merge: if a session already exists for this same slot (same proctor
+    // + assessment + scheduledAt + org, still SCHEDULED), add this candidate
+    // to it instead of creating a new session. All candidates in the slot
+    // then share one magic link and one proctor window.
+    if (proctorId) {
+      const existingSlot = await this.prisma.examSession.findFirst({
+        where: {
+          assessmentTypeId: data.assessmentTypeId,
+          organizationId: data.organizationId,
+          proctorId,
+          scheduledAt: data.scheduledAt,
+          status: 'SCHEDULED',
+        },
+        include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: true },
+      });
+
+      // Don't merge if the candidate is the primary or already a SessionCandidate
+      const alreadyIn =
+        existingSlot &&
+        (existingSlot.candidateId === data.candidateId ||
+          existingSlot.sessionCandidates.some(sc => sc.candidateId === data.candidateId));
+
+      if (existingSlot && !alreadyIn) {
+        // Promote the slot to multi-candidate the first time we merge a new person.
+        // Also represent the original primary candidate as a SessionCandidate
+        // so the proctor window lists everyone uniformly.
+        if (!existingSlot.isMultiCandidate) {
+          const primaryAsRow = await this.prisma.sessionCandidate.findUnique({
+            where: { sessionId_candidateId: { sessionId: existingSlot.id, candidateId: existingSlot.candidateId } },
+          });
+          await this.prisma.$transaction([
+            this.prisma.examSession.update({
+              where: { id: existingSlot.id },
+              data: { isMultiCandidate: true },
+            }),
+            ...(primaryAsRow
+              ? []
+              : [
+                  this.prisma.sessionCandidate.create({
+                    data: {
+                      sessionId: existingSlot.id,
+                      candidateId: existingSlot.candidateId,
+                      status: 'PENDING' as any,
+                    },
+                  }),
+                ]),
+          ]);
+        }
+
+        await this.prisma.sessionCandidate.create({
+          data: { sessionId: existingSlot.id, candidateId: data.candidateId, status: 'PENDING' as any },
+        });
+
+        // Email the new candidate the SAME magic link as the rest of the slot.
+        const candidate = await this.prisma.candidateRecord.findUnique({ where: { id: data.candidateId } });
+        if (candidate) {
+          const magicLink = `${process.env.FRONTEND_URL}/exam?token=${existingSlot.magicToken}`;
+          await this.notifications
+            .sendCandidateInvitation(
+              candidate.email,
+              `${candidate.firstName} ${candidate.lastName}`,
+              {
+                companyName: (existingSlot as any).organization?.name || 'AssessExpert',
+                assessmentName: existingSlot.assessmentType.name,
+                scheduledAt: data.scheduledAt,
+                timezone: 'Asia/Dubai',
+                magicLink,
+              },
+            )
+            .catch(() => {});
+        }
+
+        // Return the existing (now multi-candidate) session
+        return this.prisma.examSession.findUnique({
+          where: { id: existingSlot.id },
+          include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: { include: { candidate: true } } },
+        });
+      }
+    }
+
+    const token = randomBytes(32).toString('hex');
+    // Token valid from 15 minutes before scheduled time until 15 minutes after
+    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
 
     const session = await this.prisma.examSession.create({
       data: {
