@@ -28,6 +28,10 @@ function SessionContent() {
   const [isPaused, setIsPaused] = useState(false)
   const [resolvedFlagIds, setResolvedFlagIds] = useState<string[]>([])
   const [activeCandidateId, setActiveCandidateId] = useState<string | undefined>()
+  // Socket id of the candidate the proctor is currently verifying — used to
+  // route the proctor's outbound audio/video to ONLY that candidate. Empty
+  // string / undefined means broadcast (e.g. during MCQ monitoring).
+  const [activeCandidateSocketId, setActiveCandidateSocketId] = useState<string | undefined>()
   const [verifiedCandidates, setVerifiedCandidates] = useState<Set<string>>(new Set())
   const [mcqPushed, setMcqPushed] = useState(false)
   const [screenSharingCandidateIds, setScreenSharingCandidateIds] = useState<Set<string>>(new Set())
@@ -103,6 +107,10 @@ function SessionContent() {
     jwtToken,
     publishCamera: true,
     publishMic: true,
+    // 1-to-1 routing: only the currently-selected candidate sees + hears the
+    // proctor. Only active during the checklist/verification phase — once
+    // the exam starts, the proctor broadcasts to all candidates again.
+    activeTargetSocketId: phase === 'checklist' ? activeCandidateSocketId : undefined,
     socket: wsSocket,
   })
 
@@ -154,11 +162,13 @@ function SessionContent() {
   const handleCandidateSelect = useCallback((candidateId: string, candidateSocketId?: string) => {
     if (activeCandidateId === candidateId) {
       setActiveCandidateId(undefined)
+      setActiveCandidateSocketId(undefined)
       if (wsSocket?.connected) {
         wsSocket.emit('proctor.leaveVerification', { sessionId, candidateId, candidateSocketId })
       }
     } else {
       setActiveCandidateId(candidateId)
+      setActiveCandidateSocketId(candidateSocketId)
       if (wsSocket?.connected) {
         wsSocket.emit('proctor.enterVerification', { sessionId, candidateId, candidateSocketId })
       }

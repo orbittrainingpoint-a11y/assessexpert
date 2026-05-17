@@ -170,7 +170,17 @@ function ExamContent() {
   })
   // LiveKit handles all media — publishes candidate camera + mic, receives proctor stream.
   // Enabled once we have a session + we're past the camera check screen.
-  const livekitEnabled = !!sessionState?.id && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical')
+  // IMPORTANT: 'mcq-complete' must be included so the WebRTC connection does
+  // NOT tear down between MCQ submission and the proctor pushing practical.
+  // Without it the candidate's camera and screen share both stop and the
+  // proctor loses visibility right when the candidate is most idle.
+  const livekitEnabled = !!sessionState?.id && (
+    phase === 'verification' ||
+    phase === 'waiting' ||
+    phase === 'mcq' ||
+    phase === 'mcq-complete' ||
+    phase === 'practical'
+  )
   const {
     localCameraStream: lkLocalCamera,
     localScreenStream: lkLocalScreen,
@@ -456,11 +466,18 @@ function ExamContent() {
     const poll = setInterval(async () => {
       try {
         const { data: s } = await examApi.getSession(token)
+        // Persist the fresh session — without this, sessionState.practicalPaperSetId
+        // stays null and the candidate falls through to the legacy drag-and-drop
+        // UI instead of the new PracticalSetView with questions + reference files.
+        setSessionState((prev: any) => ({ ...(prev || {}), ...s, id: s.id || s.sessionId || prev?.id }))
         if (s.status === 'PRACTICAL_IN_PROGRESS') {
           clearInterval(poll)
           if (s.practicalTask) {
             setPracticalTask(s.practicalTask)
-          } else {
+          } else if (!s.practicalPaperSetId && !s.practicalPaperSet) {
+            // No paper-set assigned AND no legacy task — only try the legacy
+            // task endpoint as a fallback. Paper sets are loaded inside
+            // PracticalSetView via the by-token endpoint.
             try {
               const { data: taskData } = await examApi.getPracticalTask(token)
               setPracticalTask(taskData)

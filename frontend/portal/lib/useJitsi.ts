@@ -58,6 +58,13 @@ interface UseJitsiOptions {
    * without it, every candidate would identify as the primary and collide.
    */
   candidateId?: string
+  /**
+   * PROCTOR ONLY. When set, the proctor's outbound audio + video is sent
+   * ONLY to the peer with this socket id; all other peers receive a muted
+   * (black-frame + silence) stream until the proctor switches to them.
+   * Leave undefined to broadcast to everyone (e.g. during MCQ monitoring).
+   */
+  activeTargetSocketId?: string
   publishCamera?: boolean
   publishMic?: boolean
   publishScreen?: boolean
@@ -78,6 +85,12 @@ interface PeerConn {
   identity: string
   cameraStream: MediaStream | null
   screenStream: MediaStream | null
+  // Per-peer CLONES of the local camera + mic tracks. Cloning lets us
+  // independently enable/disable the outbound stream PER peer, so the
+  // proctor can route audio/video to just the active candidate while
+  // other candidates receive a muted feed.
+  localVideoClone: MediaStreamTrack | null
+  localAudioClone: MediaStreamTrack | null
 }
 
 let ioModule: any = null
@@ -96,11 +109,14 @@ export function useJitsi({
   magicToken,
   jwtToken,
   candidateId,
+  activeTargetSocketId,
   publishCamera = true,
   publishMic = true,
   publishScreen = false,
   socket: externalSocket,
 }: UseJitsiOptions) {
+  const activeTargetRef = useRef<string | undefined>(activeTargetSocketId)
+  activeTargetRef.current = activeTargetSocketId
   const ownSocketRef = useRef<any>(null)   // only used if no external socket
   const localStreamRef = useRef<MediaStream | null>(null)
   const screenStreamRef = useRef<MediaStream | null>(null)
@@ -156,14 +172,35 @@ export function useJitsi({
     if (existing) { try { existing.pc.close() } catch {} }
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-    const conn: PeerConn = { pc, socketId: remoteSocketId, identity: remoteIdentity, cameraStream: null, screenStream: null }
+    const conn: PeerConn = {
+      pc, socketId: remoteSocketId, identity: remoteIdentity,
+      cameraStream: null, screenStream: null,
+      localVideoClone: null, localAudioClone: null,
+    }
     peerConnsRef.current.set(remoteSocketId, conn)
 
-    // Add local tracks
+    // Add local tracks — CLONE per peer so we can independently enable/disable
+    // each outbound stream. Without clones, .enabled is shared across all PCs.
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => {
-        try { pc.addTrack(t, localStreamRef.current!) } catch {}
-      })
+      const videoSrc = localStreamRef.current.getVideoTracks()[0]
+      const audioSrc = localStreamRef.current.getAudioTracks()[0]
+      if (videoSrc) {
+        const v = videoSrc.clone()
+        conn.localVideoClone = v
+        try { pc.addTrack(v, localStreamRef.current) } catch {}
+      }
+      if (audioSrc) {
+        const a = audioSrc.clone()
+        conn.localAudioClone = a
+        try { pc.addTrack(a, localStreamRef.current) } catch {}
+      }
+
+      // Apply initial routing: if PROCTOR has selected an active candidate and
+      // this peer is NOT that one, mute the clones immediately.
+      if (role === 'PROCTOR' && activeTargetRef.current && remoteSocketId !== activeTargetRef.current) {
+        if (conn.localVideoClone) conn.localVideoClone.enabled = false
+        if (conn.localAudioClone) conn.localAudioClone.enabled = false
+      }
     }
 
     pc.onicecandidate = (e) => {
@@ -207,6 +244,9 @@ export function useJitsi({
         pc.restartIce()
       }
       if (pc.connectionState === 'closed') {
+        // Free per-peer track clones
+        try { conn.localVideoClone?.stop() } catch {}
+        try { conn.localAudioClone?.stop() } catch {}
         peerConnsRef.current.delete(remoteSocketId)
         rebuildPeers()
       }
@@ -222,6 +262,20 @@ export function useJitsi({
 
     return conn
   }, [rebuildPeers, getSocket])
+
+  // Proctor 1-to-1 routing: when the proctor picks an active candidate,
+  // mute the outbound audio/video to every OTHER candidate. Inactive
+  // candidates see frozen video + silence until the proctor switches.
+  // No selection (undefined) → broadcast to all (default during MCQ).
+  useEffect(() => {
+    if (role !== 'PROCTOR') return
+    activeTargetRef.current = activeTargetSocketId
+    peerConnsRef.current.forEach((conn, peerSocketId) => {
+      const isActive = !activeTargetSocketId || peerSocketId === activeTargetSocketId
+      if (conn.localVideoClone) conn.localVideoClone.enabled = isActive
+      if (conn.localAudioClone) conn.localAudioClone.enabled = isActive
+    })
+  }, [activeTargetSocketId, role])
 
   const initiateOffer = useCallback(async (remoteSocketId: string, remoteIdentity: string) => {
     const conn = createPeerConn(remoteSocketId, remoteIdentity)
@@ -469,7 +523,11 @@ export function useJitsi({
 
     return () => {
       cancelled = true
-      peerConnsRef.current.forEach(c => { try { c.pc.close() } catch {} })
+      peerConnsRef.current.forEach(c => {
+        try { c.pc.close() } catch {}
+        try { c.localVideoClone?.stop() } catch {}
+        try { c.localAudioClone?.stop() } catch {}
+      })
       peerConnsRef.current.clear()
       localStreamRef.current?.getTracks().forEach(t => t.stop())
       screenStreamRef.current?.getTracks().forEach(t => t.stop())
