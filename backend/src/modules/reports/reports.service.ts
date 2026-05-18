@@ -199,6 +199,10 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
           ? data.practicalScore >= 60
           : undefined,
         status: 'PENDING_REVIEW',
+        // Content changed — invalidate the cached PDF so the next fetch
+        // re-renders with the proctor's latest narrative + verdict.
+        pdfVersion: { increment: 1 },
+        pdfPath: null,
       },
     });
   }
@@ -219,7 +223,10 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
         status: 'PUBLISHED',
         publishedAt: new Date(),
         publishedBy: proctorId,
-        pdfVersion: report.pdfVersion,
+        // Bump version + drop cached PDF path so the next download triggers
+        // a fresh render with the final published content.
+        pdfVersion: { increment: 1 },
+        pdfPath: null,
       },
     });
 

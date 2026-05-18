@@ -1,16 +1,22 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, Res, UseGuards, NotFoundException } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import { PdfService } from './pdf.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import * as fs from 'fs';
+import { Response } from 'express';
 
 @ApiTags('reports')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private reportsService: ReportsService) {}
+  constructor(
+    private reportsService: ReportsService,
+    private pdfService: PdfService,
+  ) {}
 
   @Get()
   async getReports(@Req() req: any, @Query() filters: any) {
@@ -30,6 +36,25 @@ export class ReportsController {
   @Get('session/:sessionId')
   async getReportBySession(@Param('sessionId') sessionId: string, @Req() req: any) {
     return this.reportsService.getReportBySession(sessionId, req.user);
+  }
+
+  // Generate-on-demand PDF. Cached on disk; regenerated when pdfVersion bumps.
+  @Get('session/:sessionId/pdf')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
+  async downloadPdf(@Param('sessionId') sessionId: string, @Req() req: any, @Res() res: Response) {
+    // Reuse the same tenant/status checks as the read endpoint — HR can
+    // only download published reports for their own org.
+    const report = await this.reportsService.getReportBySession(sessionId, req.user);
+    if (!report) throw new NotFoundException('Report not found');
+
+    const pdfPath = await this.pdfService.getOrGeneratePdf(sessionId);
+    if (!fs.existsSync(pdfPath)) throw new NotFoundException('PDF file missing');
+
+    const stat = fs.statSync(pdfPath);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `attachment; filename="assessment-report-${sessionId}.pdf"`);
+    fs.createReadStream(pdfPath).pipe(res);
   }
 
   @Get(':id')
