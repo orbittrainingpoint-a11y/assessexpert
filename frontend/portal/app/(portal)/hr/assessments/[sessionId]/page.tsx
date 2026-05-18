@@ -50,7 +50,13 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
       const response = await fetch(`${apiUrl}/reports/session/${safeSessionId}/pdf`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       })
-      if (!response.ok) throw new Error('PDF not available')
+      if (response.status === 404) {
+        toast('PDF export is not enabled yet. Showing the on-screen report instead.', { icon: 'ℹ️' })
+        return
+      }
+      if (!response.ok) throw new Error('PDF generation failed')
+      const ct = response.headers.get('content-type') || ''
+      if (!ct.includes('pdf')) throw new Error('Server did not return a PDF')
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -58,8 +64,8 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
       a.download = `assessment-report-${safeSessionId}.pdf`
       a.click()
       URL.revokeObjectURL(url)
-    } catch {
-      toast.error('PDF download failed')
+    } catch (e: any) {
+      toast.error(e?.message || 'PDF download failed')
     }
   }
 

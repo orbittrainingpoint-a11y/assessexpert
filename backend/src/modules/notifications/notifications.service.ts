@@ -1,10 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
   private transporter: nodemailer.Transporter;
+  // Counters for the recent failures — visible via /admin/email-health.
+  // Kept in-memory because email failures are operational state, not
+  // permanent records. Reset on process restart.
+  private failureCount = 0;
+  private lastFailures: Array<{ to: string; subject: string; error: string; at: string }> = [];
 
   constructor(private prisma: PrismaService) {
     this.transporter = nodemailer.createTransport({
@@ -19,18 +25,47 @@ export class NotificationsService {
   }
 
   async sendEmail(to: string, subject: string, html: string) {
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      this.logger.warn(`Email skipped (SMTP not configured) → ${to} | ${subject}`);
+      this.recordFailure(to, subject, 'SMTP_USER/SMTP_PASS not set');
+      return { sent: false, error: 'SMTP not configured' };
+    }
     try {
-      await this.transporter.sendMail({
+      const info = await this.transporter.sendMail({
         from: process.env.SMTP_FROM || 'noreply@assessexpert.ae',
         to,
         subject,
         html,
       });
-      return { sent: true };
-    } catch (e) {
-      console.error('Email send failed:', e.message);
-      return { sent: false, error: e.message };
+      this.logger.log(`Email sent → ${to} | ${subject} | id=${info.messageId}`);
+      return { sent: true, messageId: info.messageId };
+    } catch (e: any) {
+      // Loud, structured failure — pm2/journalctl picks this up so the
+      // operator can grep email-send issues. Also kept in memory for
+      // the admin health endpoint.
+      this.logger.error(
+        `EMAIL FAILED → ${to} | ${subject} | ${e?.message || e}`,
+        e?.stack,
+      );
+      this.recordFailure(to, subject, e?.message || String(e));
+      return { sent: false, error: e?.message || String(e) };
     }
+  }
+
+  private recordFailure(to: string, subject: string, error: string) {
+    this.failureCount++;
+    this.lastFailures.unshift({ to, subject, error, at: new Date().toISOString() });
+    if (this.lastFailures.length > 50) this.lastFailures.length = 50;
+  }
+
+  // Surfaced via the admin notification controller so the operator can see
+  // recent SMTP failures without grepping logs.
+  getEmailHealth() {
+    return {
+      smtpConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+      totalFailuresSinceStart: this.failureCount,
+      recentFailures: this.lastFailures.slice(0, 25),
+    };
   }
 
   async sendCandidateInvitation(candidateEmail: string, candidateName: string, data: {

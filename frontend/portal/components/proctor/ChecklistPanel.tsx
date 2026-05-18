@@ -421,26 +421,135 @@ function ItemScreenShare({
 }
 
 function ItemTechCheck({ saving, onComplete }: { saving: boolean; onComplete: (d: any) => void }) {
-  const checks = [
-    { label: 'Internet Speed', value: '24.3 Mbps', ok: true },
-    { label: 'Camera', value: 'Active', ok: true },
-    { label: 'Browser', value: 'Chrome 124', ok: true },
-    { label: 'Screen Resolution', value: '1920x1080', ok: true },
-    { label: 'GuardPro Agent', value: 'Connected', ok: true },
-  ]
+  const [checks, setChecks] = useState<{ label: string; value: string; ok: boolean }[]>([])
+  const [probing, setProbing] = useState(true)
+
+  // Real browser probes — runs once when the step becomes active. These are
+  // proctor-side probes (the proctor is doing the verification on their own
+  // browser, not the candidate's), so they reflect the proctor's environment.
+  useEffect(() => {
+    let cancelled = false
+    const probe = async () => {
+      const results: { label: string; value: string; ok: boolean }[] = []
+
+      // 1. Network — navigator.connection (Chromium); fall back to fetch timing
+      try {
+        const c: any = (navigator as any).connection
+        if (c?.downlink && c.downlink > 0) {
+          results.push({
+            label: 'Internet (estimate)',
+            value: `${c.downlink.toFixed(1)} Mbps · ${c.effectiveType || '?'}`,
+            ok: c.downlink >= 2,
+          })
+        } else {
+          // Light HTTP timing probe — fetch a tiny known asset
+          const t0 = performance.now()
+          await fetch('/favicon.ico', { cache: 'no-store' }).catch(() => null)
+          const ms = performance.now() - t0
+          results.push({
+            label: 'Network reachable',
+            value: `${ms.toFixed(0)} ms RTT`,
+            ok: ms < 1500,
+          })
+        }
+      } catch {
+        results.push({ label: 'Internet (estimate)', value: 'Unknown', ok: false })
+      }
+
+      // 2. Camera + Mic — enumerate devices and check permission
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const cams = devices.filter(d => d.kind === 'videoinput')
+        const mics = devices.filter(d => d.kind === 'audioinput')
+        results.push({
+          label: 'Camera',
+          value: cams.length ? `${cams.length} device${cams.length === 1 ? '' : 's'}` : 'None',
+          ok: cams.length > 0,
+        })
+        results.push({
+          label: 'Microphone',
+          value: mics.length ? `${mics.length} device${mics.length === 1 ? '' : 's'}` : 'None',
+          ok: mics.length > 0,
+        })
+      } catch {
+        results.push({ label: 'Camera', value: 'Permission needed', ok: false })
+        results.push({ label: 'Microphone', value: 'Permission needed', ok: false })
+      }
+
+      // 3. Browser
+      const ua = navigator.userAgent
+      let browser = 'Unknown'
+      const match = ua.match(/(Edg|Chrome|Firefox|Safari|OPR)\/(\d+)/)
+      if (match) browser = `${match[1].replace('Edg', 'Edge').replace('OPR', 'Opera')} ${match[2]}`
+      const chromiumOk = /Chrome|Edg/.test(ua)
+      results.push({
+        label: 'Browser',
+        value: browser,
+        ok: chromiumOk,
+      })
+
+      // 4. Screen resolution
+      const w = window.screen.width
+      const h = window.screen.height
+      results.push({
+        label: 'Screen Resolution',
+        value: `${w}×${h}`,
+        ok: w >= 1280 && h >= 720,
+      })
+
+      // 5. Fullscreen support
+      results.push({
+        label: 'Fullscreen API',
+        value: typeof document.documentElement.requestFullscreen === 'function' ? 'Supported' : 'Not supported',
+        ok: typeof document.documentElement.requestFullscreen === 'function',
+      })
+
+      // 6. WebRTC support
+      const webrtcOk = typeof RTCPeerConnection !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
+      results.push({
+        label: 'WebRTC',
+        value: webrtcOk ? 'Supported' : 'Not supported',
+        ok: webrtcOk,
+      })
+
+      if (!cancelled) {
+        setChecks(results)
+        setProbing(false)
+      }
+    }
+    probe()
+    return () => { cancelled = true }
+  }, [])
+
+  const allPassed = checks.length > 0 && checks.every(c => c.ok)
+  const failed = checks.filter(c => !c.ok)
+
   return (
     <div style={{ padding: '0 16px 16px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
-        {checks.map(c => (
-          <div key={c.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>{c.label}</span>
-            <span style={{ color: c.ok ? 'var(--emerald)' : 'var(--rose)', fontWeight: '500' }}>{c.value} {c.ok ? '✅' : '❌'}</span>
+      {probing ? (
+        <div style={{ padding: '14px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '10px' }}>
+          Running real-time technical checks...
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
+            {checks.map(c => (
+              <div key={c.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{c.label}</span>
+                <span style={{ color: c.ok ? 'var(--emerald)' : 'var(--rose)', fontWeight: '500' }}>{c.value} {c.ok ? '✅' : '❌'}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving}
-        onClick={() => onComplete({ value: { allPassed: true } })}>
-        {saving ? 'Saving...' : 'Technical Requirements Met'}
+          {failed.length > 0 && (
+            <div style={{ padding: '8px 10px', background: 'rgba(225,29,72,0.08)', border: '1px solid rgba(225,29,72,0.2)', borderRadius: '6px', fontSize: '12px', color: 'var(--rose)', marginBottom: '10px' }}>
+              {failed.length} check{failed.length === 1 ? '' : 's'} failed. You can still proceed but note them in the report.
+            </div>
+          )}
+        </>
+      )}
+      <button className="btn-primary" style={{ width: '100%', padding: '10px' }} disabled={saving || probing}
+        onClick={() => onComplete({ value: { allPassed, checks } })}>
+        {saving ? 'Saving...' : allPassed ? 'Technical Requirements Met' : 'Acknowledge & Continue'}
       </button>
     </div>
   )
