@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { authApi, examApi, checklistApi, legalApi, transcriptApi, referencePhotoApi, api, uploadUrl } from '@/lib/api'
 import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
+import { useSessionRecorder } from '@/lib/useSessionRecorder'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
@@ -455,6 +456,23 @@ function ExamContent() {
         timestamp: new Date().toISOString(),
       }).catch(() => {})
     },
+  })
+
+  // Session recording — webcam + screen captured to disk during the exam.
+  // Chunks upload as they're produced; the hook calls finalize on unmount
+  // so the chunks get merged into webcam.webm / screen.webm on the server.
+  useSessionRecorder({
+    enabled: !!sessionState?.id && (
+      phase === 'verification' ||
+      phase === 'waiting' ||
+      phase === 'mcq' ||
+      phase === 'mcq-complete' ||
+      phase === 'practical'
+    ),
+    sessionId: sessionState?.id,
+    token,
+    webcamStream: lkLocalCamera,
+    screenStream: lkLocalScreen,
   })
 
   // ── Reference photo capture (one-time per candidate) ─────────────────────
