@@ -147,9 +147,9 @@ export class SessionsService {
       include: {
         candidate: true,
         assessmentType: true,
-        checklist: true,
+        checklists: true,
         questionAssignments: true,
-        report: true,
+        reports: true,
         sessionCandidates: { include: { candidate: true } },
       },
     });
@@ -180,7 +180,7 @@ export class SessionsService {
       include: {
         candidate: true,
         assessmentType: true,
-        checklist: true,
+        checklists: true,
       },
     });
     if (!session) throw new NotFoundException('Session not found');
@@ -263,11 +263,27 @@ export class SessionsService {
       throw new BadRequestException(`Cannot start MCQ from status: ${session.status}`);
     }
 
-    // In dev mode skip checklist enforcement
+    // In dev mode skip checklist enforcement. In production, EVERY candidate
+    // in the slot must have a completed checklist before MCQs start.
     if (process.env.NODE_ENV === 'production') {
-      const checklist = await this.prisma.proctorChecklist.findFirst({ where: { sessionId } });
-      if (!checklist?.completedAt) {
-        throw new ForbiddenException('Proctor checklist must be fully completed before starting the exam');
+      const candidatesNeedingChecklist = new Set<string>([session.candidateId]);
+      const scRows = await this.prisma.sessionCandidate.findMany({
+        where: { sessionId },
+        select: { candidateId: true },
+      });
+      scRows.forEach(r => candidatesNeedingChecklist.add(r.candidateId));
+
+      const checklists = await this.prisma.proctorChecklist.findMany({
+        where: { sessionId },
+        select: { candidateId: true, completedAt: true },
+      });
+      const completedFor = new Set(
+        checklists.filter(c => !!c.completedAt).map(c => c.candidateId),
+      );
+      for (const cid of candidatesNeedingChecklist) {
+        if (!completedFor.has(cid)) {
+          throw new ForbiddenException('Proctor checklist must be fully completed for every candidate before starting the exam');
+        }
       }
     }
 

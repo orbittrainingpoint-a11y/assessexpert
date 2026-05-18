@@ -567,8 +567,8 @@ model ExamSession {
   practicalAnswers       PracticalAnswer[]
   events                 SessionEvent[]
   frLogs                 FacialRecognitionLog[]
-  checklist              ProctorChecklist?
-  report                 Report?
+  checklists             ProctorChecklist[]
+  reports                Report[]
   sessionCandidates      SessionCandidate[]
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
@@ -625,8 +625,12 @@ model ExamAnswer {
 
 model ProctorChecklist {
   id                      String      @id @default(cuid())
-  sessionId               String      @unique
+  sessionId               String
   session                 ExamSession @relation(fields: [sessionId], references: [id])
+  // Multi-candidate slots get ONE checklist row per candidate so the
+  // proctor's progress is tracked independently per person. Backfilled
+  // from session.candidateId for legacy rows.
+  candidateId             String
   proctorId               String
   items                   Json
   completedAt             DateTime?
@@ -639,6 +643,8 @@ model ProctorChecklist {
   candidateAgreedToRules  Boolean     @default(false)
   createdAt               DateTime    @default(now())
   updatedAt               DateTime    @updatedAt
+
+  @@unique([sessionId, candidateId])
 }
 
 model SessionEvent {
@@ -677,10 +683,12 @@ model FacialRecognitionLog {
 
 model Report {
   id               String          @id @default(cuid())
-  sessionId        String          @unique
+  sessionId        String
   session          ExamSession     @relation(fields: [sessionId], references: [id])
   organizationId   String
   organization     Organization    @relation(fields: [organizationId], references: [id])
+  // Multi-candidate slots get ONE report per candidate. For single-candidate
+  // sessions this matches session.candidateId (backfilled by migration).
   candidateId      String
   mcqScore         Float
   mcqPassed        Boolean
@@ -707,6 +715,8 @@ model Report {
   hrRatingNote     String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+
+  @@unique([sessionId, candidateId])
 }
 
 model AuditLog {

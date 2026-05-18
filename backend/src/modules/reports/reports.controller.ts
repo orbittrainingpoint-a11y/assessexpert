@@ -34,20 +34,36 @@ export class ReportsController {
   }
 
   @Get('session/:sessionId')
-  async getReportBySession(@Param('sessionId') sessionId: string, @Req() req: any) {
-    return this.reportsService.getReportBySession(sessionId, req.user);
+  async getReportBySession(
+    @Param('sessionId') sessionId: string,
+    @Query('candidateId') candidateId: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.reportsService.getReportBySession(sessionId, req.user, candidateId);
+  }
+
+  // Per-candidate report list for a multi-candidate slot.
+  @Get('session/:sessionId/list')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
+  async listReportsForSession(@Param('sessionId') sessionId: string) {
+    return this.reportsService.reportsForSession(sessionId);
   }
 
   // Generate-on-demand PDF. Cached on disk; regenerated when pdfVersion bumps.
   @Get('session/:sessionId/pdf')
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
-  async downloadPdf(@Param('sessionId') sessionId: string, @Req() req: any, @Res() res: Response) {
+  async downloadPdf(
+    @Param('sessionId') sessionId: string,
+    @Query('candidateId') candidateId: string | undefined,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
     // Reuse the same tenant/status checks as the read endpoint — HR can
     // only download published reports for their own org.
-    const report = await this.reportsService.getReportBySession(sessionId, req.user);
+    const report = await this.reportsService.getReportBySession(sessionId, req.user, candidateId);
     if (!report) throw new NotFoundException('Report not found');
 
-    const pdfPath = await this.pdfService.getOrGeneratePdf(sessionId);
+    const pdfPath = await this.pdfService.getOrGeneratePdf(sessionId, candidateId);
     if (!fs.existsSync(pdfPath)) throw new NotFoundException('PDF file missing');
 
     const stat = fs.statSync(pdfPath);
@@ -64,8 +80,16 @@ export class ReportsController {
 
   @Post('generate/:sessionId')
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR')
-  async generateReport(@Param('sessionId') sessionId: string) {
-    return this.reportsService.generateDraftReport(sessionId);
+  async generateReport(
+    @Param('sessionId') sessionId: string,
+    @Query('candidateId') candidateId?: string,
+    @Query('all') all?: string,
+  ) {
+    // ?all=true → generate one report per candidate in the slot.
+    if (all === 'true' || all === '1') {
+      return this.reportsService.generateAllReportsForSession(sessionId);
+    }
+    return this.reportsService.generateDraftReport(sessionId, candidateId);
   }
 
   @Put('session/:sessionId/proctor-fields')
@@ -80,8 +104,12 @@ export class ReportsController {
 
   @Post('session/:sessionId/publish')
   @Roles('PROCTOR', 'MASTER_PROCTOR')
-  async publishReport(@Param('sessionId') sessionId: string, @Req() req: any) {
-    return this.reportsService.publishReport(sessionId, req.user.id);
+  async publishReport(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { candidateId?: string },
+    @Req() req: any,
+  ) {
+    return this.reportsService.publishReport(sessionId, req.user.id, body?.candidateId);
   }
 
   @Post('session/:sessionId/rate')

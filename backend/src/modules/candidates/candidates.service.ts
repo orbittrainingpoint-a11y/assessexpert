@@ -23,7 +23,7 @@ export class CandidatesService {
           sessions: {
             orderBy: { createdAt: 'desc' },
             take: 1,
-            include: { report: { select: { overallScore: true, overallPassed: true, status: true } } },
+            include: { reports: { select: { overallScore: true, overallPassed: true, status: true, candidateId: true } } },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -42,7 +42,7 @@ export class CandidatesService {
         sessions: {
           include: {
             assessmentType: true,
-            report: true,
+            reports: true,
           },
           orderBy: { createdAt: 'desc' },
         },

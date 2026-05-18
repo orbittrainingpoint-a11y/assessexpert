@@ -691,8 +691,12 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
   }, [candId])
 
   useEffect(() => {
-    checklistApi.init(sessionId).catch(() => {})
-  }, [sessionId])
+    // Lazy-init only the ACTIVE candidate's checklist row. For multi-
+    // candidate slots this fires once per candidate as the proctor opens
+    // each one. completeItem auto-upserts too so a missed init isn't fatal.
+    if (!candidate?.id) return
+    checklistApi.init(sessionId, candidate.id).catch(() => {})
+  }, [sessionId, candidate?.id])
 
   const expectedName = `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim()
   const expectedEmail = candidate?.email || ''

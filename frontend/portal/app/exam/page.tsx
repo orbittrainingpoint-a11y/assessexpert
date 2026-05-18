@@ -595,7 +595,8 @@ function ExamContent() {
     if (phase !== 'waiting' && phase !== 'verification') return
     const poll = async () => {
       try {
-        const { data } = await api.get(`/checklist/by-token?token=${token}`)
+        const cid = sessionState?.candidate?.id
+        const { data } = await api.get(`/checklist/by-token?token=${token}${cid ? `&candidateId=${encodeURIComponent(cid)}` : ''}`)
         const items = data.items || []
         // Normalise to { key, status, title } shape so layout renders correctly
         const normalised = items.map((i: any) => ({

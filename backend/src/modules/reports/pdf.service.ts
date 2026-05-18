@@ -38,10 +38,21 @@ export class PdfService {
   }
 
   // Returns the absolute path to a rendered PDF for the report, generating
-  // it on demand if missing or stale.
-  async getOrGeneratePdf(sessionId: string): Promise<string> {
+  // it on demand if missing or stale. candidateId resolves which report
+  // to render in a multi-candidate slot; falls back to the primary
+  // candidate for single-candidate sessions.
+  async getOrGeneratePdf(sessionId: string, candidateId?: string): Promise<string> {
+    let cId = candidateId;
+    if (!cId) {
+      const s = await this.prisma.examSession.findUnique({
+        where: { id: sessionId },
+        select: { candidateId: true },
+      });
+      if (!s) throw new NotFoundException('Session not found');
+      cId = s.candidateId;
+    }
     const report = await this.prisma.report.findUnique({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       include: {
         session: {
           include: {
@@ -50,11 +61,22 @@ export class PdfService {
             organization: true,
             events: { orderBy: { timestamp: 'asc' } },
             frLogs: { orderBy: { timestamp: 'desc' }, take: 5 },
+            sessionCandidates: { include: { candidate: true } },
           },
         },
       },
     });
-    if (!report) throw new NotFoundException('Report not found for this session');
+    if (!report) throw new NotFoundException('Report not found for this session/candidate');
+
+    // For multi-candidate slots, the report's candidate may not be the
+    // session's primary. Resolve and stitch onto the local report.session
+    // so the HTML template still finds candidate.firstName etc.
+    if (report.session && report.candidateId !== report.session.candidateId) {
+      const c = report.session.sessionCandidates.find(sc => sc.candidateId === report.candidateId)?.candidate;
+      if (c) {
+        (report.session as any).candidate = c;
+      }
+    }
 
     const expectedFile = path.join(this.reportsDir(), `${report.id}-v${report.pdfVersion ?? 0}.pdf`);
     if (report.pdfPath && fs.existsSync(report.pdfPath) && path.resolve(report.pdfPath) === path.resolve(expectedFile)) {

@@ -16,13 +16,19 @@ export class ChecklistController {
     private gateway: AppGateway,
   ) {}
 
-  // Public endpoint — candidate polls checklist progress using their magic token
+  // Public endpoint — candidate polls checklist progress using their magic token.
+  // Returns their OWN checklist row in a multi-candidate slot. The candidate
+  // passes their OTP-resolved candidateId; falls back to the session's
+  // primary candidate (single-candidate sessions keep the old behaviour).
   @Get('by-token')
-  async getChecklistByToken(@Query('token') token: string) {
+  async getChecklistByToken(
+    @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
     const session = await this.prisma.examSession.findUnique({ where: { magicToken: token } });
     if (!session) return { items: [] };
     try {
-      return await this.checklistService.getChecklist(session.id);
+      return await this.checklistService.getChecklist(session.id, candidateId);
     } catch {
       return { items: [] };
     }
@@ -37,16 +43,32 @@ export class ChecklistController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Post(':sessionId/init')
   @Roles('PROCTOR', 'MASTER_PROCTOR')
-  async initChecklist(@Param('sessionId') sessionId: string, @Req() req: any) {
-    return this.checklistService.initChecklist(sessionId, req.user.id);
+  async initChecklist(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { candidateId?: string },
+    @Req() req: any,
+  ) {
+    return this.checklistService.initChecklist(sessionId, req.user.id, body?.candidateId);
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Get(':sessionId')
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
-  async getChecklist(@Param('sessionId') sessionId: string) {
-    return this.checklistService.getChecklist(sessionId);
+  async getChecklist(
+    @Param('sessionId') sessionId: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
+    return this.checklistService.getChecklist(sessionId, candidateId);
+  }
+
+  // List all per-candidate checklists for a multi-candidate slot.
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get(':sessionId/all')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
+  async getAllChecklists(@Param('sessionId') sessionId: string) {
+    return this.checklistService.getAllChecklistsForSession(sessionId);
   }
 
   @ApiBearerAuth()

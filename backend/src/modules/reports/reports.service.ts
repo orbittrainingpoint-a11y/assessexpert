@@ -16,23 +16,40 @@ export class ReportsService {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
   }
 
-  async generateDraftReport(sessionId: string) {
+  async generateDraftReport(sessionId: string, candidateId?: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
       include: {
         candidate: true,
         assessmentType: true,
-        answers: { orderBy: { position: 'asc' } },
         events: true,
         frLogs: true,
         practicalTask: true,
         organization: true,
+        sessionCandidates: { include: { candidate: true } },
       },
     });
     if (!session) throw new NotFoundException('Session not found');
 
+    // Resolve which candidate this report is FOR. Multi-candidate slots
+    // get one report per candidate; single-candidate sessions fall back
+    // to the primary candidate so existing callers keep working.
+    const cId = candidateId || session.candidateId;
+
+    // The candidate used to be implicit on session.candidate, but multi-
+    // candidate slots may want the report-target candidate to be different.
+    const targetCandidate = cId === session.candidateId
+      ? session.candidate
+      : (session.sessionCandidates.find(sc => sc.candidateId === cId)?.candidate || session.candidate);
+
+    // Pull THIS candidate's answers only — per-candidate from batch 4a.
+    const answers = await this.prisma.examAnswer.findMany({
+      where: { sessionId, candidateId: cId },
+      orderBy: { position: 'asc' },
+    });
+
     // Build MCQ breakdown
-    const mcqBreakdown = session.answers.map(answer => {
+    const mcqBreakdown = answers.map(answer => {
       const snapshot = answer.questionSnapshot as any;
       const options = snapshot.options as any[];
       const candidateResp = answer.candidateResponse as any;
@@ -78,7 +95,7 @@ export class ReportsService {
 
       const narrativeResult = await model.generateContent(
         `You are an expert HR assessment evaluator. Generate a professional assessment report narrative for:
-Candidate: ${session.candidate.firstName} ${session.candidate.lastName}
+Candidate: ${targetCandidate.firstName} ${targetCandidate.lastName}
 Assessment: ${session.assessmentType.name}
 MCQ Score: ${mcqScore.toFixed(1)}% (${totalCorrect}/${session.assessmentType.mcqQuestionCount} correct)
 MCQ Passed: ${mcqPassed}
@@ -95,17 +112,17 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
       );
       aiRecommendation = recResult.response.text();
     } catch (e) {
-      aiNarrative = `Candidate ${session.candidate.firstName} ${session.candidate.lastName} completed the ${session.assessmentType.name} assessment. MCQ score: ${mcqScore.toFixed(1)}%.`;
+      aiNarrative = `Candidate ${targetCandidate.firstName} ${targetCandidate.lastName} completed the ${session.assessmentType.name} assessment. MCQ score: ${mcqScore.toFixed(1)}%.`;
       aiRecommendation = mcqPassed ? 'Candidate meets the minimum threshold. Recommend proceeding to interview.' : 'Candidate did not meet the minimum threshold.';
     }
 
-    // Upsert report
+    // Upsert THIS candidate's report row (composite key sessionId + candidateId).
     const report = await this.prisma.report.upsert({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       create: {
         sessionId,
         organizationId: session.organizationId,
-        candidateId: session.candidateId,
+        candidateId: cId,
         mcqScore,
         mcqPassed,
         mcqBreakdown: { questions: mcqBreakdown, totalCorrect, totalIncorrect, totalMcqScore: mcqScore, mcqPassed },
@@ -129,13 +146,31 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
       },
     });
 
-    // Update session status
+    // Update session status — moves once even if multiple reports are
+    // generated in sequence for a multi-candidate slot.
     await this.prisma.examSession.update({
       where: { id: sessionId },
       data: { status: 'PENDING_PROCTOR_REVIEW', integrityScore },
     });
 
     return report;
+  }
+
+  // Generate reports for EVERY candidate in a multi-candidate slot.
+  // Calls generateDraftReport once per candidate; returns the array.
+  async generateAllReportsForSession(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { candidateId: true, sessionCandidates: { select: { candidateId: true } } },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    const ids = new Set<string>([session.candidateId]);
+    session.sessionCandidates.forEach(sc => ids.add(sc.candidateId));
+    const reports = [];
+    for (const cid of ids) {
+      reports.push(await this.generateDraftReport(sessionId, cid));
+    }
+    return reports;
   }
 
   async getReport(id: string, requestingUser: any) {
@@ -158,12 +193,17 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     return report;
   }
 
-  async getReportBySession(sessionId: string, requestingUser: any) {
+  // Returns the report for a session. If candidateId is omitted, falls
+  // back to the session's primary candidate (single-candidate behaviour).
+  // Multi-candidate slots should always pass candidateId; the list of
+  // reports for a session is available via reportsForSession().
+  async getReportBySession(sessionId: string, requestingUser: any, candidateId?: string) {
+    const cId = candidateId || (await this.primaryCandidateId(sessionId));
     const report = await this.prisma.report.findUnique({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       include: {
         session: {
-          include: { candidate: true, assessmentType: true, practicalTask: true, events: true, frLogs: true },
+          include: { candidate: true, assessmentType: true, practicalTask: true, events: true, frLogs: true, sessionCandidates: { include: { candidate: true } } },
         },
       },
     });
@@ -177,18 +217,40 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     return report;
   }
 
+  // Helper — resolve the primary candidate for a session.
+  private async primaryCandidateId(sessionId: string): Promise<string> {
+    const s = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { candidateId: true },
+    });
+    if (!s) throw new NotFoundException('Session not found');
+    return s.candidateId;
+  }
+
+  // All per-candidate reports for a session (multi-candidate aware).
+  async reportsForSession(sessionId: string) {
+    return this.prisma.report.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async updateProctorFields(sessionId: string, data: {
     proctorNarrative?: string;
     proctorVerdict?: string;
     practicalQuality?: string;
     proctorOverrides?: any;
     practicalScore?: number;
+    candidateId?: string;
   }, proctorId: string) {
-    const report = await this.prisma.report.findUnique({ where: { sessionId } });
+    const cId = data.candidateId || (await this.primaryCandidateId(sessionId));
+    const report = await this.prisma.report.findUnique({
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+    });
     if (!report) throw new NotFoundException('Report not found');
 
     return this.prisma.report.update({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       data: {
         proctorNarrative: data.proctorNarrative,
         proctorVerdict: data.proctorVerdict as any,
@@ -207,8 +269,11 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     });
   }
 
-  async publishReport(sessionId: string, proctorId: string) {
-    const report = await this.prisma.report.findUnique({ where: { sessionId } });
+  async publishReport(sessionId: string, proctorId: string, candidateId?: string) {
+    const cId = candidateId || (await this.primaryCandidateId(sessionId));
+    const report = await this.prisma.report.findUnique({
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+    });
     if (!report) throw new NotFoundException('Report not found');
     if (!report.proctorNarrative || report.proctorNarrative.length < 50) {
       throw new BadRequestException('Proctor narrative must be at least 50 characters');
@@ -218,7 +283,7 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     }
 
     const published = await this.prisma.report.update({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       data: {
         status: 'PUBLISHED',
         publishedAt: new Date(),
@@ -230,16 +295,35 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
       },
     });
 
-    await this.prisma.examSession.update({
-      where: { id: sessionId },
-      data: { status: 'REPORT_PUBLISHED' },
+    // Move the session into REPORT_PUBLISHED only when EVERY candidate's
+    // report is published (multi-candidate). Single-candidate sessions
+    // flip on the first publish.
+    const reports = await this.prisma.report.findMany({
+      where: { sessionId },
+      select: { status: true },
     });
+    const allPublished = reports.length > 0 && reports.every(r => r.status === 'PUBLISHED');
+    if (allPublished) {
+      await this.prisma.examSession.update({
+        where: { id: sessionId },
+        data: { status: 'REPORT_PUBLISHED' },
+      });
+    }
 
-    // Notify HR via email + in-portal WebSocket
+    // Notify HR via email + in-portal WebSocket — load the FOR-THIS-CANDIDATE
+    // info so multi-candidate slots send the right name.
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
-      include: { candidate: true, assessmentType: true, organization: true },
+      include: {
+        candidate: true,
+        assessmentType: true,
+        organization: true,
+        sessionCandidates: { include: { candidate: true } },
+      },
     });
+    const reportCandidate = cId === session?.candidateId
+      ? session?.candidate
+      : (session?.sessionCandidates.find(sc => sc.candidateId === cId)?.candidate);
     const proctor = await this.prisma.user.findUnique({ where: { id: proctorId }, select: { firstName: true, lastName: true } });
     const hrUsers = await this.prisma.user.findMany({
       where: { organizationId: session?.organizationId, role: { in: ['HR_MANAGER', 'ORG_ADMIN'] }, status: 'ACTIVE' },
@@ -251,7 +335,7 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
         hr.email,
         `${hr.firstName} ${hr.lastName}`,
         {
-          candidateName: `${session?.candidate.firstName} ${session?.candidate.lastName}`,
+          candidateName: reportCandidate ? `${reportCandidate.firstName} ${reportCandidate.lastName}` : '',
           assessmentType: session?.assessmentType.name || '',
           sessionDate: session?.scheduledAt || new Date(),
           overallResult: published.overallPassed ? 'PASS' : 'FAIL',
@@ -265,8 +349,8 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
         hr.id,
         'REPORT_PUBLISHED',
         'Report Published',
-        `Assessment report for ${session?.candidate.firstName} ${session?.candidate.lastName} is now available.`,
-        { sessionId, reportId: published.id },
+        `Assessment report for ${reportCandidate?.firstName || ''} ${reportCandidate?.lastName || ''} is now available.`,
+        { sessionId, reportId: published.id, candidateId: cId },
         `/hr/assessments/${sessionId}`,
       ).catch(() => {});
     }
@@ -274,7 +358,8 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     // Emit WebSocket to HR org room
     this.gateway.emitToAll('report.published', {
       organizationId: session?.organizationId,
-      candidateName: `${session?.candidate.firstName} ${session?.candidate.lastName}`,
+      candidateName: reportCandidate ? `${reportCandidate.firstName} ${reportCandidate.lastName}` : '',
+      candidateId: cId,
       sessionId,
       reportId: published.id,
     });
@@ -350,9 +435,10 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     });
   }
 
-  async rateReport(sessionId: string, rating: number, note: string, userId: string) {
+  async rateReport(sessionId: string, rating: number, note: string, userId: string, candidateId?: string) {
+    const cId = candidateId || (await this.primaryCandidateId(sessionId));
     return this.prisma.report.update({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       data: { hrRating: rating, hrRatingNote: note },
     });
   }

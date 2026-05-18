@@ -225,10 +225,15 @@ export const schedulingApi = {
     api.post('/scheduling/reschedule', data),
 }
 
-// Checklist
+// Checklist — per-candidate. Pass candidateId on multi-candidate slots
+// (single-candidate sessions fall back to the session's primary candidate).
 export const checklistApi = {
-  init: (sessionId: string) => api.post(`/checklist/${sessionId}/init`),
-  get: (sessionId: string) => api.get(`/checklist/${sessionId}`),
+  init: (sessionId: string, candidateId?: string) =>
+    api.post(`/checklist/${sessionId}/init`, { candidateId }),
+  get: (sessionId: string, candidateId?: string) =>
+    api.get(`/checklist/${sessionId}`, { params: { candidateId } }),
+  getAll: (sessionId: string) =>
+    api.get(`/checklist/${sessionId}/all`),
   completeItem: (sessionId: string, itemKey: string, data: any) =>
     api.post(`/checklist/${sessionId}/items/${itemKey}/complete`, data),
   getTemplate: () => api.get('/checklist/template'),
@@ -277,16 +282,27 @@ export const transcriptApi = {
   get: (sessionId: string) => api.get(`/sessions/${sessionId}/transcript`),
 }
 
-// Reports
+// Reports — per-candidate. candidateId is optional; if omitted the backend
+// falls back to the session's primary candidate (single-candidate flow).
 export const reportsApi = {
   getAll: (filters?: any) => api.get('/reports', { params: filters }),
   getOne: (id: string) => api.get(`/reports/${id}`),
-  getBySession: (sessionId: string) => api.get(`/reports/session/${sessionId}`),
-  generate: (sessionId: string) => api.post(`/reports/generate/${sessionId}`),
-  updateProctorFields: (sessionId: string, data: any) => api.put(`/reports/session/${sessionId}/proctor-fields`, data),
-  publish: (sessionId: string, data?: any) => api.post(`/reports/session/${sessionId}/publish`, data || {}),
-  rate: (sessionId: string, rating: number, note?: string) => api.post(`/reports/session/${sessionId}/rate`, { rating, note }),
-  returnForModification: (id: string, instructions: string) => api.post(`/reports/${id}/return`, { instructions }),
+  getBySession: (sessionId: string, candidateId?: string) =>
+    api.get(`/reports/session/${sessionId}`, { params: { candidateId } }),
+  // List all reports (one per candidate) for a multi-candidate slot.
+  listForSession: (sessionId: string) => api.get(`/reports/session/${sessionId}/list`),
+  generate: (sessionId: string, opts?: { candidateId?: string; all?: boolean }) =>
+    api.post(`/reports/generate/${sessionId}`, undefined, {
+      params: { candidateId: opts?.candidateId, all: opts?.all ? 'true' : undefined },
+    }),
+  updateProctorFields: (sessionId: string, data: any) =>
+    api.put(`/reports/session/${sessionId}/proctor-fields`, data),
+  publish: (sessionId: string, data?: any) =>
+    api.post(`/reports/session/${sessionId}/publish`, data || {}),
+  rate: (sessionId: string, rating: number, note?: string, candidateId?: string) =>
+    api.post(`/reports/session/${sessionId}/rate`, { rating, note, candidateId }),
+  returnForModification: (id: string, instructions: string) =>
+    api.post(`/reports/${id}/return`, { instructions }),
 }
 
 // Exam delivery (candidate)
