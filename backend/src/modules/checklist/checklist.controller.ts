@@ -56,13 +56,16 @@ export class ChecklistController {
   async completeItem(
     @Param('sessionId') sessionId: string,
     @Param('itemKey') itemKey: string,
-    @Body() body: { notes?: string; value?: any },
+    @Body() body: { notes?: string; value?: any; candidateId?: string },
     @Req() req: any,
   ) {
     const result = await this.checklistService.completeItem(sessionId, itemKey, body, req.user.id);
-    // Broadcast checklist update to all session participants (including candidate) for real-time sync
+    // Broadcast checklist update to all session participants. The `candidateId`
+    // tag lets candidate browsers filter out events that aren't for them so
+    // popups (screen share, guidelines, etc.) only fire on the right person.
     this.gateway.emitToSession(sessionId, 'checklist.itemUpdated', {
       sessionId,
+      candidateId: body.candidateId,
       itemId: itemKey,
       itemKey,
       status: 'done',

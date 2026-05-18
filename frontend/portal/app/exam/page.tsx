@@ -137,6 +137,15 @@ function ExamContent() {
         toast.error('You have been disqualified from this assessment')
       }
       if (event === 'checklist.update' || event === 'checklist.itemUpdated') {
+        // In multi-candidate slots the event is broadcast to the whole
+        // session room. Ignore it if it's for a DIFFERENT candidate so the
+        // wrong person doesn't get a screen-share request or terms popup.
+        const targetCandidateId = data.candidateId
+        const myCandidateId = sessionState?.candidate?.id
+        if (targetCandidateId && myCandidateId && targetCandidateId !== myCandidateId) {
+          return
+        }
+
         const itemKey = data.itemKey || data.itemId
         const status = data.status
         setChecklist((prev: any[]) => {

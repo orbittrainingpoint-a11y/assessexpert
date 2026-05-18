@@ -547,7 +547,11 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
   const completeItem = async (key: ChecklistItemKey, data: Record<string, any> = {}) => {
     setSaving(true)
     try {
-      await checklistApi.completeItem(sessionId, key, data)
+      // Tag the call with the candidate this proctor is currently verifying
+      // so the backend can emit a candidate-scoped socket event. Without
+      // this, every candidate in a multi-candidate slot would see the
+      // confirmation pop up on their screen.
+      await checklistApi.completeItem(sessionId, key, { ...data, candidateId: candidate?.id })
       const currentIdx = ITEMS.findIndex(i => i.key === key)
       const nextKey = ITEMS[currentIdx + 1]?.key
       setItemStates(prev => ({

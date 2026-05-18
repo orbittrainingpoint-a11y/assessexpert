@@ -220,12 +220,16 @@ export class SessionsService {
     if (filters?.organizationId) where.organizationId = filters.organizationId;
     if (filters?.status) where.status = filters.status;
     if (filters?.proctorId) where.proctorId = filters.proctorId;
+    // Query-string values arrive as strings. Prisma's take/skip require
+    // numbers and throws otherwise — coerce safely with a fallback.
+    const take = Number.parseInt(filters?.limit as any, 10);
+    const skip = Number.parseInt(filters?.offset as any, 10);
     const sessions = await this.prisma.examSession.findMany({
       where,
       include: { candidate: true, assessmentType: true, organization: true },
       orderBy: { scheduledAt: 'desc' },
-      take: filters?.limit || 100,
-      skip: filters?.offset || 0,
+      take: Number.isFinite(take) && take > 0 ? take : 100,
+      skip: Number.isFinite(skip) && skip > 0 ? skip : 0,
     });
     return { sessions };
   }

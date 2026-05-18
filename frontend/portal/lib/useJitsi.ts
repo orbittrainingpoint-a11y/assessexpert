@@ -486,8 +486,12 @@ export function useJitsi({
           sock.on('connect', () => {
             if (cancelled) return
             mySocketIdRef.current = sock.id
-            sock.emit('join_session', { sessionId, role, userId: myIdentity })
-            sock.emit('peer.announce', { sessionId, role, socketId: sock.id })
+            sock.emit('join_session', { sessionId, role, userId: myIdentity, candidateId })
+            // Critical for multi-candidate slots: include candidateId so the
+            // proctor can map this peer to a specific SessionCandidate row.
+            // Without it, multiple candidates collide on `candidate-${socketId}`
+            // and the proctor's stream lookup by database id fails.
+            sock.emit('peer.announce', { sessionId, role, socketId: sock.id, candidateId })
             setConnectionState(ConnectionState.Connected)
           })
           sock.on('peer.joined', handlePeerJoined)
@@ -501,7 +505,7 @@ export function useJitsi({
           const announceOnSocket = () => {
             if (cancelled) return
             mySocketIdRef.current = externalSocket.id
-            externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id })
+            externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id, candidateId })
             setConnectionState(ConnectionState.Connected)
           }
           if (externalSocket.connected) {
