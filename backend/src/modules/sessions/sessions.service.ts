@@ -1,10 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecordingsService } from '../recordings/recordings.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class SessionsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(SessionsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private recordings: RecordingsService,
+  ) {}
+
+  // Best-effort recording finalize. Awaits the merge so the recording
+  // paths are set on the session row before HR can ask for the URL,
+  // but never lets a finalize failure kill the calling transition.
+  private async safeFinalize(sessionId: string) {
+    try {
+      await this.recordings.finalizeRecording(sessionId);
+    } catch (e: any) {
+      this.logger.warn(`Recording finalize failed for ${sessionId}: ${e?.message || e}`);
+    }
+  }
 
   async createSession(data: {
     assessmentTypeId: string;
@@ -336,7 +353,72 @@ export class SessionsService {
     });
   }
 
-  async completeMcq(sessionId: string) {
+  // PER-CANDIDATE MCQ COMPLETION
+  //
+  // Single-candidate session: flips ExamSession.status straight to
+  //   MCQ_COMPLETE the first time anyone calls this.
+  //
+  // Multi-candidate session: updates the calling candidate's
+  //   SessionCandidate.status + mcqSubmittedAt only. The session-level
+  //   status stays MCQ_IN_PROGRESS until EVERY candidate in the slot
+  //   has finished — otherwise the first finisher would lock the others
+  //   out of /exam/question/submit (which gates on session.status).
+  async completeMcq(sessionId: string, candidateId?: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { isMultiCandidate: true, candidateId: true },
+    });
+    if (!session) return null;
+
+    // Multi-candidate: mark THIS candidate done, then check the aggregate.
+    if (session.isMultiCandidate) {
+      const cId = candidateId || session.candidateId;
+      // Update the SessionCandidate row (create-if-missing for slots where
+      // the primary candidate was never added to the SessionCandidate
+      // table — the auto-merge path adds them, but be defensive).
+      await this.prisma.sessionCandidate.upsert({
+        where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+        create: {
+          sessionId,
+          candidateId: cId,
+          status: 'MCQ_SUBMITTED',
+          mcqSubmittedAt: new Date(),
+        },
+        update: {
+          status: 'MCQ_SUBMITTED',
+          mcqSubmittedAt: new Date(),
+        },
+      });
+
+      // Have ALL candidates in this slot finished MCQ now? Build the set
+      // of expected candidates from the SessionCandidate table + the
+      // primary (defensive — primary should already be in the SC table
+      // after auto-merge but we don't rely on that).
+      const scRows = await this.prisma.sessionCandidate.findMany({
+        where: { sessionId },
+        select: { candidateId: true, status: true },
+      });
+      const expectedIds = new Set<string>([session.candidateId]);
+      scRows.forEach(r => expectedIds.add(r.candidateId));
+      const finishedStatuses = new Set([
+        'MCQ_SUBMITTED', 'PRACTICAL_IN_PROGRESS', 'PRACTICAL_SUBMITTED', 'COMPLETED', 'DISQUALIFIED',
+      ]);
+      const finishedIds = new Set(
+        scRows.filter(r => finishedStatuses.has(r.status)).map(r => r.candidateId),
+      );
+      const allDone = Array.from(expectedIds).every(id => finishedIds.has(id));
+
+      if (allDone) {
+        return this.prisma.examSession.update({
+          where: { id: sessionId },
+          data: { status: 'MCQ_COMPLETE', mcqSubmittedAt: new Date() },
+        });
+      }
+      // Some candidates still going — leave session.status at MCQ_IN_PROGRESS.
+      return this.prisma.examSession.findUnique({ where: { id: sessionId } });
+    }
+
+    // Single-candidate: legacy behaviour, flip the whole session.
     return this.prisma.examSession.update({
       where: { id: sessionId },
       data: { status: 'MCQ_COMPLETE', mcqSubmittedAt: new Date() },
@@ -361,7 +443,7 @@ export class SessionsService {
   }
 
   async submitPractical(sessionId: string, filePath?: string, fileName?: string) {
-    return this.prisma.examSession.update({
+    const updated = await this.prisma.examSession.update({
       where: { id: sessionId },
       data: {
         status: 'SUBMITTED',
@@ -371,10 +453,15 @@ export class SessionsService {
         recordingExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
+    // The session is now SUBMITTED — finalise any in-flight recording so
+    // HR's "Watch Recording" link works as soon as the proctor opens the
+    // report. Best-effort; failure logs a warning but doesn't block.
+    await this.safeFinalize(sessionId);
+    return updated;
   }
 
   async terminateSession(sessionId: string, reason: string, proctorId: string) {
-    return this.prisma.examSession.update({
+    const updated = await this.prisma.examSession.update({
       where: { id: sessionId },
       data: {
         status: 'DISQUALIFIED',
@@ -382,6 +469,9 @@ export class SessionsService {
         disqualifyReason: reason,
       },
     });
+    // Disqualified sessions still need a viewable recording for review.
+    await this.safeFinalize(sessionId);
+    return updated;
   }
 
   async pauseSession(sessionId: string) {

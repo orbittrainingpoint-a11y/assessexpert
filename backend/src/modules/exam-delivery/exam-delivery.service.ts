@@ -113,18 +113,40 @@ export class ExamDeliveryService {
       throw new BadRequestException('Exam is not in MCQ phase');
     }
 
-    // Check timer
+    const cId = await this.resolveCandidateId(session.id, candidateId);
+
+    // Per-candidate timer + already-submitted gate for multi-candidate slots.
     if (session.mcqStartedAt) {
       const elapsed = (Date.now() - session.mcqStartedAt.getTime()) / 1000;
       const limit = 30 * 60; // 30 minutes
       if (elapsed > limit) {
-        await this.autoSubmitMcq(session.id);
+        await this.autoSubmitMcq(session.id, cId);
         throw new BadRequestException('MCQ time has expired');
       }
     }
+    await this.assertCandidateNotAlreadySubmitted(session, cId);
 
-    const cId = await this.resolveCandidateId(session.id, candidateId);
     return this.questionsService.getCurrentQuestion(session.id, cId);
+  }
+
+  // Guards multi-candidate slots: even though session.status remains
+  // MCQ_IN_PROGRESS for the whole group, an individual candidate who has
+  // already submitted must not be able to fetch or submit more questions.
+  private async assertCandidateNotAlreadySubmitted(
+    session: { id: string; isMultiCandidate: boolean },
+    candidateId: string,
+  ) {
+    if (!session.isMultiCandidate) return;
+    const sc = await this.prisma.sessionCandidate.findUnique({
+      where: { sessionId_candidateId: { sessionId: session.id, candidateId } },
+      select: { status: true },
+    });
+    const terminal = new Set([
+      'MCQ_SUBMITTED', 'PRACTICAL_IN_PROGRESS', 'PRACTICAL_SUBMITTED', 'COMPLETED', 'DISQUALIFIED',
+    ]);
+    if (sc && terminal.has(sc.status as any)) {
+      throw new BadRequestException('You have already submitted your MCQ answers');
+    }
   }
 
   async submitAnswer(
@@ -141,6 +163,7 @@ export class ExamDeliveryService {
     }
 
     const cId = await this.resolveCandidateId(session.id, candidateId);
+    await this.assertCandidateNotAlreadySubmitted(session, cId);
     const result = await this.questionsService.submitAnswer(session.id, questionId, response, timeSpentSeconds, cId);
 
     this.gateway.emitToSession(session.id, 'candidate.progress', {
@@ -153,7 +176,10 @@ export class ExamDeliveryService {
     });
 
     if (result.isComplete) {
-      await this.sessionsService.completeMcq(session.id);
+      // Per-candidate finish — only flips session.status when EVERY
+      // candidate in the slot has finished (multi-candidate), or
+      // straight to MCQ_COMPLETE for single-candidate sessions.
+      await this.sessionsService.completeMcq(session.id, cId);
       // Score for THIS candidate only — multi-candidate slots no longer
       // share an answer bucket so the per-candidate correctCount is real.
       const correctCount = await this.prisma.examAnswer.count({
@@ -213,12 +239,10 @@ export class ExamDeliveryService {
       }
     }
 
-    // For single-candidate sessions, also flip the session status. For
-    // multi-candidate, the SessionsService handles the aggregate transition
-    // when every SessionCandidate has finished.
-    if (!session.isMultiCandidate) {
-      await this.sessionsService.completeMcq(sessionId);
-    }
+    // completeMcq is now candidate-aware: for multi-candidate slots it
+    // only flips session.status when EVERY candidate has finished, so
+    // we can always call it after auto-submitting one candidate.
+    await this.sessionsService.completeMcq(sessionId, cId);
   }
 
   async submitPractical(token: string, filePath?: string, fileName?: string) {

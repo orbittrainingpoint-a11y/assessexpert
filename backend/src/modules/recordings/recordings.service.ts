@@ -105,6 +105,54 @@ export class RecordingsService {
     };
   }
 
+  // Every 2 hours — find sessions that were recording but never had their
+  // chunks merged (browser slammed shut, finalize POST lost, server
+  // restarted mid-session). For each, if there are chunk files on disk
+  // older than 30 minutes and the session is now in a terminal state OR
+  // hasn't been touched in 2h, merge them.
+  @Cron('0 */2 * * *')
+  async finalizeOrphanRecordings() {
+    const storagePath = process.env.RECORDINGS_PATH || './storage/recordings';
+    if (!fs.existsSync(storagePath)) return;
+
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const candidates = await this.prisma.examSession.findMany({
+      where: {
+        OR: [
+          { status: { in: ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'DISQUALIFIED', 'NO_SHOW', 'CANCELLED'] } },
+          { updatedAt: { lt: twoHoursAgo } },
+        ],
+        screenRecordingPath: null,
+        webcamRecordingPath: null,
+        recordingPurged: false,
+      },
+      select: { id: true },
+    });
+
+    let recovered = 0;
+    for (const session of candidates) {
+      const dir = path.join(storagePath, session.id);
+      if (!fs.existsSync(dir)) continue;
+      const chunks = fs.readdirSync(dir).filter(f => f.includes('-chunk-'));
+      if (chunks.length === 0) continue;
+
+      // Only merge if the newest chunk is at least 5 minutes old — gives
+      // an active session time to keep writing without us racing.
+      const newest = chunks
+        .map(f => fs.statSync(path.join(dir, f)).mtimeMs)
+        .reduce((a, b) => Math.max(a, b), 0);
+      if (Date.now() - newest < 5 * 60 * 1000) continue;
+
+      try {
+        await this.finalizeRecording(session.id);
+        recovered++;
+      } catch (e) {
+        console.warn(`Orphan finalize failed for ${session.id}:`, (e as any)?.message);
+      }
+    }
+    if (recovered > 0) console.log(`Orphan recording sweep merged ${recovered} session(s).`);
+  }
+
   // Daily cron at 3 AM — purge expired recordings
   @Cron('0 3 * * *')
   async purgeExpiredRecordings() {
