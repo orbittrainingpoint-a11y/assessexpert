@@ -1,5 +1,7 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SessionsService } from './sessions.service';
+import { AiTranscriptionService } from '../ai-transcription/ai-transcription.service';
 import { AppGateway } from '../gateway/app.gateway';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -14,7 +16,30 @@ export class SessionsController {
   constructor(
     private sessionsService: SessionsService,
     private gateway: AppGateway,
+    private aiTranscription: AiTranscriptionService,
   ) {}
+
+  // Proctor-side audio chunk → Gemini → appended to transcript.
+  // JWT auth. Tagged with the candidateId the proctor is currently
+  // verifying (from the body) so the report can group correctly.
+  @Post(':id/transcribe-audio')
+  @Roles('PROCTOR', 'MASTER_PROCTOR')
+  @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async transcribeProctorAudio(
+    @Param('id') sessionId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { candidateId?: string; timestamp?: string },
+  ) {
+    if (!file) throw new BadRequestException('audio file is required');
+    const text = await this.aiTranscription.transcribe(file.buffer, file.mimetype || 'audio/webm');
+    if (!text) return { transcribed: false };
+    return this.sessionsService.appendVerificationTranscript(sessionId, {
+      candidateId: body.candidateId,
+      speaker: 'PROCTOR',
+      text,
+      timestamp: body.timestamp,
+    });
+  }
 
   @Get()
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')

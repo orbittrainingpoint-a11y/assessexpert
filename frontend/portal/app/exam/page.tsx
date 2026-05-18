@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { authApi, examApi, checklistApi, legalApi, transcriptApi, referencePhotoApi, api, uploadUrl } from '@/lib/api'
 import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
 import { useSessionRecorder } from '@/lib/useSessionRecorder'
+import { useAudioTranscriber } from '@/lib/useAudioTranscriber'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
@@ -444,18 +445,21 @@ function ExamContent() {
     }
   }, [token, wsSocket, sessionState?.id, sessionState?.candidate?.id])
 
-  // Pre-exam verification transcription — the candidate's side of the
-  // conversation. Only runs in the verification/waiting phases (silent
-  // during MCQ / practical / completion).
+  // AI-cleaned verification transcript (replaces the raw browser STT post).
+  // 8-second audio chunks ship to the backend which transcribes via Gemini.
+  // Browser SpeechRecognition still runs only for the LIVE interim caption
+  // shown on screen — its utterances no longer hit the persistent record.
+  const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
+  useAudioTranscriber({
+    enabled: (phase === 'verification' || phase === 'waiting') && !!token && !!lkLocalCamera,
+    micStream: lkLocalCamera,
+    endpoint: `${baseApiUrl}/exam/transcribe-audio?token=${encodeURIComponent(token)}`,
+    extraFields: () => ({ candidateId: sessionState?.candidate?.id }),
+  })
   useSpeechTranscription({
     enabled: (phase === 'verification' || phase === 'waiting') && !!token,
-    onUtterance: (text) => {
-      transcriptApi.appendAsCandidate(token, {
-        candidateId: sessionState?.candidate?.id,
-        text,
-        timestamp: new Date().toISOString(),
-      }).catch(() => {})
-    },
+    // No onUtterance — interim text is consumed by the proctor's
+    // VerificationLayout for the live caption banner only.
   })
 
   // Session recording — webcam + screen captured to disk during the exam.

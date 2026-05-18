@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { User, Mic, MicOff } from 'lucide-react'
 import ChecklistPanel from './ChecklistPanel'
 import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
+import { useAudioTranscriber } from '@/lib/useAudioTranscriber'
 import { transcriptApi } from '@/lib/api'
 
 interface Candidate {
@@ -101,18 +102,27 @@ export default function VerificationLayout({
     return () => { socket.off('candidate.guidelinesAgreed', handler) }
   }, [socket])
 
-  // Continuously transcribe whatever the proctor says while verifying.
-  // Each utterance is tagged with the active candidate so the report can
-  // attribute the conversation per-candidate.
+  // Live caption only — interim text shown in the active-candidate tile.
+  // The PERSISTENT transcript comes from the AI hook below.
   const { supported: srSupported, listening: srListening, interim: srInterim } = useSpeechTranscription({
     enabled: !!sessionId,
-    onUtterance: (text) => {
-      if (!sessionId) return
-      transcriptApi.appendAsProctor(sessionId, {
-        candidateId: activeCandidateId || undefined,
-        text,
-        timestamp: new Date().toISOString(),
-      }).catch(() => {})
+  })
+
+  // AI-cleaned transcript via short audio chunks → Gemini. Tagged with the
+  // active candidate so multi-candidate slots route to the right person on
+  // the report. Uses the proctor's own mic via the proctorStream prop so we
+  // don't double-prompt for permission.
+  const baseApiUrl = (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL : '') || 'http://localhost:4000/api'
+  useAudioTranscriber({
+    enabled: !!sessionId && !!proctorStream,
+    micStream: proctorStream,
+    endpoint: `${baseApiUrl}/sessions/${encodeURIComponent(sessionId)}/transcribe-audio`,
+    extraFields: () => ({ candidateId: activeCandidateId || undefined }),
+    headers: () => {
+      const t = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
+      const h: Record<string, string> = {}
+      if (t) h.Authorization = `Bearer ${t}`
+      return h
     },
   })
 

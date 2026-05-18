@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ExamDeliveryService } from './exam-delivery.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { FacialRecognitionService } from '../facial-recognition/facial-recognition.service';
+import { AiTranscriptionService } from '../ai-transcription/ai-transcription.service';
 import { AppGateway } from '../gateway/app.gateway';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ApiTags } from '@nestjs/swagger';
@@ -16,9 +17,38 @@ export class ExamDeliveryController {
     private examDeliveryService: ExamDeliveryService,
     private sessionsService: SessionsService,
     private frService: FacialRecognitionService,
+    private aiTranscription: AiTranscriptionService,
     private prisma: PrismaService,
     private gateway: AppGateway,
   ) {}
+
+  // Candidate-side audio chunk → Gemini → appended to transcript.
+  // Magic-token auth. The hook on the candidate browser posts ~8s WebM/Opus
+  // audio chunks here; we forward them to the AI service. If the model
+  // returns empty text (silence / no speech), we silently skip — the
+  // candidate doesn't see "EMPTY" lines on the report.
+  @Post('transcribe-audio')
+  @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async transcribeCandidateAudio(
+    @Query('token') token: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { candidateId?: string; timestamp?: string },
+  ) {
+    if (!file) throw new BadRequestException('audio file is required');
+    if (!token) throw new BadRequestException('token required');
+    const session = await this.examDeliveryService.getSessionByToken(token);
+    if (!session) throw new BadRequestException('Invalid token');
+
+    const text = await this.aiTranscription.transcribe(file.buffer, file.mimetype || 'audio/webm');
+    if (!text) return { transcribed: false };
+
+    return this.sessionsService.appendVerificationTranscript(session.id, {
+      candidateId: body.candidateId,
+      speaker: 'CANDIDATE',
+      text,
+      timestamp: body.timestamp,
+    });
+  }
 
   // Candidate uploads a one-time reference photo during their camera-check
   // phase. Magic-token authenticated. Refuses to overwrite an existing
