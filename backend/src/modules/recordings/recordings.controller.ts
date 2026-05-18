@@ -38,8 +38,9 @@ export class RecordingsController {
   async uploadChunk(
     @Param('sessionId') sessionId: string,
     @Query('token') token: string,
+    @Query('candidateId') candidateId: string | undefined,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { streamType: 'screen' | 'webcam'; chunkIndex: string },
+    @Body() body: { streamType: 'screen' | 'webcam'; chunkIndex: string; candidateId?: string },
   ) {
     if (!file) throw new BadRequestException('chunk file is required');
     if (!token) throw new UnauthorizedException('token is required');
@@ -56,7 +57,7 @@ export class RecordingsController {
     // wrong-session token from spamming our disk.
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: token },
-      select: { id: true, status: true },
+      select: { id: true, status: true, candidateId: true, isMultiCandidate: true },
     });
     if (!session || session.id !== sessionId) {
       throw new UnauthorizedException('Invalid token for this session');
@@ -66,21 +67,53 @@ export class RecordingsController {
       throw new BadRequestException(`Recording is not allowed in status ${session.status}`);
     }
 
-    return this.recordingsService.saveChunk(sessionId, body.streamType, chunkIndex, file.buffer);
+    // Resolve the candidate that owns this chunk. Multi-candidate slots
+    // MUST pass the OTP-resolved id; single-candidate falls back to the
+    // session's primary. Verify the id is actually part of this session.
+    let cId = candidateId || body.candidateId;
+    if (!cId) {
+      if (session.isMultiCandidate) {
+        throw new BadRequestException('candidateId is required for multi-candidate sessions');
+      }
+      cId = session.candidateId;
+    } else if (cId !== session.candidateId) {
+      const sc = await this.prisma.sessionCandidate.findUnique({
+        where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+        select: { id: true },
+      });
+      if (!sc) throw new UnauthorizedException('candidateId is not part of this session');
+    }
+
+    return this.recordingsService.saveChunk(sessionId, cId, body.streamType, chunkIndex, file.buffer);
   }
 
   @Post('sessions/:sessionId/finalize')
   async finalizeRecording(
     @Param('sessionId') sessionId: string,
     @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
   ) {
     if (!token) throw new UnauthorizedException('token is required');
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: token },
-      select: { id: true },
+      select: { id: true, candidateId: true, isMultiCandidate: true },
     });
     if (!session || session.id !== sessionId) {
       throw new UnauthorizedException('Invalid token for this session');
+    }
+    // Per-candidate finalize for the candidate that left the page. If no
+    // id is provided we finalize EVERYTHING under the session (the
+    // proctor's terminate flow or server-side recovery path).
+    if (candidateId) {
+      let cId = candidateId;
+      if (cId !== session.candidateId) {
+        const sc = await this.prisma.sessionCandidate.findUnique({
+          where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+          select: { id: true },
+        });
+        if (!sc) throw new UnauthorizedException('candidateId is not part of this session');
+      }
+      return this.recordingsService.finalizeRecordingForCandidate(sessionId, cId);
     }
     return this.recordingsService.finalizeRecording(sessionId);
   }
@@ -88,8 +121,13 @@ export class RecordingsController {
   @Get('sessions/:sessionId/url')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async getRecordingUrl(@Param('sessionId') sessionId: string, @Req() req: any) {
-    return this.recordingsService.getRecordingUrl(sessionId, req.user);
+  async getRecordingUrl(
+    @Param('sessionId') sessionId: string,
+    @Query('candidateId') candidateId: string | undefined,
+    @Query('streamType') streamType: 'screen' | 'webcam' | undefined,
+    @Req() req: any,
+  ) {
+    return this.recordingsService.getRecordingUrl(sessionId, req.user, candidateId, streamType);
   }
 
   @Get('sessions/:sessionId/status')

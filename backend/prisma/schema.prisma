@@ -594,6 +594,11 @@ model SessionCandidate {
   disqualifyReason  String?
   checklistCompleted Boolean                @default(false)
   checklistData     Json?
+  // Per-candidate recording files. Populated by finalizeRecording when
+  // the multi-candidate slot finishes — each candidate's webcam + screen
+  // chunks are merged independently into their own webm.
+  screenRecordingPath String?
+  webcamRecordingPath String?
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
 

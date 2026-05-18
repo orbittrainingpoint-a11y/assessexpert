@@ -475,6 +475,10 @@ function ExamContent() {
     ),
     sessionId: sessionState?.id,
     token,
+    // Required so multi-candidate slots write chunks to the right per-
+    // candidate directory. Single-candidate sessions still work with this
+    // unset; backend falls back to session.candidateId.
+    candidateId: sessionState?.candidate?.id,
     webcamStream: lkLocalCamera,
     screenStream: lkLocalScreen,
   })

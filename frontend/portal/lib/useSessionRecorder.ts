@@ -19,6 +19,10 @@ interface Options {
   enabled: boolean
   sessionId?: string
   token?: string
+  /** Required for multi-candidate slots so chunks land in the right
+   *  per-candidate directory. Single-candidate sessions can omit and
+   *  the backend falls back to the session's primary candidate. */
+  candidateId?: string
   webcamStream?: MediaStream | null
   screenStream?: MediaStream | null
   chunkSeconds?: number
@@ -43,6 +47,7 @@ export function useSessionRecorder({
   enabled,
   sessionId,
   token,
+  candidateId,
   webcamStream,
   screenStream,
   chunkSeconds = 5,
@@ -83,9 +88,11 @@ export function useSessionRecorder({
           fd.append('chunk', e.data, `${streamType}-${idx}.webm`)
           fd.append('streamType', streamType)
           fd.append('chunkIndex', String(idx))
+          if (candidateId) fd.append('candidateId', candidateId)
+          const cidQs = candidateId ? `&candidateId=${encodeURIComponent(candidateId)}` : ''
           try {
             await fetch(
-              `${API_URL}/recordings/sessions/${encodeURIComponent(sessionId)}/chunk?token=${encodeURIComponent(token)}`,
+              `${API_URL}/recordings/sessions/${encodeURIComponent(sessionId)}/chunk?token=${encodeURIComponent(token)}${cidQs}`,
               { method: 'POST', body: fd },
             )
           } catch {
@@ -118,10 +125,11 @@ export function useSessionRecorder({
       // Best-effort finalize. If this fails (e.g. user closed tab abruptly)
       // the chunks remain on disk and finalize can be triggered server-side
       // by the daily cron or manually by an admin.
+      const cidQs = candidateId ? `&candidateId=${encodeURIComponent(candidateId)}` : ''
       fetch(
-        `${API_URL}/recordings/sessions/${encodeURIComponent(sessionId)}/finalize?token=${encodeURIComponent(token)}`,
+        `${API_URL}/recordings/sessions/${encodeURIComponent(sessionId)}/finalize?token=${encodeURIComponent(token)}${cidQs}`,
         { method: 'POST', keepalive: true },
       ).catch(() => {})
     }
-  }, [enabled, sessionId, token, webcamStream, screenStream, chunkSeconds])
+  }, [enabled, sessionId, token, candidateId, webcamStream, screenStream, chunkSeconds])
 }

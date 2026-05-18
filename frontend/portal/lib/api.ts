@@ -343,9 +343,11 @@ export const proctoringApi = {
     api.post(`/proctoring/sessions/${sessionId}/warn`, { message }),
 }
 
-// Recordings
+// Recordings — multi-candidate aware. Optional candidateId resolves to
+// that specific candidate's recording; omit for legacy single-candidate.
 export const recordingsApi = {
-  getUrl: (sessionId: string) => api.get(`/recordings/sessions/${sessionId}/url`),
+  getUrl: (sessionId: string, candidateId?: string, streamType: 'screen' | 'webcam' = 'screen') =>
+    api.get(`/recordings/sessions/${sessionId}/url`, { params: { candidateId, streamType } }),
   getStatus: (sessionId: string) => api.get(`/recordings/sessions/${sessionId}/status`),
 }
 
