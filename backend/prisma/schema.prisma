@@ -338,13 +338,19 @@ model Question {
 
 model SessionQuestionAssignment {
   id                   String      @id @default(cuid())
-  sessionId            String      @unique
+  sessionId            String
   session              ExamSession @relation(fields: [sessionId], references: [id])
+  // Multi-candidate slots get one assignment ROW per candidate so each
+  // candidate has their own shuffled question order. Backfilled from
+  // session.candidateId for legacy single-candidate sessions.
+  candidateId          String
   questionIds          String[]
   questionOrder        Json
   shuffleSeed          String
   generatedAt          DateTime    @default(now())
   generatedByProctorId String
+
+  @@unique([sessionId, candidateId])
 }
 
 model PracticalTask {
@@ -556,7 +562,7 @@ model ExamSession {
   // [{ candidateId?, speaker: 'PROCTOR' | 'CANDIDATE', text, timestamp }]
   // Append-only from the app; the report viewer renders it read-only.
   verificationTranscript Json?
-  questionAssignment     SessionQuestionAssignment?
+  questionAssignments    SessionQuestionAssignment[]
   answers                ExamAnswer[]
   practicalAnswers       PracticalAnswer[]
   events                 SessionEvent[]
@@ -598,6 +604,10 @@ model ExamAnswer {
   id                String      @id @default(cuid())
   sessionId         String
   session           ExamSession @relation(fields: [sessionId], references: [id])
+  // Which candidate submitted this answer. Backfilled from session.candidateId
+  // for legacy single-candidate sessions. Required so multi-candidate slots
+  // don't collide their answers into a shared bucket.
+  candidateId       String
   questionId        String
   question          Question    @relation(fields: [questionId], references: [id])
   position          Int
@@ -609,6 +619,8 @@ model ExamAnswer {
   marks             Float
   maxMarks          Float
   submittedAt       DateTime    @default(now())
+
+  @@index([sessionId, candidateId])
 }
 
 model ProctorChecklist {

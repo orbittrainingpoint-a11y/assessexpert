@@ -148,7 +148,7 @@ export class SessionsService {
         candidate: true,
         assessmentType: true,
         checklist: true,
-        questionAssignment: true,
+        questionAssignments: true,
         report: true,
         sessionCandidates: { include: { candidate: true } },
       },
@@ -158,11 +158,13 @@ export class SessionsService {
       throw new ForbiddenException('Access denied');
     }
 
-    // Attach MCQ score so the proctor's submission view can show the real count
-    // even after a page refresh (when the live socket event has been missed).
+    // Attach MCQ score so the proctor's submission view can show the real
+    // count even after a page refresh. For multi-candidate slots, this is
+    // the PRIMARY candidate's tally — per-candidate scores arrive via the
+    // exam.mcqSubmitted socket event as each candidate finishes.
     const [answeredCount, correctCount] = await Promise.all([
-      this.prisma.examAnswer.count({ where: { sessionId: id } }),
-      this.prisma.examAnswer.count({ where: { sessionId: id, isCorrect: true } }),
+      this.prisma.examAnswer.count({ where: { sessionId: id, candidateId: session.candidateId } }),
+      this.prisma.examAnswer.count({ where: { sessionId: id, candidateId: session.candidateId, isCorrect: true } }),
     ]);
     const mcqTotal = session.assessmentType?.mcqQuestionCount ?? 25;
     return Object.assign(session, {
@@ -263,35 +265,54 @@ export class SessionsService {
 
     // In dev mode skip checklist enforcement
     if (process.env.NODE_ENV === 'production') {
-      const checklist = await this.prisma.proctorChecklist.findUnique({ where: { sessionId } });
+      const checklist = await this.prisma.proctorChecklist.findFirst({ where: { sessionId } });
       if (!checklist?.completedAt) {
         throw new ForbiddenException('Proctor checklist must be fully completed before starting the exam');
       }
     }
 
-    // Draw 25 questions via Fisher-Yates shuffle
+    // Question pool draw — same logic per candidate, but with a fresh
+    // seed for each so multi-candidate slots get DIFFERENT shuffled orders.
     const pool = await this.prisma.question.findMany({
       where: { assessmentTypeId: session.assessmentTypeId, status: 'ACTIVE' },
     });
     if (pool.length < 25) {
       throw new BadRequestException(`Insufficient active questions: ${pool.length} found, 25 required.`);
     }
-    const seed = randomBytes(16).toString('hex');
-    const arr = [...pool];
-    let seedNum = parseInt(seed.substring(0, 8), 16);
-    for (let i = arr.length - 1; i > 0; i--) {
-      seedNum = (seedNum * 1664525 + 1013904223) & 0xffffffff;
-      const j = Math.abs(seedNum) % (i + 1);
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    const selected = arr.slice(0, 25);
-    const questionOrder = selected.map((q, i) => ({ questionId: q.id, position: i + 1, answeredAt: null, timeSpentSeconds: null }));
 
-    await this.prisma.sessionQuestionAssignment.upsert({
+    const drawForCandidate = async (candidateId: string) => {
+      const seed = randomBytes(16).toString('hex');
+      const arr = [...pool];
+      let seedNum = parseInt(seed.substring(0, 8), 16);
+      for (let i = arr.length - 1; i > 0; i--) {
+        seedNum = (seedNum * 1664525 + 1013904223) & 0xffffffff;
+        const j = Math.abs(seedNum) % (i + 1);
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      const selected = arr.slice(0, 25);
+      const questionOrder = selected.map((q, i) => ({
+        questionId: q.id, position: i + 1, answeredAt: null, timeSpentSeconds: null,
+      }));
+      await this.prisma.sessionQuestionAssignment.upsert({
+        where: { sessionId_candidateId: { sessionId, candidateId } },
+        create: { sessionId, candidateId, questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
+        update: { questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
+      });
+    };
+
+    // Build the list of candidates to draw for: every SessionCandidate row,
+    // plus the primary candidate (fallback for non-multi sessions). Dedupe
+    // by candidateId so the primary doesn't get a second assignment if
+    // they're also listed as a SessionCandidate.
+    const ids = new Set<string>([session.candidateId]);
+    const scRows = await this.prisma.sessionCandidate.findMany({
       where: { sessionId },
-      create: { sessionId, questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
-      update: { questionIds: selected.map(q => q.id), questionOrder, shuffleSeed: seed, generatedByProctorId: proctorId },
+      select: { candidateId: true },
     });
+    scRows.forEach(r => ids.add(r.candidateId));
+    for (const cid of ids) {
+      await drawForCandidate(cid);
+    }
 
     return this.prisma.examSession.update({
       where: { id: sessionId },

@@ -77,21 +77,35 @@ export class ExamDeliveryController {
   }
 
   @Get('session')
-  async getSessionState(@Query('token') token: string) {
-    return this.examDeliveryService.getSessionState(token);
+  async getSessionState(
+    @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
+    return this.examDeliveryService.getSessionState(token, candidateId);
   }
 
   @Get('question/current')
-  async getCurrentQuestion(@Query('token') token: string) {
-    return this.examDeliveryService.getCurrentQuestion(token);
+  async getCurrentQuestion(
+    @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
+    return this.examDeliveryService.getCurrentQuestion(token, candidateId);
   }
 
   @Post('question/submit')
   async submitAnswer(
     @Query('token') token: string,
-    @Body() body: { questionId: string; response: any; timeSpentSeconds: number },
+    @Query('candidateId') candidateId: string | undefined,
+    @Body() body: { questionId: string; response: any; timeSpentSeconds: number; candidateId?: string },
   ) {
-    return this.examDeliveryService.submitAnswer(token, body.questionId, body.response, body.timeSpentSeconds);
+    return this.examDeliveryService.submitAnswer(
+      token,
+      body.questionId,
+      body.response,
+      body.timeSpentSeconds,
+      // Accept candidateId from either source so older clients keep working.
+      candidateId || body.candidateId,
+    );
   }
 
   @Get('timer')

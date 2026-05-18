@@ -290,11 +290,19 @@ export const reportsApi = {
 }
 
 // Exam delivery (candidate)
+// candidateId is required by the backend for multi-candidate slots (one
+// MCQ question pool + answer bucket per candidate). Callers should pass
+// the OTP-resolved candidateId from localStorage. For single-candidate
+// sessions the backend falls back to the session's primary candidate.
+const cidParam = (candidateId?: string) => candidateId ? `&candidateId=${encodeURIComponent(candidateId)}` : ''
+
 export const examApi = {
-  getSession: (token: string) => api.get(`/exam/session?token=${token}`),
-  getCurrentQuestion: (token: string) => api.get(`/exam/question/current?token=${token}`),
-  submitAnswer: (token: string, questionId: string, response: any, timeSpentSeconds: number) =>
-    api.post(`/exam/question/submit?token=${token}`, { questionId, response, timeSpentSeconds }),
+  getSession: (token: string, candidateId?: string) =>
+    api.get(`/exam/session?token=${token}${cidParam(candidateId)}`),
+  getCurrentQuestion: (token: string, candidateId?: string) =>
+    api.get(`/exam/question/current?token=${token}${cidParam(candidateId)}`),
+  submitAnswer: (token: string, questionId: string, response: any, timeSpentSeconds: number, candidateId?: string) =>
+    api.post(`/exam/question/submit?token=${token}${cidParam(candidateId)}`, { questionId, response, timeSpentSeconds, candidateId }),
   getTimer: (token: string) => api.get(`/exam/timer?token=${token}`),
   getPracticalTask: (token: string) => api.get(`/exam/practical/task?token=${token}`),
   submitPractical: (token: string, formData: FormData) =>

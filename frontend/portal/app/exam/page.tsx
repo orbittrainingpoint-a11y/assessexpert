@@ -537,7 +537,7 @@ function ExamContent() {
     if (phase !== 'mcq-complete') return
     const poll = setInterval(async () => {
       try {
-        const { data: s } = await examApi.getSession(token)
+        const { data: s } = await examApi.getSession(token, sessionState?.candidate?.id)
         // Persist the fresh session — without this, sessionState.practicalPaperSetId
         // stays null and the candidate falls through to the legacy drag-and-drop
         // UI instead of the new PracticalSetView with questions + reference files.
@@ -721,7 +721,7 @@ function ExamContent() {
 
   const handleEnterWaiting = async () => {
     try {
-      const { data } = await examApi.getSession(token)
+      const { data } = await examApi.getSession(token, sessionState?.candidate?.id)
       // Normalise: backend returns sessionId, ensure .id is always set
       setSessionState({ ...data, id: data.id || data.sessionId })
       // Check if multi-candidate session
@@ -732,7 +732,7 @@ function ExamContent() {
       }
       // Poll for exam start
       const poll = setInterval(async () => {
-        const { data: s } = await examApi.getSession(token)
+        const { data: s } = await examApi.getSession(token, sessionState?.candidate?.id)
         setSessionState(s)
         if (s.status === 'MCQ_IN_PROGRESS') {
           clearInterval(poll)
@@ -785,7 +785,7 @@ function ExamContent() {
 
   const loadNextQuestion = async () => {
     try {
-      const { data } = await examApi.getCurrentQuestion(token)
+      const { data } = await examApi.getCurrentQuestion(token, sessionState?.candidate?.id)
       if (data.completed) { setPhase('mcq-complete'); return }
       setCurrentQuestion(data)
       setSelectedAnswer(null)
@@ -800,7 +800,7 @@ function ExamContent() {
     setLoading(true)
     const timeSpent = Math.floor((Date.now() - questionStartTime) / 1000)
     try {
-      const { data } = await examApi.submitAnswer(token, currentQuestion.questionId, selectedAnswer, timeSpent)
+      const { data } = await examApi.submitAnswer(token, currentQuestion.questionId, selectedAnswer, timeSpent, sessionState?.candidate?.id)
       if (data.isComplete) {
         setPhase('mcq-complete')
       } else {

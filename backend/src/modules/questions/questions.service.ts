@@ -19,15 +19,33 @@ export class QuestionsService {
     return arr;
   }
 
-  async drawExamQuestions(assessmentTypeId: string, sessionId: string, proctorId: string, language = 'en') {
-    // Check if already assigned
-    const existing = await this.prisma.sessionQuestionAssignment.findUnique({ where: { sessionId } });
+  // PER-CANDIDATE MCQ FLOW
+  //
+  // Each candidate in a multi-candidate slot gets their own SessionQuestion-
+  // Assignment row keyed on (sessionId, candidateId) so they receive a
+  // different shuffled order and their answers don't collide.
+  //
+  // For single-candidate sessions this is transparent: the caller passes
+  // session.candidateId and we behave the same as before.
+
+  async drawExamQuestions(
+    assessmentTypeId: string,
+    sessionId: string,
+    proctorId: string,
+    language = 'en',
+    candidateId?: string,
+  ) {
+    if (!candidateId) {
+      throw new BadRequestException('candidateId is required for question assignment');
+    }
+    const existing = await this.prisma.sessionQuestionAssignment.findUnique({
+      where: { sessionId_candidateId: { sessionId, candidateId } },
+    });
     if (existing) return existing;
 
     const pool = await this.prisma.question.findMany({
       where: { assessmentTypeId, status: 'ACTIVE', language },
     });
-
     if (pool.length < 25) {
       throw new BadRequestException(`Insufficient active questions in pool. Found ${pool.length}, need 25.`);
     }
@@ -46,6 +64,7 @@ export class QuestionsService {
     const assignment = await this.prisma.sessionQuestionAssignment.create({
       data: {
         sessionId,
+        candidateId,
         questionIds: selected.map(q => q.id),
         questionOrder,
         shuffleSeed: seed,
@@ -53,7 +72,6 @@ export class QuestionsService {
       },
     });
 
-    // Increment usage count
     await this.prisma.question.updateMany({
       where: { id: { in: selected.map(q => q.id) } },
       data: { usageCount: { increment: 1 } },
@@ -62,13 +80,16 @@ export class QuestionsService {
     return assignment;
   }
 
-  async getCurrentQuestion(sessionId: string) {
+  async getCurrentQuestion(sessionId: string, candidateId: string) {
+    if (!candidateId) throw new BadRequestException('candidateId is required');
     const assignment = await this.prisma.sessionQuestionAssignment.findUnique({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId } },
     });
-    if (!assignment) throw new NotFoundException('No question assignment found');
+    if (!assignment) throw new NotFoundException('No question assignment found for this candidate');
 
-    const answeredCount = await this.prisma.examAnswer.count({ where: { sessionId } });
+    const answeredCount = await this.prisma.examAnswer.count({
+      where: { sessionId, candidateId },
+    });
     const order = assignment.questionOrder as any[];
 
     if (answeredCount >= 25) return { completed: true, totalAnswered: 25 };
@@ -80,7 +101,6 @@ export class QuestionsService {
 
     if (!question) throw new NotFoundException('Question not found');
 
-    // Return question WITHOUT correct answer
     return {
       position: currentItem.position,
       totalQuestions: 25,
@@ -93,14 +113,23 @@ export class QuestionsService {
     };
   }
 
-  async submitAnswer(sessionId: string, questionId: string, response: any, timeSpentSeconds: number) {
+  async submitAnswer(
+    sessionId: string,
+    questionId: string,
+    response: any,
+    timeSpentSeconds: number,
+    candidateId: string,
+  ) {
+    if (!candidateId) throw new BadRequestException('candidateId is required');
     const assignment = await this.prisma.sessionQuestionAssignment.findUnique({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId } },
     });
-    if (!assignment) throw new NotFoundException('No question assignment found');
+    if (!assignment) throw new NotFoundException('No question assignment found for this candidate');
 
     const order = assignment.questionOrder as any[];
-    const answeredCount = await this.prisma.examAnswer.count({ where: { sessionId } });
+    const answeredCount = await this.prisma.examAnswer.count({
+      where: { sessionId, candidateId },
+    });
     const currentItem = order[answeredCount];
 
     if (currentItem.questionId !== questionId) {
@@ -110,21 +139,21 @@ export class QuestionsService {
     const question = await this.prisma.question.findUnique({ where: { id: questionId } });
     if (!question) throw new NotFoundException('Question not found');
 
-    // Compute correctness
     const correctAnswers = question.correctAnswer as string[];
     const candidateAnswers = Array.isArray(response) ? response : [response];
     const isCorrect = JSON.stringify(correctAnswers.sort()) === JSON.stringify(candidateAnswers.sort());
 
-    const answer = await this.prisma.examAnswer.create({
+    await this.prisma.examAnswer.create({
       data: {
         sessionId,
+        candidateId,
         questionId,
         position: currentItem.position,
         questionSnapshot: {
           content: question.content,
           options: question.options,
           type: question.type,
-          correctAnswer: question.correctAnswer, // stored for historical report accuracy
+          correctAnswer: question.correctAnswer,
         },
         candidateResponse: response,
         isCorrect,
@@ -135,14 +164,13 @@ export class QuestionsService {
       },
     });
 
-    // Update order with answered timestamp
     const updatedOrder = order.map((item, idx) =>
       idx === answeredCount
         ? { ...item, answeredAt: new Date().toISOString(), timeSpentSeconds }
-        : item
+        : item,
     );
     await this.prisma.sessionQuestionAssignment.update({
-      where: { sessionId },
+      where: { sessionId_candidateId: { sessionId, candidateId } },
       data: { questionOrder: updatedOrder },
     });
 
