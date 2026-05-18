@@ -1,9 +1,9 @@
 'use client'
-import { useState, Suspense } from 'react'
+import { useState, useMemo, Suspense } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { reportsApi, sessionsApi, transcriptApi } from '@/lib/api'
 import { useParams, useRouter } from 'next/navigation'
-import { CheckCircle, FileText, Download, Play } from 'lucide-react'
+import { CheckCircle, FileText, Download, Play, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
@@ -34,6 +34,9 @@ function ReportReviewContent() {
   const [overallVerdict, setOverallVerdict] = useState('')
   const [check1, setCheck1] = useState(false)
   const [check2, setCheck2] = useState(false)
+  // Active candidate for the transcript card filter (multi-candidate slots).
+  // 'all' shows the conversation chronologically across everyone in the slot.
+  const [transcriptCandidateId, setTranscriptCandidateId] = useState<string>('all')
 
   const { data: report, isLoading } = useQuery({
     queryKey: ['proctor-report', sessionId],
@@ -210,56 +213,17 @@ function ReportReviewContent() {
             </div>
           )}
 
-          {/* Verification Conversation Transcript — read-only, captured by the
-              browsers during pre-exam verification. Cannot be edited. */}
-          <div className="glass-card" style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                <FileText size={14} style={{ display: 'inline', marginRight: '6px', color: 'var(--cyan)' }} />
-                Verification Conversation
-              </h3>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Read-only · captured live
-              </span>
-            </div>
-            {(() => {
-              const lines: any[] = (transcriptData?.lines as any[]) || []
-              if (!lines.length) {
-                return (
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                    No transcript captured. Speech-to-text requires Chrome/Edge during the verification phase.
-                  </p>
-                )
-              }
-              return (
-                <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {lines.map((l: any, i: number) => {
-                    const isProctor = l.speaker === 'PROCTOR'
-                    return (
-                      <div key={i} style={{
-                        padding: '8px 10px', borderRadius: '6px',
-                        background: isProctor ? 'rgba(0,212,255,0.06)' : 'rgba(5,150,105,0.06)',
-                        borderLeft: `3px solid ${isProctor ? 'var(--cyan)' : 'var(--emerald)'}`,
-                        userSelect: 'text', cursor: 'default',
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '4px' }}>
-                          <span style={{ color: isProctor ? 'var(--cyan)' : 'var(--emerald)', fontWeight: 600, textTransform: 'uppercase' }}>
-                            {l.speaker}
-                          </span>
-                          <span style={{ color: 'var(--text-muted)' }}>
-                            {l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : ''}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: '1.5' }}>
-                          {l.text}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </div>
+          {/* Verification Conversation Transcript — read-only, captured live
+              by both browsers during pre-exam verification. Each line is
+              tagged with which candidate the proctor was verifying when it
+              was spoken, so multi-candidate slots get a per-candidate view. */}
+          <VerificationTranscriptCard
+            lines={(transcriptData?.lines as any[]) || []}
+            sessionCandidates={session?.sessionCandidates || []}
+            primaryCandidate={candidate}
+            activeCandidateId={transcriptCandidateId}
+            onChangeActive={setTranscriptCandidateId}
+          />
 
           {/* Proctor Assessment Form */}
           <div className="glass-card" style={{ padding: '20px' }}>
@@ -344,6 +308,209 @@ function ReportReviewContent() {
         </div>
       </div>
     </div>
+  )
+}
+
+interface TranscriptLine {
+  candidateId?: string | null
+  speaker: 'PROCTOR' | 'CANDIDATE'
+  text: string
+  timestamp?: string
+}
+
+interface CandidateOption {
+  id: string
+  name: string
+}
+
+function VerificationTranscriptCard({
+  lines,
+  sessionCandidates,
+  primaryCandidate,
+  activeCandidateId,
+  onChangeActive,
+}: {
+  lines: TranscriptLine[]
+  sessionCandidates: any[]
+  primaryCandidate: any
+  activeCandidateId: string
+  onChangeActive: (id: string) => void
+}) {
+  // Build a normalised candidate list: prefer sessionCandidates (multi-slot)
+  // and fall back to the session's primary candidate (single-candidate).
+  const candidates: CandidateOption[] = useMemo(() => {
+    const list: CandidateOption[] = []
+    if (Array.isArray(sessionCandidates) && sessionCandidates.length) {
+      sessionCandidates.forEach((sc: any) => {
+        if (sc?.candidate?.id) {
+          list.push({
+            id: sc.candidate.id,
+            name: `${sc.candidate.firstName || ''} ${sc.candidate.lastName || ''}`.trim() || 'Candidate',
+          })
+        }
+      })
+    }
+    if (!list.length && primaryCandidate?.id) {
+      list.push({
+        id: primaryCandidate.id,
+        name: `${primaryCandidate.firstName || ''} ${primaryCandidate.lastName || ''}`.trim() || 'Candidate',
+      })
+    }
+    return list
+  }, [sessionCandidates, primaryCandidate])
+
+  const lineCountByCandidate: Record<string, number> = useMemo(() => {
+    const acc: Record<string, number> = {}
+    lines.forEach(l => {
+      const key = l.candidateId || '__untagged__'
+      acc[key] = (acc[key] || 0) + 1
+    })
+    return acc
+  }, [lines])
+
+  const filteredLines = useMemo(() => {
+    if (activeCandidateId === 'all') return lines
+    return lines.filter(l => (l.candidateId || '') === activeCandidateId)
+  }, [lines, activeCandidateId])
+
+  const isMulti = candidates.length > 1
+  const totalLines = lines.length
+
+  return (
+    <div className="glass-card" style={{ padding: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
+          <FileText size={14} style={{ display: 'inline', marginRight: '6px', color: 'var(--cyan)' }} />
+          Verification Conversation
+          {totalLines > 0 && (
+            <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+              ({totalLines} line{totalLines === 1 ? '' : 's'})
+            </span>
+          )}
+        </h3>
+        <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Read-only · captured live
+        </span>
+      </div>
+
+      {/* Per-candidate filter chips — only shown when there's more than one
+          candidate in the slot. Single-candidate sessions skip the chip row. */}
+      {isMulti && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+          <FilterChip
+            label="All"
+            count={totalLines}
+            active={activeCandidateId === 'all'}
+            onClick={() => onChangeActive('all')}
+            icon={<Users size={11} />}
+          />
+          {candidates.map(c => (
+            <FilterChip
+              key={c.id}
+              label={c.name}
+              count={lineCountByCandidate[c.id] || 0}
+              active={activeCandidateId === c.id}
+              onClick={() => onChangeActive(c.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {filteredLines.length === 0 ? (
+        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          {totalLines === 0
+            ? 'No transcript captured. Speech-to-text requires Chrome/Edge during the verification phase.'
+            : 'No lines for this candidate.'}
+        </p>
+      ) : (
+        <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {filteredLines.map((l, i) => {
+            const isProctor = l.speaker === 'PROCTOR'
+            const candidateName = l.candidateId
+              ? (candidates.find(c => c.id === l.candidateId)?.name || 'Candidate')
+              : ''
+            return (
+              <div key={i} style={{
+                padding: '8px 10px', borderRadius: '6px',
+                background: isProctor ? 'rgba(0,212,255,0.06)' : 'rgba(5,150,105,0.06)',
+                borderLeft: `3px solid ${isProctor ? 'var(--cyan)' : 'var(--emerald)'}`,
+                userSelect: 'text', cursor: 'default',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '10px', marginBottom: '4px' }}>
+                  <span style={{ color: isProctor ? 'var(--cyan)' : 'var(--emerald)', fontWeight: 600, textTransform: 'uppercase' }}>
+                    {l.speaker}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+                    {isMulti && candidateName && activeCandidateId === 'all' && (
+                      <span style={{ padding: '1px 6px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '9px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        {candidateName}
+                      </span>
+                    )}
+                    <span>{l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : ''}</span>
+                  </span>
+                </div>
+                <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: '1.5' }}>
+                  {l.text}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Per-candidate summary — quick "how much did each side talk" view. */}
+      {isMulti && totalLines > 0 && (
+        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px' }}>
+          {candidates.map(c => {
+            const cLines = lines.filter(l => l.candidateId === c.id)
+            const proctorN = cLines.filter(l => l.speaker === 'PROCTOR').length
+            const candidateN = cLines.filter(l => l.speaker === 'CANDIDATE').length
+            return (
+              <div key={c.id} style={{ padding: '8px 10px', background: 'var(--bg-elevated)', borderRadius: '6px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
+                <div style={{ display: 'flex', gap: '8px', fontSize: '10px', color: 'var(--text-muted)' }}>
+                  <span><span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{proctorN}</span> proctor</span>
+                  <span><span style={{ color: 'var(--emerald)', fontWeight: 600 }}>{candidateN}</span> candidate</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilterChip({
+  label,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  label: string
+  count: number
+  active: boolean
+  onClick: () => void
+  icon?: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '5px 11px', borderRadius: '999px',
+        border: `1px solid ${active ? 'var(--cyan)' : 'var(--border)'}`,
+        background: active ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)',
+        color: active ? 'var(--cyan)' : 'var(--text-secondary)',
+        fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+      }}
+    >
+      {icon}
+      <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ opacity: 0.7, fontWeight: 500 }}>{count}</span>
+    </button>
   )
 }
 
