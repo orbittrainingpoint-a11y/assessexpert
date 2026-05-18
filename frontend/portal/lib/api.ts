@@ -252,6 +252,18 @@ export const legalApi = {
   getPublic: () => api.get('/legal/public'),
 }
 
+// Candidate uploads a one-time reference photo during the camera-check
+// phase. Stored on CandidateRecord and used as the FR baseline.
+export const referencePhotoApi = {
+  status: (token: string, candidateId?: string) =>
+    api.get('/exam/reference-photo/status', { params: { token, candidateId } }),
+  upload: (token: string, candidateId: string | undefined, imageBase64: string) =>
+    api.post(`/exam/reference-photo?token=${encodeURIComponent(token)}`, {
+      candidateId,
+      imageBase64,
+    }),
+}
+
 // Pre-exam verification conversation transcript. Both sides append lines
 // as they speak; the report viewer renders the result read-only.
 export const transcriptApi = {

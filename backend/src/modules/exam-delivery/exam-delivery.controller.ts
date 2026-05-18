@@ -2,7 +2,9 @@ import { Controller, Get, Post, Body, Query, Req, UploadedFile, UseInterceptors,
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ExamDeliveryService } from './exam-delivery.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { FacialRecognitionService } from '../facial-recognition/facial-recognition.service';
 import { AppGateway } from '../gateway/app.gateway';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ApiTags } from '@nestjs/swagger';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -13,8 +15,50 @@ export class ExamDeliveryController {
   constructor(
     private examDeliveryService: ExamDeliveryService,
     private sessionsService: SessionsService,
+    private frService: FacialRecognitionService,
+    private prisma: PrismaService,
     private gateway: AppGateway,
   ) {}
+
+  // Candidate uploads a one-time reference photo during their camera-check
+  // phase. Magic-token authenticated. Refuses to overwrite an existing
+  // reference unless the candidate doesn't have one yet.
+  @Post('reference-photo')
+  async uploadReferencePhoto(
+    @Query('token') token: string,
+    @Body() body: { candidateId?: string; imageBase64: string },
+  ) {
+    if (!body?.imageBase64) throw new BadRequestException('imageBase64 required');
+    const session = await this.examDeliveryService.getSessionByToken(token);
+    if (!session) throw new BadRequestException('Invalid session token');
+
+    // Resolve which candidate (multi-candidate slots share the magic link).
+    // The browser is expected to pass its OTP-resolved candidateId; if not
+    // provided we default to the session's primary candidate.
+    let candidateId = body.candidateId || session.candidateId;
+    // Verify the candidateId is actually attached to this session (either
+    // primary or a SessionCandidate row) — prevent cross-session abuse.
+    if (candidateId !== session.candidateId) {
+      const sc = await this.prisma.sessionCandidate.findFirst({
+        where: { sessionId: session.id, candidateId },
+        select: { id: true },
+      });
+      if (!sc) throw new BadRequestException('candidateId not part of this session');
+    }
+
+    return this.frService.saveReferencePhoto(candidateId, body.imageBase64);
+  }
+
+  @Get('reference-photo/status')
+  async referencePhotoStatus(
+    @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
+    const session = await this.examDeliveryService.getSessionByToken(token);
+    if (!session) throw new BadRequestException('Invalid session token');
+    const id = candidateId || session.candidateId;
+    return this.frService.hasReferencePhoto(id);
+  }
 
   // Candidate-side transcript append (magic-token auth, no JWT).
   @Post('transcript')

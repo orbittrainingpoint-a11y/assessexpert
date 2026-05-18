@@ -119,8 +119,11 @@ export class MediaPipeService implements OnModuleInit {
    */
   async detectFaces(imageBase64: string): Promise<DetectedFace[]> {
     if (!this.modelsLoaded || !this.faceDetector) {
-      this.logger.warn('Face detector not loaded, using fallback');
-      return this.fallbackDetectFaces();
+      // Hard refuse instead of returning a fake hit. False positives here
+      // cascade into a silent FR auto-pass which is the opposite of what
+      // a proctoring system should do.
+      this.logger.error('Face detector not loaded — refusing to fake detection');
+      return [];
     }
 
     try {
@@ -152,7 +155,7 @@ export class MediaPipeService implements OnModuleInit {
       }));
     } catch (error) {
       this.logger.error('Face detection error:', error.message);
-      return this.fallbackDetectFaces();
+      return [];
     }
   }
 
@@ -161,8 +164,11 @@ export class MediaPipeService implements OnModuleInit {
    */
   async extractFaceLandmarks(imageBase64: string): Promise<FaceLandmarks | null> {
     if (!this.modelsLoaded || !this.faceLandmarker) {
-      this.logger.warn('Face landmarker not loaded, using fallback');
-      return this.fallbackExtractLandmarks();
+      // Returning null lets callers branch on "FR unavailable" and
+      // explicitly reject. The old mock-embedding fallback was a silent
+      // false positive in the FR pipeline.
+      this.logger.error('Face landmarker not loaded — refusing to fake landmarks');
+      return null;
     }
 
     try {
@@ -196,7 +202,7 @@ export class MediaPipeService implements OnModuleInit {
       };
     } catch (error) {
       this.logger.error('Landmark extraction error:', error.message);
-      return this.fallbackExtractLandmarks();
+      return null;
     }
   }
 
@@ -298,26 +304,8 @@ export class MediaPipeService implements OnModuleInit {
     return dotProduct / (mag1 * mag2);
   }
 
-  // ========== FALLBACK METHODS (for dev/testing) ==========
-
-  private fallbackDetectFaces(): DetectedFace[] {
-    this.logger.warn('Using fallback face detection');
-    return [
-      {
-        boundingBox: { originX: 100, originY: 100, width: 200, height: 200 },
-        confidence: 0.95,
-      },
-    ];
-  }
-
-  private fallbackExtractLandmarks(): FaceLandmarks {
-    this.logger.warn('Using fallback landmark extraction');
-    const mockEmbedding = Array(128).fill(0).map(() => Math.random());
-    return {
-      landmarks: [],
-      embedding: this.normalizeEmbedding(mockEmbedding),
-    };
-  }
+  // (Fallback face/landmark mocks removed — silent false positives in
+  // facial recognition are worse than an explicit "FR unavailable" error.)
 
   /**
    * Health check

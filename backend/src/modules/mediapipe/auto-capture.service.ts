@@ -16,6 +16,12 @@ export interface CaptureResult {
     issues: string[];
   };
   faceDetected?: boolean;
+  // Real similarity score (0–100) when comparing against the candidate's
+  // stored reference photo. 0 with outcome=REJECTED means we couldn't run
+  // the comparison (no reference on file, no face detected, model failure).
+  similarity?: number;
+  outcome?: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
+  reason?: string;
   timestamp: Date;
 }
 
@@ -47,12 +53,15 @@ export class AutoCaptureService {
   }
 
   /**
-   * Auto-capture during ID verification
+   * Auto-capture during ID verification AND compare against the candidate's
+   * stored reference photo. If no reference is on file (or the comparison
+   * can't run), the result is REJECTED — we DON'T silently auto-pass.
    */
   async captureForIDVerification(
     sessionId: string,
     imageBase64: string,
-    checklistItemKey: string
+    checklistItemKey: string,
+    candidateId?: string,
   ): Promise<CaptureResult> {
     try {
       this.logger.log(`Auto-capture for ID verification: Session ${sessionId}`);
@@ -66,6 +75,9 @@ export class AutoCaptureService {
           success: false,
           quality,
           faceDetected: false,
+          similarity: 0,
+          outcome: 'REJECTED',
+          reason: 'Image quality too low: ' + quality.issues.join(', '),
           timestamp: new Date(),
         };
       }
@@ -80,6 +92,9 @@ export class AutoCaptureService {
           success: false,
           quality,
           faceDetected: false,
+          similarity: 0,
+          outcome: 'REJECTED',
+          reason: 'No face detected in the captured frame',
           timestamp: new Date(),
         };
       }
@@ -89,7 +104,7 @@ export class AutoCaptureService {
         sessionId,
         imageBase64,
         'ID_VERIFICATION',
-        checklistItemKey
+        checklistItemKey,
       );
 
       // Store metadata in database
@@ -102,12 +117,59 @@ export class AutoCaptureService {
         checklistItemKey,
       });
 
+      // Resolve the candidate (defaults to the session's primary) and
+      // compare against their stored reference photo.
+      let resolvedCandidateId = candidateId;
+      if (!resolvedCandidateId) {
+        const session = await this.prismaService.examSession.findUnique({
+          where: { id: sessionId },
+          select: { candidateId: true },
+        });
+        resolvedCandidateId = session?.candidateId;
+      }
+
+      let similarity = 0;
+      let outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED' = 'REJECTED';
+      let reason: string | undefined;
+
+      if (!resolvedCandidateId) {
+        reason = 'Unable to resolve candidate for this session';
+      } else {
+        const candidate = await this.prismaService.candidateRecord.findUnique({
+          where: { id: resolvedCandidateId },
+          select: { referenceFaceEmbedding: true, referencePhotoPath: true },
+        });
+        if (!candidate?.referenceFaceEmbedding) {
+          reason = 'No reference photo on file — candidate needs to redo the camera check';
+        } else {
+          const capturedLandmarks = await this.mediaPipeService.extractFaceLandmarks(imageBase64);
+          if (!capturedLandmarks) {
+            reason = 'Could not extract face landmarks from captured frame';
+          } else {
+            try {
+              const referenceEmbedding = JSON.parse(candidate.referenceFaceEmbedding as string);
+              const cmp = this.mediaPipeService.compareFaceEmbeddings(
+                capturedLandmarks.embedding,
+                referenceEmbedding,
+              );
+              similarity = cmp.similarity;
+              outcome = cmp.outcome;
+            } catch (e) {
+              reason = 'Stored reference embedding is corrupt';
+            }
+          }
+        }
+      }
+
       return {
-        success: true,
+        success: outcome === 'VERIFIED',
         capturePath,
         captureId,
         quality,
         faceDetected: true,
+        similarity,
+        outcome,
+        reason,
         timestamp: new Date(),
       };
     } catch (error) {
@@ -115,6 +177,9 @@ export class AutoCaptureService {
       return {
         success: false,
         faceDetected: false,
+        similarity: 0,
+        outcome: 'REJECTED',
+        reason: error?.message || 'Internal error',
         timestamp: new Date(),
       };
     }

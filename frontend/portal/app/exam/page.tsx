@@ -1,7 +1,7 @@
 ﻿'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { authApi, examApi, checklistApi, legalApi, transcriptApi, api, uploadUrl } from '@/lib/api'
+import { authApi, examApi, checklistApi, legalApi, transcriptApi, referencePhotoApi, api, uploadUrl } from '@/lib/api'
 import { useSpeechTranscription } from '@/lib/useSpeechTranscription'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
@@ -456,6 +456,69 @@ function ExamContent() {
       }).catch(() => {})
     },
   })
+
+  // ── Reference photo capture (one-time per candidate) ─────────────────────
+  // During the camera-check phase, take a still from the candidate's webcam
+  // and POST it to the backend. The backend stores it as the candidate's
+  // permanent FR baseline. Re-runs are no-ops on the server side.
+  const [referenceCaptureState, setReferenceCaptureState] = useState<'idle' | 'capturing' | 'saved' | 'present' | 'failed'>('idle')
+  useEffect(() => {
+    if (phase !== 'camera') return
+    if (!token) return
+    if (referenceCaptureState !== 'idle') return
+
+    let cancelled = false
+    const candidateId = sessionState?.candidate?.id
+
+    ;(async () => {
+      try {
+        // Already on file? Skip capture.
+        const { data: status } = await referencePhotoApi.status(token, candidateId)
+        if (cancelled) return
+        if (status?.hasPhoto) {
+          setReferenceCaptureState('present')
+          return
+        }
+
+        // Grab a frame from the live video element. Give the camera a beat
+        // to produce a real frame (videoWidth > 0) before snapshotting.
+        const tryCapture = async (): Promise<boolean> => {
+          const v = videoRef.current
+          if (!v || !v.videoWidth) return false
+          const canvas = document.createElement('canvas')
+          canvas.width = v.videoWidth
+          canvas.height = v.videoHeight
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return false
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+          setReferenceCaptureState('capturing')
+          try {
+            await referencePhotoApi.upload(token, candidateId, dataUrl)
+            if (!cancelled) setReferenceCaptureState('saved')
+            return true
+          } catch {
+            if (!cancelled) setReferenceCaptureState('failed')
+            return true
+          }
+        }
+
+        // Poll up to ~6 seconds for a real frame; the user may have only
+        // just granted camera permission so the stream takes a moment.
+        for (let i = 0; i < 12; i++) {
+          if (cancelled) return
+          if (await tryCapture()) return
+          await new Promise(r => setTimeout(r, 500))
+        }
+        if (!cancelled) setReferenceCaptureState('failed')
+      } catch {
+        if (!cancelled) setReferenceCaptureState('failed')
+      }
+    })()
+
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, token, sessionState?.candidate?.id])
 
   const handleGuidelinesDecline = useCallback(() => {
     if (wsSocket?.connected && sessionState?.id) {
@@ -985,6 +1048,21 @@ function ExamContent() {
               </div>
             ))}
           </div>
+          {(() => {
+            const map: Record<typeof referenceCaptureState, { color: string; label: string }> = {
+              idle:      { color: 'var(--text-muted)', label: 'Preparing your reference photo...' },
+              capturing: { color: 'var(--cyan)',       label: 'Capturing your reference photo for ID verification...' },
+              saved:     { color: 'var(--emerald)',    label: '✓ Reference photo saved' },
+              present:   { color: 'var(--emerald)',    label: '✓ Reference photo already on file' },
+              failed:    { color: 'var(--amber)',      label: 'Could not capture reference photo — your proctor will redo this' },
+            }
+            const s = map[referenceCaptureState]
+            return (
+              <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '6px', fontSize: '12px', color: s.color, marginBottom: '14px', textAlign: 'center' }}>
+                {s.label}
+              </div>
+            )
+          })()}
           <button className="btn-primary" onClick={async () => { await enterFullscreen(); handleEnterWaiting() }} style={{ width: '100%', padding: '12px' }}>
             Enter Waiting Room â†’
           </button>

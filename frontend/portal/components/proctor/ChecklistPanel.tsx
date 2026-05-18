@@ -200,7 +200,14 @@ function ItemFacialRecognition({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [state, setState] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle')
   const [preview, setPreview] = useState<string | null>(null)
-  const [result, setResult] = useState<{ faceDetected: boolean; capturePath?: string; quality?: any } | null>(null)
+  const [result, setResult] = useState<{
+    faceDetected: boolean
+    capturePath?: string
+    quality?: any
+    similarity?: number
+    outcome?: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED'
+    reason?: string
+  } | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -254,6 +261,9 @@ function ItemFacialRecognition({
         faceDetected: !!data.faceDetected,
         capturePath: data.capturePath,
         quality: data.quality,
+        similarity: typeof data.similarity === 'number' ? data.similarity : undefined,
+        outcome: data.outcome,
+        reason: data.reason,
       })
       setState('done')
     } catch (e: any) {
@@ -321,15 +331,36 @@ function ItemFacialRecognition({
               {result.quality?.isValid ? 'OK' : 'LOW'}
             </span>
           </div>
-          <div style={{ padding: '6px', borderRadius: '6px',
-            background: result.faceDetected ? 'rgba(5,150,105,0.1)' : 'rgba(225,29,72,0.1)',
-            border: `1px solid ${result.faceDetected ? 'rgba(5,150,105,0.3)' : 'rgba(225,29,72,0.3)'}`,
-            fontSize: '12px', fontWeight: '600',
-            color: result.faceDetected ? 'var(--emerald)' : 'var(--rose)', textAlign: 'center' }}>
-            {result.faceDetected
-              ? '✓ Stored for report — proceed if the face matches the candidate'
-              : '✗ No face detected — recapture before proceeding'}
-          </div>
+          {typeof result.similarity === 'number' && result.outcome && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Similarity vs Reference</span>
+              <span style={{
+                color: result.outcome === 'VERIFIED' ? 'var(--emerald)' :
+                       result.outcome === 'PENDING_REVIEW' ? 'var(--amber)' : 'var(--rose)',
+                fontWeight: '600',
+              }}>
+                {result.similarity.toFixed(1)}% · {result.outcome.replace('_', ' ')}
+              </span>
+            </div>
+          )}
+          {(() => {
+            const ok = result.outcome === 'VERIFIED'
+            const review = result.outcome === 'PENDING_REVIEW'
+            const colour = ok ? 'var(--emerald)' : review ? 'var(--amber)' : 'var(--rose)'
+            const bg = ok ? 'rgba(5,150,105,0.1)' : review ? 'rgba(215,119,6,0.1)' : 'rgba(225,29,72,0.1)'
+            const border = ok ? 'rgba(5,150,105,0.3)' : review ? 'rgba(215,119,6,0.3)' : 'rgba(225,29,72,0.3)'
+            const text = ok
+              ? '✓ Face matches the candidate on file'
+              : review
+                ? '⚠ Borderline match — confirm visually before proceeding'
+                : (result.reason || '✗ Does not match — recapture or escalate')
+            return (
+              <div style={{ padding: '6px', borderRadius: '6px', background: bg, border: `1px solid ${border}`,
+                fontSize: '12px', fontWeight: '600', color: colour, textAlign: 'center' }}>
+                {text}
+              </div>
+            )
+          })()}
           <button className="btn-ghost" style={{ width: '100%', padding: '8px', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px' }}
             onClick={retry}>
             <RotateCcw size={12} /> Recapture
@@ -338,9 +369,25 @@ function ItemFacialRecognition({
       )}
 
       <button className="btn-primary" style={{ width: '100%', padding: '10px' }}
-        disabled={saving || state !== 'done' || !result?.faceDetected}
-        onClick={() => onComplete({ value: { capturePath: result?.capturePath, faceDetected: result?.faceDetected, quality: result?.quality, capturedAt: new Date().toISOString() } })}>
-        {saving ? 'Saving...' : 'Facial Recognition Confirmed'}
+        disabled={saving || state !== 'done' || result?.outcome === 'REJECTED' || !result?.faceDetected}
+        onClick={() => onComplete({
+          value: {
+            capturePath: result?.capturePath,
+            faceDetected: result?.faceDetected,
+            quality: result?.quality,
+            similarity: result?.similarity,
+            outcome: result?.outcome,
+            reason: result?.reason,
+            capturedAt: new Date().toISOString(),
+          },
+        })}>
+        {saving
+          ? 'Saving...'
+          : result?.outcome === 'REJECTED'
+            ? 'Cannot confirm — recapture or escalate'
+            : result?.outcome === 'PENDING_REVIEW'
+              ? 'Confirm (Manual Override)'
+              : 'Facial Recognition Confirmed'}
       </button>
     </div>
   )

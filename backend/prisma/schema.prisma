@@ -498,6 +498,16 @@ model CandidateRecord {
   notes          String?
   batchId        String?
   source         CandidateSource @default(MANUAL)
+  // One-time reference photo captured from the candidate's webcam during
+  // their first OTP-verified session. Used as the baseline for facial
+  // recognition checks (pre-exam ID + periodic during exam).
+  // Path is relative to STORAGE_PATH, e.g. "candidate-photos/<id>.jpg".
+  referencePhotoPath        String?
+  referencePhotoCapturedAt  DateTime?
+  // Cached face embedding (JSON-stringified Float[]) extracted from
+  // referencePhotoPath. Pre-computed so FR comparisons during the exam
+  // don't have to re-run MediaPipe on the reference image each time.
+  referenceFaceEmbedding    String?
   sessions       ExamSession[]
   sessionCandidates SessionCandidate[]
   createdAt      DateTime        @default(now())

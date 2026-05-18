@@ -144,15 +144,16 @@ export class MediaPipeController {
   @Post('capture/id-verification/:sessionId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Auto-capture for ID verification' })
+  @ApiOperation({ summary: 'Auto-capture + compare against stored reference for ID verification' })
   async captureIDVerification(
     @Param('sessionId') sessionId: string,
-    @Body() dto: { image: string; checklistItemKey: string }
+    @Body() dto: { image: string; checklistItemKey: string; candidateId?: string },
   ) {
-    return await this.autoCaptureService.captureForIDVerification(
+    return this.autoCaptureService.captureForIDVerification(
       sessionId,
       dto.image,
-      dto.checklistItemKey
+      dto.checklistItemKey,
+      dto.candidateId,
     );
   }
 
