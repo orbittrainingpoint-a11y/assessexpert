@@ -14,6 +14,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { RecordingsService } from './recordings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -34,6 +35,10 @@ export class RecordingsController {
   ) {}
 
   @Post('sessions/:sessionId/chunk')
+  // Recording uploads legitimately burst at ~24/min per browser (2 streams
+  // × 12 chunks/min). The "recording" profile (240/min/IP) accommodates
+  // four simultaneous browsers from one NAT without throttling.
+  @Throttle({ recording: { ttl: 60_000, limit: 240 } })
   @UseInterceptors(FileInterceptor('chunk', { limits: { fileSize: MAX_CHUNK_BYTES } }))
   async uploadChunk(
     @Param('sessionId') sessionId: string,

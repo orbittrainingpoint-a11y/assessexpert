@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Req, UseGuards, HttpCode, Param, Inject } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -6,6 +7,11 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('auth')
 @Controller('auth')
+// Per-IP throttle on every public auth endpoint. The named "auth" profile
+// is 10/min from app.module.ts — slows brute-force OTP / login attempts
+// without locking out a legitimate user who just fat-fingered their
+// password a few times.
+@Throttle({ auth: { ttl: 60_000, limit: 10 } })
 export class AuthController {
   constructor(
     private authService: AuthService,

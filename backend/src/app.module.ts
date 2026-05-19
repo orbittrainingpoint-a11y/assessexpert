@@ -35,7 +35,16 @@ import { AppController } from './app.controller';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // Named throttle profiles so individual endpoints can opt into a
+    // tighter budget than the global default. Stricter limits go on
+    // the public, unauthenticated paths (login, OTP, magic-link verify)
+    // and a separate generous one on recording-chunk uploads since the
+    // candidate browser legitimately fires ~24 of those per minute.
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 100 },
+      { name: 'auth', ttl: 60_000, limit: 10 },         // login, OTP send/verify, magic-link
+      { name: 'recording', ttl: 60_000, limit: 240 },   // 4 streams worst-case @ 12 chunks/min
+    ]),
     PrismaModule,
     AuthModule,
     UsersModule,
