@@ -79,7 +79,14 @@ recordings, and rendered PDFs all land.
 
 `backend/.env`:
 ```
-DATABASE_URL=...
+# IMPORTANT: append connection_limit + pool_timeout to DATABASE_URL.
+# Prisma's default pool size is num_cpus * 2 + 1 — on a small VPS that
+# comes out to 5-9 connections, which gets exhausted the moment a
+# dashboard fires several parallel queries (the master-proctor home
+# page alone runs 5 useQuery calls in parallel). connection_limit=20
+# is comfortable for modest production traffic; raise further only if
+# you actually see pool-timeout errors after this.
+DATABASE_URL=postgresql://USER:PASS@127.0.0.1:5432/DB?connection_limit=20&pool_timeout=20
 JWT_SECRET=...                   # long random
 JWT_REFRESH_SECRET=...           # long random
 FRONTEND_URL=https://app.assessexpert.com
@@ -148,6 +155,33 @@ gunzip -c /var/backups/assessexpert/2026-05-19_0230.sql.gz \
 
 Override defaults via env if needed: `BACKUP_DIR=/mnt/somewhere
 RETENTION_DAYS=30 ./backup-db.sh`.
+
+## Prisma connection-pool exhaustion
+
+Symptom in logs after a user opens a busy dashboard:
+
+```
+Invalid `prisma.user.findUnique()` invocation:
+Timed out fetching a new connection from the connection pool.
+Current connection pool timeout: 10, connection limit: 9
+```
+
+The default Prisma pool is `num_physical_cpus * 2 + 1` — 5-9 on a
+small VPS. The master-proctor home page fires 5+ parallel useQuery
+calls; add the WebSocket handshake + /auth/me + a refresh-poll and
+the pool runs dry.
+
+**One-line fix on the VPS:**
+
+```bash
+# Edit backend/.env and append these query params to DATABASE_URL:
+#   ?connection_limit=20&pool_timeout=20
+nano backend/.env
+pm2 reload assessexpert-backend --update-env
+```
+
+Postgres `max_connections` defaults to 100 so 20 is well within
+budget. Bump higher only if you actually see the error again.
 
 ## Drift recovery
 
