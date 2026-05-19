@@ -689,7 +689,11 @@ function ExamContent() {
     e.preventDefault()
     setLoading(true)
     try {
-      const { data } = await authApi.sendOtp(email, token)
+      // Normalise the email before sending so a stray trailing space
+      // (common with mobile autocomplete) or a different capitalisation
+      // doesn't trip the case-sensitive comparison server-side.
+      const normalizedEmail = email.trim().toLowerCase()
+      const { data } = await authApi.sendOtp(normalizedEmail, token)
       setPhase('otp-verify')
       setResendTimer(60)
       if (data?.devOtp) {
@@ -707,7 +711,7 @@ function ExamContent() {
     if (resendTimer > 0) return
     setLoading(true)
     try {
-      await authApi.sendOtp(email, token)
+      await authApi.sendOtp(email.trim().toLowerCase(), token)
       setResendTimer(60)
       toast.success('New verification code sent')
     } catch (err: any) {
@@ -724,7 +728,9 @@ function ExamContent() {
     try {
       // Pass the session token so the backend resolves WHICH candidate just
       // verified (the magic link can belong to multiple candidates).
-      const { data: result } = await authApi.verifyOtp(email, finalOtp, token)
+      // Same normalisation as handleSendOtp — both calls must use the
+      // exact same string so the Redis OTP key lookup hits.
+      const { data: result } = await authApi.verifyOtp(email.trim().toLowerCase(), finalOtp, token)
 
       // Persist the resolved candidate identity so subsequent calls
       // (WebRTC token, exam delivery) know which candidate this browser is.

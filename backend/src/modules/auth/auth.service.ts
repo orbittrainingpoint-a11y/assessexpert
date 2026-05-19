@@ -178,8 +178,18 @@ export class AuthService {
   // OTP store keys. The RedisService transparently falls back to an
   // in-memory map when REDIS_URL is unset, so this code is the same
   // shape in both modes — only the storage layer differs.
-  private otpKey(email: string) { return `otp:code:${email.toLowerCase()}`; }
-  private otpAttemptsKey(email: string) { return `otp:attempts:${email.toLowerCase()}`; }
+  private otpKey(email: string) { return `otp:code:${this.normalizeEmail(email)}`; }
+  private otpAttemptsKey(email: string) { return `otp:attempts:${this.normalizeEmail(email)}`; }
+
+  // Email-matching helper. The DB sometimes carries mixed-case emails
+  // from CSV imports and users type their address with whatever
+  // capitalisation muscle memory gives them — so every comparison
+  // goes through lowercase + trim. RFC 5321 says the local-part is
+  // technically case-sensitive but no real provider treats it that
+  // way; matching case-insensitively is the right call here.
+  private normalizeEmail(email: string): string {
+    return (email || '').trim().toLowerCase();
+  }
 
   async sendCandidateOtp(email: string, sessionToken: string) {
     const session = await this.prisma.examSession.findUnique({
@@ -194,11 +204,13 @@ export class AuthService {
     }
     // In multi-candidate sessions the email may belong to any candidate
     // in the slot, not just the primary candidate. Accept all of them.
+    // Compare case-insensitively — see normalizeEmail() above.
+    const normalized = this.normalizeEmail(email);
     const allEmails = new Set<string>([
-      session.candidate.email,
-      ...session.sessionCandidates.map(sc => sc.candidate.email),
+      this.normalizeEmail(session.candidate.email),
+      ...session.sessionCandidates.map(sc => this.normalizeEmail(sc.candidate.email)),
     ]);
-    if (!allEmails.has(email)) {
+    if (!allEmails.has(normalized)) {
       throw new BadRequestException('Email does not match session');
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -265,8 +277,11 @@ export class AuthService {
         },
       });
       if (session) {
-        // Primary candidate first
-        if (session.candidate.email === email) {
+        // Primary candidate first. Compare case-insensitively so an
+        // email entered as "JuraiJ@gmail.com" still matches "juraij@gmail.com"
+        // in the DB (and vice versa).
+        const normalized = this.normalizeEmail(email);
+        if (this.normalizeEmail(session.candidate.email) === normalized) {
           return {
             verified: true,
             candidateId: session.candidate.id,
@@ -278,7 +293,7 @@ export class AuthService {
           };
         }
         // Then any SessionCandidate
-        const match = session.sessionCandidates.find(sc => sc.candidate.email === email);
+        const match = session.sessionCandidates.find(sc => this.normalizeEmail(sc.candidate.email) === normalized);
         if (match) {
           return {
             verified: true,
