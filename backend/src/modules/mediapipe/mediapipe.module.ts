@@ -1,41 +1,23 @@
 import { Module } from '@nestjs/common';
 import { MediaPipeService } from './mediapipe.service';
 import { MediaPipeController } from './mediapipe.controller';
-import { MultipleFaceDetectionService } from './multiple-face-detection.service';
-import { RealTimeMonitoringService } from './realtime-monitoring.service';
-import { PoseDetectionService } from './pose-detection.service';
-import { HandDetectionService } from './hand-detection.service';
-import { GazeTrackingService } from './gaze-tracking.service';
-import { BehaviorAnalysisService } from './behavior-analysis.service';
 import { AutoCaptureService } from './auto-capture.service';
-import { IDDocumentDetectionService } from './id-document-detection.service';
-import { ProctoringModule } from '../proctoring/proctoring.module';
-import { GatewayModule } from '../gateway/gateway.module';
 
+// What's left after the batch-20 cleanup:
+// - MediaPipeService: real face-landmark + embedding extractor used by
+//   FacialRecognitionService for pre-exam and periodic FR checks.
+// - AutoCaptureService: stores ID-verification snapshots + serves the
+//   capture gallery. Periodic / manual capture flows are unused from
+//   the frontend but the methods stay so the gallery's existing data
+//   keeps rendering.
+//
+// The seven detection services (multiple-face, pose, hand, gaze,
+// realtime-monitoring, behavior-analysis, id-document) were placeholder
+// implementations that nothing in the app actually called — frontend
+// observability is done client-side via useFaceDetection (lib hook).
 @Module({
-  imports: [ProctoringModule, GatewayModule],
-  providers: [
-    MediaPipeService,
-    MultipleFaceDetectionService,
-    RealTimeMonitoringService,
-    PoseDetectionService,
-    HandDetectionService,
-    GazeTrackingService,
-    BehaviorAnalysisService,
-    AutoCaptureService,
-    IDDocumentDetectionService,
-  ],
+  providers: [MediaPipeService, AutoCaptureService],
   controllers: [MediaPipeController],
-  exports: [
-    MediaPipeService,
-    MultipleFaceDetectionService,
-    RealTimeMonitoringService,
-    PoseDetectionService,
-    HandDetectionService,
-    GazeTrackingService,
-    BehaviorAnalysisService,
-    AutoCaptureService,
-    IDDocumentDetectionService,
-  ],
+  exports: [MediaPipeService, AutoCaptureService],
 })
 export class MediaPipeModule {}
