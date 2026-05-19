@@ -118,19 +118,30 @@ export class SchedulingService {
       proctorId = proctor?.id;
     }
 
-    // Auto-merge: if a session already exists for this same slot (same proctor
-    // + assessment + scheduledAt + org, still SCHEDULED), add this candidate
-    // to it instead of creating a new session. All candidates in the slot
+    // Auto-merge: if a session already exists for the same slot (same
+    // proctor + assessment + org, still SCHEDULED) with scheduledAt within
+    // a ±60-second window of the request, add this candidate to it instead
+    // of creating a new session. The window forgives "10:00:00 vs 10:00:30"
+    // clock drift between HR users scheduling siblings — exact-match would
+    // otherwise spawn a near-duplicate slot. All candidates in the slot
     // then share one magic link and one proctor window.
     if (proctorId) {
+      const AUTO_MERGE_WINDOW_MS = 60_000;
+      const windowStart = new Date(data.scheduledAt.getTime() - AUTO_MERGE_WINDOW_MS);
+      const windowEnd = new Date(data.scheduledAt.getTime() + AUTO_MERGE_WINDOW_MS);
       const existingSlot = await this.prisma.examSession.findFirst({
         where: {
           assessmentTypeId: data.assessmentTypeId,
           organizationId: data.organizationId,
           proctorId,
-          scheduledAt: data.scheduledAt,
+          scheduledAt: { gte: windowStart, lte: windowEnd },
           status: 'SCHEDULED',
         },
+        // Tie-breaker: if two slots somehow fall inside the window
+        // (shouldn't happen unless the boundary was hit twice in 60s),
+        // pick the closer one so the candidate ends up next to the
+        // session they were actually trying to join.
+        orderBy: { scheduledAt: 'asc' },
         include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: true },
       });
 

@@ -18,9 +18,43 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  // Security
+  // Security headers. We mostly serve a JSON API + uploads, so the CSP
+  // only needs to be permissive enough for Swagger UI in dev. The
+  // frontend (Next.js) sets its own CSP; this one protects the API
+  // origin's own surface (Swagger, /uploads/*).
+  //
+  // - img-src 'self' data: blob: — Swagger embeds inline image data, and
+  //   uploaded screenshots are served from this origin.
+  // - script-src 'self' 'unsafe-inline' — Swagger injects an inline
+  //   bootstrap script. Restrict to 'self' only when Swagger is off.
+  // - object-src 'none' — no Flash/PDF object embedding ever.
+  // - frame-ancestors 'none' — refuses to be iframed (clickjacking).
+  const isProd = process.env.NODE_ENV === 'production';
   app.use(helmet({
-    contentSecurityPolicy: false, // Configure per environment
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: isProd ? ["'self'"] : ["'self'", "'unsafe-inline'"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+      },
+    },
+    // Force HTTPS once we're behind TLS termination. Disabled in dev so
+    // localhost without certs keeps working.
+    hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: false } : false,
+    // Block other origins from poking at our resources via the
+    // legacy Cross-Origin-Resource-Policy header. Same-origin is enough
+    // — the frontend already shares the same origin via the Apache
+    // reverse-proxy in production.
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }));
   app.use(compression());
   app.use(cookieParser());
