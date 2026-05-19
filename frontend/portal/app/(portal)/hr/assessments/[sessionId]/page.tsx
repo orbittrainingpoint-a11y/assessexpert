@@ -1,32 +1,54 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { reportsApi, recordingsApi } from '@/lib/api'
 import { use } from 'react'
-import { CheckCircle, XCircle, Clock, Download, Video, X, Share2 } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { CheckCircle, XCircle, Clock, Download, Video, X, Share2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function ReportPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // ?candidateId= deep-links to a specific candidate's report; defaults
+  // to the first report returned by listForSession.
+  const candidateIdParam = searchParams.get('candidateId') || ''
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>(candidateIdParam)
   const [showRecording, setShowRecording] = useState(false)
   const [recordingUrl, setRecordingUrl] = useState('')
   const [recordingDaysLeft, setRecordingDaysLeft] = useState<number | null>(null)
   const [loadingRecording, setLoadingRecording] = useState(false)
 
+  // List of all per-candidate reports for this slot.
+  const { data: reportList } = useQuery({
+    queryKey: ['hr-report-list', sessionId],
+    queryFn: () => reportsApi.listForSession(sessionId).then(r => r.data as any[]).catch(() => []),
+  })
+
+  // Default to the first report when no candidateId in URL — keeps
+  // single-candidate sessions working unchanged.
+  useEffect(() => {
+    if (selectedCandidateId) return
+    if (Array.isArray(reportList) && reportList.length > 0) {
+      setSelectedCandidateId(reportList[0].candidateId)
+    }
+  }, [reportList, selectedCandidateId])
+
   const { data: report, isLoading } = useQuery({
-    queryKey: ['report', sessionId],
-    queryFn: () => reportsApi.getBySession(sessionId).then(r => r.data),
+    queryKey: ['report', sessionId, selectedCandidateId],
+    queryFn: () => reportsApi.getBySession(sessionId, selectedCandidateId || undefined).then(r => r.data),
   })
 
   const rateMutation = useMutation({
-    mutationFn: ({ rating }: { rating: number }) => reportsApi.rate(sessionId, rating),
+    mutationFn: ({ rating }: { rating: number }) => reportsApi.rate(sessionId, rating, undefined, selectedCandidateId || undefined),
     onSuccess: () => toast.success('Rating submitted'),
   })
 
   const handleWatchRecording = async () => {
     setLoadingRecording(true)
     try {
-      const { data } = await recordingsApi.getUrl(sessionId)
+      const { data } = await recordingsApi.getUrl(sessionId, selectedCandidateId || undefined)
       setRecordingUrl(data.url)
       // Calculate days remaining from createdAt + 7 days
       if (data.expiresAt) {
@@ -46,8 +68,12 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
       // Validate sessionId is alphanumeric/UUID only before using in URL
       const safeSessionId = sessionId.replace(/[^a-zA-Z0-9-_]/g, '')
       if (!safeSessionId || safeSessionId !== sessionId) throw new Error('Invalid session ID')
+      // Sanitise candidateId the same way before appending — never trust
+      // raw query-string input even though it came from our own URL.
+      const safeCandidateId = selectedCandidateId ? selectedCandidateId.replace(/[^a-zA-Z0-9-_]/g, '') : ''
+      const cidQs = safeCandidateId ? `?candidateId=${encodeURIComponent(safeCandidateId)}` : ''
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
-      const response = await fetch(`${apiUrl}/reports/session/${safeSessionId}/pdf`, {
+      const response = await fetch(`${apiUrl}/reports/session/${safeSessionId}/pdf${cidQs}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       })
       if (response.status === 404) {
@@ -61,7 +87,9 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `assessment-report-${safeSessionId}.pdf`
+      a.download = safeCandidateId
+        ? `assessment-report-${safeSessionId}-${safeCandidateId}.pdf`
+        : `assessment-report-${safeSessionId}.pdf`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e: any) {
@@ -71,7 +99,7 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
 
   const handleShareLink = async () => {
     try {
-      const { data } = await reportsApi.getBySession(sessionId)
+      const { data } = await reportsApi.getBySession(sessionId, selectedCandidateId || undefined)
       // Sanitize verification code — alphanumeric only, no user-controlled HTML injection
       const safeCode = String(data.verificationCode || sessionId).replace(/[^a-zA-Z0-9-_]/g, '')
       const shareUrl = `${window.location.origin}/reports/verify/${safeCode}`
@@ -82,6 +110,20 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
     }
   }
 
+  // Build the candidate option list from the per-candidate report rows.
+  const candidateOptions = useMemo(() => {
+    if (!Array.isArray(reportList)) return []
+    return reportList
+      .map((r: any) => {
+        const id = r.candidateId
+        const c = r.session?.candidate
+        const name = `${c?.firstName || ''} ${c?.lastName || ''}`.trim() || 'Candidate'
+        return { id, name }
+      })
+      .filter(o => !!o.id)
+  }, [reportList])
+  const isMultiCandidate = candidateOptions.length > 1
+
   if (isLoading) return <div style={{ color: 'var(--text-muted)', padding: '40px' }}>Loading report...</div>
   if (!report) return <div style={{ color: 'var(--rose)', padding: '40px' }}>Report not found</div>
 
@@ -91,6 +133,38 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
 
   return (
     <div style={{ maxWidth: '900px' }}>
+      {/* Per-candidate report selector — only renders for multi-candidate slots */}
+      {isMultiCandidate && (
+        <div className="glass-card" style={{ padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <Users size={14} color="var(--cyan)" />
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginRight: '4px' }}>
+            Candidate
+          </span>
+          {candidateOptions.map(o => {
+            const active = o.id === selectedCandidateId
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCandidateId(o.id)
+                  router.replace(`/hr/assessments/${sessionId}?candidateId=${encodeURIComponent(o.id)}`)
+                }}
+                style={{
+                  padding: '6px 14px', borderRadius: '999px',
+                  border: `1px solid ${active ? 'var(--cyan)' : 'var(--border)'}`,
+                  background: active ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)',
+                  color: active ? 'var(--cyan)' : 'var(--text-secondary)',
+                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {o.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Header */}
       <div className="glass-card" style={{ padding: '24px', marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

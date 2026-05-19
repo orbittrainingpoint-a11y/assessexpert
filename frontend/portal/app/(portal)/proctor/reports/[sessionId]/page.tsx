@@ -1,8 +1,8 @@
 'use client'
-import { useState, useMemo, Suspense } from 'react'
+import { useEffect, useState, useMemo, Suspense } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { reportsApi, sessionsApi, transcriptApi } from '@/lib/api'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle, FileText, Download, Play, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -27,7 +27,12 @@ const OVERALL_VERDICTS = [
 function ReportReviewContent() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const sessionId = params.sessionId as string
+  // ?candidateId= deep-links to a specific candidate's report in a
+  // multi-candidate slot. Defaults to the first one returned by listForSession.
+  const candidateIdParam = searchParams.get('candidateId') || ''
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>(candidateIdParam)
 
   const [narrative, setNarrative] = useState('')
   const [practicalVerdict, setPracticalVerdict] = useState('')
@@ -38,9 +43,26 @@ function ReportReviewContent() {
   // 'all' shows the conversation chronologically across everyone in the slot.
   const [transcriptCandidateId, setTranscriptCandidateId] = useState<string>('all')
 
+  // List of all per-candidate reports for this slot. Used to render the
+  // candidate chip selector and to default selectedCandidateId.
+  const { data: reportList } = useQuery({
+    queryKey: ['proctor-report-list', sessionId],
+    queryFn: () => reportsApi.listForSession(sessionId).then(r => r.data as any[]).catch(() => []),
+    enabled: !!sessionId,
+  })
+
+  // Pick the first report as default when no candidateId in URL — keeps
+  // single-candidate sessions working unchanged.
+  useEffect(() => {
+    if (selectedCandidateId) return
+    if (Array.isArray(reportList) && reportList.length > 0) {
+      setSelectedCandidateId(reportList[0].candidateId)
+    }
+  }, [reportList, selectedCandidateId])
+
   const { data: report, isLoading } = useQuery({
-    queryKey: ['proctor-report', sessionId],
-    queryFn: () => reportsApi.getBySession(sessionId).then(r => r.data).catch(() => null),
+    queryKey: ['proctor-report', sessionId, selectedCandidateId],
+    queryFn: () => reportsApi.getBySession(sessionId, selectedCandidateId || undefined).then(r => r.data).catch(() => null),
     enabled: !!sessionId,
   })
 
@@ -56,16 +78,28 @@ function ReportReviewContent() {
     enabled: !!sessionId,
   })
 
+  // Reset the proctor form when switching candidates so we don't carry
+  // narrative/verdict from one candidate over to another.
+  useEffect(() => {
+    setNarrative('')
+    setPracticalVerdict('')
+    setOverallVerdict('')
+    setCheck1(false)
+    setCheck2(false)
+  }, [selectedCandidateId])
+
   const publishMutation = useMutation({
     mutationFn: async () => {
       // Match the backend's expected shape (Prisma column names):
       // proctorNarrative, proctorVerdict (ProctorVerdict), practicalQuality (PracticalQuality).
+      const cId = selectedCandidateId || undefined
       await reportsApi.updateProctorFields(sessionId, {
         proctorNarrative: narrative,
         proctorVerdict: overallVerdict,
         practicalQuality: practicalVerdict,
+        candidateId: cId,
       })
-      await reportsApi.publish(sessionId)
+      await reportsApi.publish(sessionId, cId)
     },
     onSuccess: () => {
       toast.success('Report published to HR Dashboard')
@@ -78,18 +112,57 @@ function ReportReviewContent() {
 
   if (isLoading) return <div style={{ color: 'var(--text-muted)', padding: '40px' }}>Loading report...</div>
 
-  // No report yet — show generate CTA
+  // Build the candidate list from session.sessionCandidates (multi) or
+  // the session's primary candidate (single). Used to render the chip
+  // selector and to look up the active candidate's display name.
+  const candidateOptions = useMemo(() => {
+    const list: { id: string; name: string }[] = []
+    const sc = session?.sessionCandidates
+    if (Array.isArray(sc) && sc.length) {
+      sc.forEach((row: any) => {
+        if (row?.candidate?.id) {
+          list.push({
+            id: row.candidate.id,
+            name: `${row.candidate.firstName || ''} ${row.candidate.lastName || ''}`.trim() || 'Candidate',
+          })
+        }
+      })
+    }
+    if (!list.length && session?.candidate?.id) {
+      list.push({
+        id: session.candidate.id,
+        name: `${session.candidate.firstName || ''} ${session.candidate.lastName || ''}`.trim() || 'Candidate',
+      })
+    }
+    return list
+  }, [session])
+  const isMultiCandidate = candidateOptions.length > 1
+  const activeCandidate = candidateOptions.find(c => c.id === selectedCandidateId) || candidateOptions[0]
+
+  // No report yet — show generate CTA for the active candidate.
   if (!report && session) return (
     <div style={{ maxWidth: '600px', margin: '40px auto', textAlign: 'center' }}>
+      {isMultiCandidate && (
+        <ChipRow
+          options={candidateOptions}
+          activeId={selectedCandidateId}
+          onSelect={id => {
+            setSelectedCandidateId(id)
+            router.replace(`/proctor/reports/${sessionId}?candidateId=${encodeURIComponent(id)}`)
+          }}
+        />
+      )}
       <div className="glass-card" style={{ padding: '40px' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
         <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>Report Not Generated Yet</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', marginBottom: '24px' }}>
-          The AI report for {session?.candidate?.firstName} {session?.candidate?.lastName} has not been generated yet.
+          The AI report for {activeCandidate?.name || `${session?.candidate?.firstName} ${session?.candidate?.lastName}`} has not been generated yet.
           Click below to generate it now.
         </p>
         <button className="btn-primary" style={{ padding: '12px 32px', fontSize: '15px' }}
-          onClick={() => reportsApi.generate(sessionId).then(() => { toast.success('Report generation started'); window.location.reload() }).catch((e: any) => toast.error(e.response?.data?.message || 'Failed'))}
+          onClick={() => reportsApi.generate(sessionId, selectedCandidateId ? { candidateId: selectedCandidateId } : undefined)
+            .then(() => { toast.success('Report generation started'); window.location.reload() })
+            .catch((e: any) => toast.error(e.response?.data?.message || 'Failed'))}
         >
           🤖 Generate AI Report
         </button>
@@ -102,7 +175,9 @@ function ReportReviewContent() {
 
   if (!report) return <div style={{ color: 'var(--rose)', padding: '40px' }}>Session not found.</div>
 
-  const candidate = session?.candidate
+  const candidate = activeCandidate
+    ? { firstName: activeCandidate.name.split(' ')[0], lastName: activeCandidate.name.split(' ').slice(1).join(' ') }
+    : session?.candidate
   const mcqScore = session?.mcqScore ?? report?.mcqScore ?? 0
   const mcqTotal = session?.assessmentType?.mcqCount ?? 25
   const practicalScore = report?.practicalScore ?? 0
@@ -125,6 +200,18 @@ function ReportReviewContent() {
         </div>
         <Link href="/proctor/reports" style={{ fontSize: '13px', color: 'var(--cyan)', textDecoration: 'none' }}>← Back to Reports</Link>
       </div>
+
+      {/* Per-candidate report selector — only renders for multi-candidate slots */}
+      {isMultiCandidate && (
+        <ChipRow
+          options={candidateOptions}
+          activeId={selectedCandidateId}
+          onSelect={id => {
+            setSelectedCandidateId(id)
+            router.replace(`/proctor/reports/${sessionId}?candidateId=${encodeURIComponent(id)}`)
+          }}
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '20px' }}>
 
@@ -307,6 +394,46 @@ function ReportReviewContent() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Top-of-page chip selector for switching between candidates' reports
+// in a multi-candidate slot.
+function ChipRow({
+  options,
+  activeId,
+  onSelect,
+}: {
+  options: { id: string; name: string }[]
+  activeId: string
+  onSelect: (id: string) => void
+}) {
+  return (
+    <div className="glass-card" style={{ padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+      <Users size={14} color="var(--cyan)" />
+      <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginRight: '4px' }}>
+        Candidate
+      </span>
+      {options.map(o => {
+        const active = o.id === activeId
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onSelect(o.id)}
+            style={{
+              padding: '6px 14px', borderRadius: '999px',
+              border: `1px solid ${active ? 'var(--cyan)' : 'var(--border)'}`,
+              background: active ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)',
+              color: active ? 'var(--cyan)' : 'var(--text-secondary)',
+              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {o.name}
+          </button>
+        )
+      })}
     </div>
   )
 }

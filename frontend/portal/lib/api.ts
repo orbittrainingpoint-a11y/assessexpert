@@ -301,10 +301,10 @@ export const reportsApi = {
     api.post(`/reports/generate/${sessionId}`, undefined, {
       params: { candidateId: opts?.candidateId, all: opts?.all ? 'true' : undefined },
     }),
-  updateProctorFields: (sessionId: string, data: any) =>
+  updateProctorFields: (sessionId: string, data: any & { candidateId?: string }) =>
     api.put(`/reports/session/${sessionId}/proctor-fields`, data),
-  publish: (sessionId: string, data?: any) =>
-    api.post(`/reports/session/${sessionId}/publish`, data || {}),
+  publish: (sessionId: string, candidateId?: string) =>
+    api.post(`/reports/session/${sessionId}/publish`, candidateId ? { candidateId } : {}),
   rate: (sessionId: string, rating: number, note?: string, candidateId?: string) =>
     api.post(`/reports/session/${sessionId}/rate`, { rating, note, candidateId }),
   returnForModification: (id: string, instructions: string) =>
