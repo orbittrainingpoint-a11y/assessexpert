@@ -1,3 +1,4 @@
 [submodule "assessexpert"]
 	path = assessexpert
-	url = ./assessexpert
+	url = https://github.com/orbittrainingpoint-a11y/assessexpert.git
+	branch = main
