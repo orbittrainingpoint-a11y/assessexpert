@@ -122,6 +122,33 @@ pm2 save
 pm2 startup    # run the one-time bootstrap line it prints
 ```
 
+### 6. Nightly DB backup cron
+
+Wire `backend/scripts/backup-db.sh` to cron once per VPS. Reads
+`DATABASE_URL` from `backend/.env`, writes `.sql.gz` files to
+`/var/backups/assessexpert/`, keeps 14 days by default.
+
+```bash
+# Make sure the backup dir exists and is writable by the cron user
+sudo mkdir -p /var/backups/assessexpert
+sudo chown $USER /var/backups/assessexpert
+
+# Edit cron for the user running the app:
+crontab -e
+
+# Add (runs nightly at 02:30 server time):
+30 2 * * * /home/ubuntu/assessexpert/backend/scripts/backup-db.sh >> /var/log/assessexpert-backup.log 2>&1
+```
+
+Restore from a snapshot:
+```bash
+gunzip -c /var/backups/assessexpert/2026-05-19_0230.sql.gz \
+  | psql "$DATABASE_URL"
+```
+
+Override defaults via env if needed: `BACKUP_DIR=/mnt/somewhere
+RETENTION_DAYS=30 ./backup-db.sh`.
+
 ## Drift recovery
 
 `prisma migrate status` reports drift when the database schema doesn't
