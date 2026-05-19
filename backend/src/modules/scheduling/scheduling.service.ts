@@ -1,15 +1,17 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RemindersService } from '../notifications/reminders.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class SchedulingService {
   private readonly logger = new Logger(SchedulingService.name);
-  
+
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private reminders: RemindersService,
   ) {}
 
   async getAvailableSlots(assessmentTypeId: string, dateFrom: string, dateTo: string) {
@@ -228,15 +230,15 @@ export class SchedulingService {
       },
     ).catch(() => {});
 
-    // Schedule 24h reminder
+    // Schedule reminder emails via RemindersService — Bull-backed when
+    // REDIS_URL is set so jobs survive deploys, in-process setTimeout
+    // fallback otherwise. RemindersService.schedule silently drops
+    // reminders whose target time is already past, so we just enqueue.
     const remind24h = new Date(data.scheduledAt.getTime() - 24 * 60 * 60 * 1000);
-    if (remind24h > new Date()) {
-      const delay24h = remind24h.getTime() - Date.now();
-      setTimeout(() => {
-        this.notifications.sendEmail(
-          session.candidate.email,
-          `Reminder: Your Assessment Tomorrow — ${session.assessmentType.name}`,
-          `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
+    await this.reminders.schedule(remind24h, {
+      to: session.candidate.email,
+      subject: `Reminder: Your Assessment Tomorrow — ${session.assessmentType.name}`,
+      html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
             <h1 style="color:#00D4FF">assessexpert</h1>
             <h2>Assessment Reminder — 24 Hours</h2>
             <p>Hi ${session.candidate.firstName},</p>
@@ -247,19 +249,13 @@ export class SchedulingService {
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>
             </div>
           </div>`,
-        ).catch(() => {});
-      }, delay24h);
-    }
+    });
 
-    // Schedule 1h reminder
     const remind1h = new Date(data.scheduledAt.getTime() - 60 * 60 * 1000);
-    if (remind1h > new Date()) {
-      const delay1h = remind1h.getTime() - Date.now();
-      setTimeout(() => {
-        this.notifications.sendEmail(
-          session.candidate.email,
-          `Starting in 1 Hour — ${session.assessmentType.name}`,
-          `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
+    await this.reminders.schedule(remind1h, {
+      to: session.candidate.email,
+      subject: `Starting in 1 Hour — ${session.assessmentType.name}`,
+      html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
             <h1 style="color:#00D4FF">assessexpert</h1>
             <h2>Your Assessment Starts in 1 Hour</h2>
             <p>Hi ${session.candidate.firstName},</p>
@@ -268,9 +264,7 @@ export class SchedulingService {
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>
             </div>
           </div>`,
-        ).catch(() => {});
-      }, delay1h);
-    }
+    });
 
     return session;
   }

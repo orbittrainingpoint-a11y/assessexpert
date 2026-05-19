@@ -29,6 +29,7 @@ import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JitsiModule } from './modules/jitsi/jitsi.module';
 import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
 import { LegalModule } from './modules/legal/legal.module';
+import { RedisModule } from './modules/redis/redis.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -46,6 +47,7 @@ import { AppController } from './app.controller';
       { name: 'recording', ttl: 60_000, limit: 240 },   // 4 streams worst-case @ 12 chunks/min
     ]),
     PrismaModule,
+    RedisModule,
     AuthModule,
     UsersModule,
     OrganizationsModule,

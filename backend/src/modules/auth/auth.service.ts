@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
@@ -14,6 +15,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private redis: RedisService,
   ) {
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -173,8 +175,11 @@ export class AuthService {
     return updated;
   }
 
-  // OTP store — in-memory for dev, should use Redis in production
-  private otpStore = new Map<string, { otp: string; expires: Date; attempts: number }>();
+  // OTP store keys. The RedisService transparently falls back to an
+  // in-memory map when REDIS_URL is unset, so this code is the same
+  // shape in both modes — only the storage layer differs.
+  private otpKey(email: string) { return `otp:code:${email.toLowerCase()}`; }
+  private otpAttemptsKey(email: string) { return `otp:attempts:${email.toLowerCase()}`; }
 
   async sendCandidateOtp(email: string, sessionToken: string) {
     const session = await this.prisma.examSession.findUnique({
@@ -197,8 +202,11 @@ export class AuthService {
       throw new BadRequestException('Email does not match session');
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-    this.otpStore.set(email, { otp, expires, attempts: 0 });
+    // 10-minute TTL — Redis (or the in-memory fallback) expires the key
+    // automatically so we don't have to track an explicit expires field.
+    // Reset the attempts counter on every fresh OTP issuance.
+    await this.redis.setex(this.otpKey(email), 10 * 60, otp);
+    await this.redis.del(this.otpAttemptsKey(email));
 
     // Send OTP via email
     try {
@@ -225,21 +233,25 @@ export class AuthService {
   }
 
   async verifyCandidateOtp(email: string, otp: string, sessionToken?: string) {
-    const stored = this.otpStore.get(email);
-    if (!stored) throw new BadRequestException('No OTP found. Please request a new code.');
-    if (stored.expires < new Date()) {
-      this.otpStore.delete(email);
-      throw new BadRequestException('Code has expired. Please request a new code.');
-    }
-    stored.attempts++;
-    if (stored.attempts > 3) {
-      this.otpStore.delete(email);
+    const stored = await this.redis.get(this.otpKey(email));
+    // Missing key means either the OTP was never issued or it has
+    // already expired — Redis TTL handles expiry for us.
+    if (!stored) throw new BadRequestException('No OTP found or it has expired. Please request a new code.');
+
+    const attempts = await this.redis.incr(this.otpAttemptsKey(email));
+    if (attempts > 3) {
+      // Burn the OTP after 3 failed tries so a brute-force attacker
+      // can't sit on the same code indefinitely.
+      await this.redis.del(this.otpKey(email));
+      await this.redis.del(this.otpAttemptsKey(email));
       throw new BadRequestException('Too many attempts. Please contact your assessment coordinator.');
     }
-    if (stored.otp !== otp) {
-      throw new BadRequestException(`Incorrect code. ${3 - stored.attempts} attempts remaining.`);
+    if (stored !== otp) {
+      throw new BadRequestException(`Incorrect code. ${Math.max(0, 3 - attempts)} attempts remaining.`);
     }
-    this.otpStore.delete(email);
+    // Success — clean up both keys.
+    await this.redis.del(this.otpKey(email));
+    await this.redis.del(this.otpAttemptsKey(email));
 
     // If we have a session token, resolve which specific candidate just
     // logged in. The caller will use this to drive the per-candidate WebRTC
