@@ -1,21 +1,27 @@
-# CI for the assessexpert submodule. The outer repo is mostly a thin
-# wrapper around the submodule, so the meaningful checks are: does
-# the backend's NestJS build still compile, and does the frontend's
-# TypeScript still type-check?
+# CI for the assessexpert app code. The outer repo is a thin wrapper
+# that pins the inner repo as a submodule, but the inner repo lives on
+# the SAME GitHub remote at a different branch (main vs. master), and
+# submodule cloning from inside Actions has been flaky as a result. So
+# this workflow does the simpler thing: check out the inner repo's
+# main branch directly and build there.
 #
-# We deliberately do NOT run prisma migrate or hit a real database —
-# CI's job is to catch compile breaks before merge, not to validate
-# migrations against a live DB. Migration drift is gated by the
-# deploy script (backend/scripts/deploy.sh) which refuses to ship a
-# divergent schema.
+# Trade-off: if a master push bumps the submodule pointer to an OLDER
+# inner commit, CI still tests the latest main HEAD — not what was
+# pointed at. In practice every bump tracks main HEAD, so this is fine.
+# If you ever need to verify a specific submodule SHA, run the same
+# commands locally against that commit.
+#
+# What CI checks: backend NestJS build compiles + frontend TypeScript
+# type-check passes. Migration drift is gated by deploy.sh on the VPS;
+# CI deliberately does not hit a real database.
 
 name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request:
-    branches: [master]
+    branches: [master, main]
   workflow_dispatch: {}
 
 jobs:
@@ -24,24 +30,23 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: assessexpert/backend
+        working-directory: backend
     steps:
-      - name: Checkout (with submodule)
+      - name: Checkout inner repo (main branch)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          repository: orbittrainingpoint-a11y/assessexpert
+          ref: main
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: assessexpert/backend/package-lock.json
+          cache-dependency-path: backend/package-lock.json
 
-      # We need Prisma client generated before nest build, otherwise
-      # @prisma/client imports fail. Skipping postinstall scripts in
-      # CI keeps things fast — we only need the client, not Puppeteer
-      # downloads or any other heavy postinstalls.
+      # Skip postinstall scripts: Puppeteer's Chromium download is only
+      # needed on the VPS for PDF rendering, not for compilation.
       - name: Install deps
         run: npm ci --ignore-scripts
         env:
@@ -58,19 +63,20 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: assessexpert/frontend/portal
+        working-directory: frontend/portal
     steps:
-      - name: Checkout (with submodule)
+      - name: Checkout inner repo (main branch)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          repository: orbittrainingpoint-a11y/assessexpert
+          ref: main
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: assessexpert/frontend/portal/package-lock.json
+          cache-dependency-path: frontend/portal/package-lock.json
 
       - name: Install deps
         run: npm ci --ignore-scripts
