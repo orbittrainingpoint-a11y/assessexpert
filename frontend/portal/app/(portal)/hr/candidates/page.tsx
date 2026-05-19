@@ -303,12 +303,25 @@ export default function CandidatesPage() {
       rescheduleSessionId
         ? schedulingApi.reschedule({ sessionId: rescheduleSessionId, scheduledAt: d.scheduledAt })
         : schedulingApi.schedule(d),
-    onSuccess: () => {
-      toast.success(
-        rescheduleSessionId
-          ? 'Assessment rescheduled — updated invitation sent to candidate'
-          : 'Assessment scheduled — invitation email sent to candidate',
-      )
+    onSuccess: (res: any) => {
+      // Backend now returns invitationSent / invitationError on the
+      // scheduleSession response. Show the truth instead of always
+      // claiming the email went out — silent SMTP failures were the
+      // reason "schedule works second time only" was happening.
+      const data = res?.data || {}
+      const wasReschedule = !!rescheduleSessionId
+      if (data.invitationSent === false) {
+        toast.error(
+          `${wasReschedule ? 'Rescheduled' : 'Scheduled'} but invitation email FAILED${data.invitationError ? ` — ${data.invitationError}` : ''}. Resend manually.`,
+          { duration: 9000 },
+        )
+      } else {
+        toast.success(
+          wasReschedule
+            ? 'Assessment rescheduled — updated invitation sent to candidate'
+            : 'Assessment scheduled — invitation email sent to candidate',
+        )
+      }
       qc.invalidateQueries({ queryKey: ['candidates'] })
       closeScheduleModal()
     },

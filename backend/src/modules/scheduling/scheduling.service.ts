@@ -183,11 +183,15 @@ export class SchedulingService {
         });
 
         // Email the new candidate the SAME magic link as the rest of the slot.
+        // Surface the outcome on the returned object so the HR UI can show
+        // "scheduled, but email failed" instead of silently lying. The old
+        // .catch(() => {}) made flaky SMTP look like a successful schedule.
+        let mergeInvitationResult: { sent: boolean; error?: string } = { sent: false, error: 'No candidate found' };
         const candidate = await this.prisma.candidateRecord.findUnique({ where: { id: data.candidateId } });
         if (candidate) {
           const magicLink = `${process.env.FRONTEND_URL}/exam?token=${existingSlot.magicToken}`;
-          await this.notifications
-            .sendCandidateInvitation(
+          try {
+            const r = await this.notifications.sendCandidateInvitation(
               candidate.email,
               `${candidate.firstName} ${candidate.lastName}`,
               {
@@ -197,15 +201,24 @@ export class SchedulingService {
                 timezone: 'Asia/Dubai',
                 magicLink,
               },
-            )
-            .catch(() => {});
+            );
+            mergeInvitationResult = { sent: !!(r as any)?.sent, error: (r as any)?.error };
+          } catch (e: any) {
+            mergeInvitationResult = { sent: false, error: e?.message || String(e) };
+            this.logger.warn(`Invitation send failed for ${candidate.email}: ${e?.message || e}`);
+          }
         }
 
         // Return the existing (now multi-candidate) session
-        return this.prisma.examSession.findUnique({
+        const merged = await this.prisma.examSession.findUnique({
           where: { id: existingSlot.id },
           include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: { include: { candidate: true } } },
         });
+        return {
+          ...(merged as any),
+          invitationSent: mergeInvitationResult.sent,
+          invitationError: mergeInvitationResult.error,
+        };
       }
     }
 
@@ -227,29 +240,47 @@ export class SchedulingService {
       include: { candidate: true, assessmentType: true, organization: true },
     });
 
-    // Send invitation email to candidate
+    // Send invitation email to candidate. We AWAIT this (so the HR user
+    // sees a real outcome — sent / not sent — before the API returns)
+    // but capture the result instead of swallowing errors. The old
+    // .catch(() => {}) made every flaky SMTP attempt look successful and
+    // is exactly why the user was seeing "scheduled but no email
+    // arrived, works on retry" behaviour.
     const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
-    await this.notifications.sendCandidateInvitation(
-      session.candidate.email,
-      `${session.candidate.firstName} ${session.candidate.lastName}`,
-      {
-        companyName: (session as any).organization?.name || 'AssessExpert',
-        assessmentName: session.assessmentType.name,
-        scheduledAt: data.scheduledAt,
-        timezone: 'Asia/Dubai',
-        magicLink,
-      },
-    ).catch(() => {});
+    let invitationResult: { sent: boolean; error?: string };
+    try {
+      const r = await this.notifications.sendCandidateInvitation(
+        session.candidate.email,
+        `${session.candidate.firstName} ${session.candidate.lastName}`,
+        {
+          companyName: (session as any).organization?.name || 'AssessExpert',
+          assessmentName: session.assessmentType.name,
+          scheduledAt: data.scheduledAt,
+          timezone: 'Asia/Dubai',
+          magicLink,
+        },
+      );
+      invitationResult = { sent: !!(r as any)?.sent, error: (r as any)?.error };
+    } catch (e: any) {
+      invitationResult = { sent: false, error: e?.message || String(e) };
+      this.logger.warn(`Invitation send failed for ${session.candidate.email}: ${e?.message || e}`);
+    }
 
     // Schedule reminder emails via RemindersService — Bull-backed when
     // REDIS_URL is set so jobs survive deploys, in-process setTimeout
-    // fallback otherwise. RemindersService.schedule silently drops
-    // reminders whose target time is already past, so we just enqueue.
+    // fallback otherwise. Fire-and-forget on purpose: a slow Bull
+    // queue.add (Redis round-trip) was previously serialising into the
+    // schedule API response and adding 1-2s of latency per session.
+    // Reminder enqueue failures are logged and the session is still
+    // created — losing a reminder is recoverable; blocking the schedule
+    // is not.
     const remind24h = new Date(data.scheduledAt.getTime() - 24 * 60 * 60 * 1000);
-    await this.reminders.schedule(remind24h, {
-      to: session.candidate.email,
-      subject: `Reminder: Your Assessment Tomorrow — ${session.assessmentType.name}`,
-      html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
+    const remind1h = new Date(data.scheduledAt.getTime() - 60 * 60 * 1000);
+    void Promise.allSettled([
+      this.reminders.schedule(remind24h, {
+        to: session.candidate.email,
+        subject: `Reminder: Your Assessment Tomorrow — ${session.assessmentType.name}`,
+        html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
             <h1 style="color:#00D4FF">assessexpert</h1>
             <h2>Assessment Reminder — 24 Hours</h2>
             <p>Hi ${session.candidate.firstName},</p>
@@ -260,13 +291,11 @@ export class SchedulingService {
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>
             </div>
           </div>`,
-    });
-
-    const remind1h = new Date(data.scheduledAt.getTime() - 60 * 60 * 1000);
-    await this.reminders.schedule(remind1h, {
-      to: session.candidate.email,
-      subject: `Starting in 1 Hour — ${session.assessmentType.name}`,
-      html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
+      }),
+      this.reminders.schedule(remind1h, {
+        to: session.candidate.email,
+        subject: `Starting in 1 Hour — ${session.assessmentType.name}`,
+        html: `<div style="font-family:Inter,sans-serif;background:#060B18;color:#F1F5F9;padding:40px;max-width:600px;margin:0 auto">
             <h1 style="color:#00D4FF">assessexpert</h1>
             <h2>Your Assessment Starts in 1 Hour</h2>
             <p>Hi ${session.candidate.firstName},</p>
@@ -275,9 +304,20 @@ export class SchedulingService {
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>
             </div>
           </div>`,
+      }),
+    ]).then(results => {
+      results.forEach((res, i) => {
+        if (res.status === 'rejected') {
+          this.logger.warn(`Reminder ${i === 0 ? '24h' : '1h'} enqueue failed for ${session.candidate.email}: ${res.reason?.message || res.reason}`);
+        }
+      });
     });
 
-    return session;
+    return {
+      ...(session as any),
+      invitationSent: invitationResult.sent,
+      invitationError: invitationResult.error,
+    };
   }
 
   async rescheduleSession(sessionId: string, newScheduledAt: Date, organizationId: string) {
