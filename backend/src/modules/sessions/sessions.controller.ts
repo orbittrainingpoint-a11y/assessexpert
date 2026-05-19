@@ -155,11 +155,16 @@ export class SessionsController {
 
   @Post(':id/assign-practical')
   @Roles('PROCTOR', 'MASTER_PROCTOR')
-  async assignPractical(@Param('id') id: string, @Body() body: { practicalTaskId: string }, @Req() req: any) {
-    const result = await this.sessionsService.assignPracticalTask(id, body.practicalTaskId, req.user.id);
+  async assignPractical(
+    @Param('id') id: string,
+    @Body() body: { practicalTaskId: string; candidateId?: string },
+    @Req() req: any,
+  ) {
+    const result = await this.sessionsService.assignPracticalTask(id, body.practicalTaskId, req.user.id, body.candidateId);
     this.gateway.emitToSession(id, 'session.phase', {
       phase: 'PRACTICAL_IN_PROGRESS',
       sessionId: id,
+      candidateId: body.candidateId,
       practicalTask: result.practicalTask ? {
         title: (result as any).practicalTask.title,
         description: (result as any).practicalTask.description,

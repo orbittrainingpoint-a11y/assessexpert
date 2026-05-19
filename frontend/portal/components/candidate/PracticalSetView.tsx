@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 interface Props {
   token: string
   sessionId: string
+  candidateId?: string
   onAllSubmitted?: () => void
   socket?: any
 }
@@ -41,11 +42,11 @@ interface AssignedSet {
   assessmentType?: { name: string }
 }
 
-export default function PracticalSetView({ token, sessionId, onAllSubmitted, socket }: Props) {
+export default function PracticalSetView({ token, sessionId, candidateId, onAllSubmitted, socket }: Props) {
   const qc = useQueryClient()
   const { data: set, isLoading, refetch } = useQuery<AssignedSet | null>({
-    queryKey: ['my-practical-set', token],
-    queryFn: () => practicalSetsApi.getMyAssignedSet(token).then(r => r.data as any),
+    queryKey: ['my-practical-set', token, candidateId],
+    queryFn: () => practicalSetsApi.getMyAssignedSet(token, candidateId).then(r => r.data as any),
     refetchInterval: 5000, // keep polling until a set is assigned
   })
 
@@ -109,10 +110,11 @@ export default function PracticalSetView({ token, sessionId, onAllSubmitted, soc
             key={q.id}
             q={q}
             token={token}
+            candidateId={candidateId}
             submitted={submittedIds.has(q.id)}
             onSubmitted={() => {
               setSubmittedIds(prev => new Set(prev).add(q.id))
-              qc.invalidateQueries({ queryKey: ['my-practical-set', token] })
+              qc.invalidateQueries({ queryKey: ['my-practical-set', token, candidateId] })
             }}
           />
         ))}
@@ -139,7 +141,7 @@ function FileChip({ file }: { file: SetFileView }) {
   )
 }
 
-function QuestionCard({ q, token, submitted, onSubmitted }: { q: PracticalQuestionView; token: string; submitted: boolean; onSubmitted: () => void }) {
+function QuestionCard({ q, token, candidateId, submitted, onSubmitted }: { q: PracticalQuestionView; token: string; candidateId?: string; submitted: boolean; onSubmitted: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [numericValue, setNumericValue] = useState('')
   const [textValue, setTextValue] = useState('')
@@ -150,6 +152,7 @@ function QuestionCard({ q, token, submitted, onSubmitted }: { q: PracticalQuesti
       file: file || undefined,
       numericValue: numericValue !== '' ? parseFloat(numericValue) : undefined,
       textValue: textValue || undefined,
+      candidateId,
     }),
     onSuccess: () => {
       toast.success(`Q${q.position} submitted`)

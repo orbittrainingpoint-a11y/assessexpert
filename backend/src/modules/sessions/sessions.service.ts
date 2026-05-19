@@ -425,12 +425,58 @@ export class SessionsService {
     });
   }
 
-  async assignPracticalTask(sessionId: string, practicalTaskId: string, proctorId: string) {
-    const session = await this.getSession(sessionId);
+  // Assign a legacy practical task to a session. With candidateId on a
+  // multi-candidate slot, only that candidate's SessionCandidate row gets
+  // the task; with no candidateId on a multi-candidate slot, every row
+  // gets it. Single-candidate sessions write to the ExamSession column
+  // (legacy behaviour). Flips the slot into PRACTICAL_IN_PROGRESS the
+  // first time anyone gets assigned.
+  async assignPracticalTask(sessionId: string, practicalTaskId: string, proctorId: string, candidateId?: string) {
+    const session = await this.getSession(sessionId) as any;
     const allowedStatuses = ['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'];
     if (!allowedStatuses.includes(session.status)) {
       throw new BadRequestException('MCQ must be completed before assigning practical task');
     }
+
+    if (session.isMultiCandidate) {
+      if (candidateId && candidateId !== session.candidateId) {
+        const sc = await this.prisma.sessionCandidate.findUnique({
+          where: { sessionId_candidateId: { sessionId, candidateId } },
+          select: { id: true },
+        });
+        if (!sc) throw new BadRequestException('candidateId is not part of this session');
+      }
+
+      if (candidateId) {
+        await this.prisma.sessionCandidate.upsert({
+          where: { sessionId_candidateId: { sessionId, candidateId } },
+          create: { sessionId, candidateId, practicalTaskId, practicalPaperSetId: null },
+          update: { practicalTaskId, practicalPaperSetId: null },
+        });
+      } else {
+        const all = await this.prisma.sessionCandidate.findMany({
+          where: { sessionId },
+          select: { candidateId: true },
+        });
+        await Promise.all(all.map(sc =>
+          this.prisma.sessionCandidate.update({
+            where: { sessionId_candidateId: { sessionId, candidateId: sc.candidateId } },
+            data: { practicalTaskId, practicalPaperSetId: null },
+          }),
+        ));
+      }
+
+      return this.prisma.examSession.update({
+        where: { id: sessionId },
+        data: {
+          status: 'PRACTICAL_IN_PROGRESS',
+          practicalStartedAt: new Date(),
+        },
+        include: { practicalTask: true },
+      });
+    }
+
+    // Single-candidate: legacy behaviour.
     return this.prisma.examSession.update({
       where: { id: sessionId },
       data: {

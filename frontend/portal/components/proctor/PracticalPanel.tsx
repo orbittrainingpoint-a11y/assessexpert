@@ -26,6 +26,11 @@ export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [selectedSetId, setSelectedSetId] = useState('')
   const [assigning, setAssigning] = useState(false)
+  // 'all' fans the assignment out to every candidate in the slot; a
+  // specific candidateId targets just that candidate. Single-candidate
+  // sessions hide the picker entirely.
+  const [targetCandidate, setTargetCandidate] = useState<'all' | string>('all')
+  const isMultiCandidate = mcqResults.length > 1
 
   const { data: tasksData } = useQuery({
     queryKey: ['practical-tasks', assessmentTypeId],
@@ -52,13 +57,22 @@ export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults
 
   const handleAssign = async () => {
     setAssigning(true)
+    // For multi-candidate slots, undefined means "fan out to all", a
+    // specific id means "just this one". Single-candidate sessions
+    // always send undefined so the legacy session-level columns are used.
+    const cId = isMultiCandidate && targetCandidate !== 'all' ? targetCandidate : undefined
+    const targetLabel = cId
+      ? mcqResults.find(r => r.candidateId === cId)?.candidateName || 'candidate'
+      : isMultiCandidate ? 'all candidates' : ''
     try {
       if (mode === 'set' && selectedSetId) {
-        await practicalSetsApi.assignToSession(sessionId, selectedSetId)
-        toast.success(`${selectedSet?.name} assigned — practical phase started`)
+        await practicalSetsApi.assignToSession(sessionId, selectedSetId, cId)
+        toast.success(
+          `${selectedSet?.name} assigned${targetLabel ? ` to ${targetLabel}` : ''}`,
+        )
       } else if (mode === 'task' && selectedTaskId) {
-        await sessionsApi.assignPractical(sessionId, selectedTaskId)
-        toast.success('Practical task assigned — practical phase started')
+        await sessionsApi.assignPractical(sessionId, selectedTaskId, cId)
+        toast.success(`Practical task assigned${targetLabel ? ` to ${targetLabel}` : ''}`)
       } else {
         return
       }
@@ -111,6 +125,19 @@ export default function PracticalPanel({ sessionId, assessmentTypeId, mcqResults
           <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
             Assign Practical
           </h3>
+          {/* Per-candidate target picker — only shown for multi-candidate slots */}
+          {isMultiCandidate && (
+            <select
+              value={targetCandidate}
+              onChange={e => setTargetCandidate(e.target.value as any)}
+              style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '6px', background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+            >
+              <option value="all">All candidates</option>
+              {mcqResults.map(r => (
+                <option key={r.candidateId} value={r.candidateId}>{r.candidateName}</option>
+              ))}
+            </select>
+          )}
           {/* Mode toggle — only show if both options exist */}
           {sets.length > 0 && tasks.length > 0 && (
             <div style={{ display: 'flex', gap: '0', background: 'var(--bg-elevated)', padding: '2px', borderRadius: '6px' }}>

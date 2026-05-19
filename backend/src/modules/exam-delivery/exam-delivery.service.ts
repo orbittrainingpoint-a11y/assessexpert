@@ -13,17 +13,31 @@ export class ExamDeliveryService {
     private gateway: AppGateway,
   ) {}
 
-  async getPracticalTask(token: string) {
+  async getPracticalTask(token: string, candidateId?: string) {
     const session = await this.prisma.examSession.findUnique({
       where: { magicToken: token },
       include: { practicalTask: true, assessmentType: true },
     });
     if (!session) throw new NotFoundException('Session not found');
-    if (!session.practicalTask) throw new NotFoundException('No practical task assigned yet');
+
+    // Multi-candidate slots: prefer the candidate's own task on
+    // SessionCandidate. Falls back to the session-level task if no
+    // per-candidate override exists.
+    let task = session.practicalTask;
+    if (session.isMultiCandidate || candidateId) {
+      const cId = candidateId || session.candidateId;
+      const sc = await this.prisma.sessionCandidate.findUnique({
+        where: { sessionId_candidateId: { sessionId: session.id, candidateId: cId } },
+        include: { practicalTask: true },
+      });
+      if (sc?.practicalTask) task = sc.practicalTask;
+    }
+    if (!task) throw new NotFoundException('No practical task assigned yet');
+
     return {
-      title: session.practicalTask.title,
-      description: session.practicalTask.description,
-      acceptedFileTypes: session.practicalTask.acceptedFileTypes,
+      title: task.title,
+      description: task.description,
+      acceptedFileTypes: task.acceptedFileTypes,
       estimatedMinutes: session.assessmentType.practicalTimeLimit,
     };
   }
@@ -64,6 +78,26 @@ export class ExamDeliveryService {
       ? Math.max(0, session.assessmentType.practicalTimeLimit * 60 - Math.floor((Date.now() - session.practicalStartedAt.getTime()) / 1000))
       : null;
 
+    // Resolve per-candidate practical assignment. Multi-candidate slots
+    // (and any single-candidate caller passing candidateId) prefer the
+    // SessionCandidate row so different candidates can get different
+    // sets/tasks. Falls back to session-level columns.
+    let resolvedTask: any = session.practicalTask;
+    let resolvedPaperSet: any = session.practicalPaperSet;
+    let resolvedPaperSetId: string | null = session.practicalPaperSetId;
+    if (session.isMultiCandidate || candidateId) {
+      const cId = candidateId || session.candidateId;
+      const sc = await this.prisma.sessionCandidate.findUnique({
+        where: { sessionId_candidateId: { sessionId: session.id, candidateId: cId } },
+        include: { practicalTask: true, practicalPaperSet: true },
+      });
+      if (sc?.practicalTask) resolvedTask = sc.practicalTask;
+      if (sc?.practicalPaperSet) {
+        resolvedPaperSet = sc.practicalPaperSet;
+        resolvedPaperSetId = sc.practicalPaperSetId;
+      }
+    }
+
     return {
       sessionId: session.id,
       id: session.id,
@@ -76,15 +110,15 @@ export class ExamDeliveryService {
       practicalTimeRemaining,
       answeredCount,
       totalQuestions: session.assessmentType.mcqQuestionCount,
-      practicalTask: session.practicalTask ? {
-        title: session.practicalTask.title,
-        description: session.practicalTask.description,
-        acceptedFileTypes: session.practicalTask.acceptedFileTypes,
+      practicalTask: resolvedTask ? {
+        title: resolvedTask.title,
+        description: resolvedTask.description,
+        acceptedFileTypes: resolvedTask.acceptedFileTypes,
       } : null,
-      practicalPaperSetId: session.practicalPaperSetId,
-      practicalPaperSet: session.practicalPaperSet ? {
-        id: session.practicalPaperSet.id,
-        name: session.practicalPaperSet.name,
+      practicalPaperSetId: resolvedPaperSetId,
+      practicalPaperSet: resolvedPaperSet ? {
+        id: resolvedPaperSet.id,
+        name: resolvedPaperSet.name,
       } : null,
     };
   }

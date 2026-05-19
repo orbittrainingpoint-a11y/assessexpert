@@ -376,6 +376,7 @@ model PracticalTask {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   sessions         ExamSession[]
+  sessionCandidates SessionCandidate[]
 }
 
 // ── Practical Paper Sets ───────────────────────────────────────────────
@@ -393,6 +394,7 @@ model PracticalPaperSet {
   files            PracticalSetFile[]
   questions        PracticalQuestion[]
   sessions         ExamSession[]
+  sessionCandidates SessionCandidate[]
   createdBy        String
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
@@ -466,6 +468,10 @@ model PracticalAnswer {
   id               String              @id @default(cuid())
   sessionId        String
   session          ExamSession         @relation(fields: [sessionId], references: [id])
+  // Which candidate submitted this answer. Backfilled from session.candidateId
+  // for legacy single-candidate sessions; required so multi-candidate slots
+  // don't collide into a shared bucket via the (sessionId, questionId) key.
+  candidateId      String
   questionId       String
   question         PracticalQuestion   @relation(fields: [questionId], references: [id])
 
@@ -486,8 +492,8 @@ model PracticalAnswer {
   gradedAt         DateTime?
   gradedBy         String?
 
-  @@unique([sessionId, questionId])
-  @@index([sessionId])
+  @@unique([sessionId, candidateId, questionId])
+  @@index([sessionId, candidateId])
 }
 
 model CandidateRecord {
@@ -599,6 +605,14 @@ model SessionCandidate {
   // chunks are merged independently into their own webm.
   screenRecordingPath String?
   webcamRecordingPath String?
+  // Per-candidate practical assignment. In multi-candidate slots each
+  // candidate can be given a different paper set or legacy task so
+  // neighbours can't trivially copy. Single-candidate sessions leave
+  // these null and use the session-level ExamSession columns.
+  practicalPaperSetId String?
+  practicalPaperSet   PracticalPaperSet? @relation(fields: [practicalPaperSetId], references: [id])
+  practicalTaskId     String?
+  practicalTask       PracticalTask?     @relation(fields: [practicalTaskId], references: [id])
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
 

@@ -577,7 +577,7 @@ function ExamContent() {
             // task endpoint as a fallback. Paper sets are loaded inside
             // PracticalSetView via the by-token endpoint.
             try {
-              const { data: taskData } = await examApi.getPracticalTask(token)
+              const { data: taskData } = await examApi.getPracticalTask(token, sessionState?.candidate?.id)
               setPracticalTask(taskData)
             } catch {
               setPracticalTask({ title: 'Practical Task', description: "Please follow the proctor's instructions." })
@@ -1269,6 +1269,7 @@ function ExamContent() {
       <PracticalSetView
         token={token}
         sessionId={sessionState.id}
+        candidateId={sessionState?.candidate?.id}
         socket={wsSocket}
         onAllSubmitted={() => {
           toast.success('All practical answers submitted')

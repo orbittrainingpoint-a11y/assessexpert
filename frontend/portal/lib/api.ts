@@ -166,17 +166,22 @@ export const practicalSetsApi = {
     api.post(`/practical-sets/${setId}/reorder`, { orderedIds }),
   assignToSession: (sessionId: string, setId: string, candidateId?: string) =>
     api.post(`/practical-sets/sessions/${sessionId}/assign`, { setId, candidateId }),
-  getMyAssignedSet: (token: string) =>
-    api.get(`/practical-sets/by-token`, { params: { token } }),
-  submitAnswer: (token: string, questionId: string, payload: { numericValue?: number; textValue?: string; file?: File }) => {
+  getMyAssignedSet: (token: string, candidateId?: string) =>
+    api.get(`/practical-sets/by-token`, { params: { token, ...(candidateId ? { candidateId } : {}) } }),
+  submitAnswer: (token: string, questionId: string, payload: { numericValue?: number; textValue?: string; file?: File; candidateId?: string }) => {
     const fd = new FormData()
     if (payload.file) fd.append('file', payload.file)
     if (payload.numericValue !== undefined) fd.append('numericValue', String(payload.numericValue))
     if (payload.textValue !== undefined) fd.append('textValue', payload.textValue)
-    return api.post(`/practical-sets/answer`, fd, { params: { token, questionId } })
+    if (payload.candidateId) fd.append('candidateId', payload.candidateId)
+    return api.post(`/practical-sets/answer`, fd, {
+      params: { token, questionId, ...(payload.candidateId ? { candidateId: payload.candidateId } : {}) },
+    })
   },
-  listAnswers: (sessionId: string) =>
-    api.get(`/practical-sets/sessions/${sessionId}/answers`),
+  listAnswers: (sessionId: string, candidateId?: string) =>
+    api.get(`/practical-sets/sessions/${sessionId}/answers`, {
+      params: candidateId ? { candidateId } : {},
+    }),
   gradeAnswer: (answerId: string, body: { marks?: number; graderNotes?: string }) =>
     api.put(`/practical-sets/answers/${answerId}/grade`, body),
 }
@@ -210,7 +215,8 @@ export const sessionsApi = {
   getStats: () => api.get('/sessions/stats'),
   getMasterProctorStats: () => api.get('/master-proctor/dashboard/stats'),
   begin: (id: string) => api.post(`/sessions/${id}/begin`),
-  assignPractical: (id: string, practicalTaskId: string) => api.post(`/sessions/${id}/assign-practical`, { practicalTaskId }),
+  assignPractical: (id: string, practicalTaskId: string, candidateId?: string) =>
+    api.post(`/sessions/${id}/assign-practical`, { practicalTaskId, candidateId }),
   terminate: (id: string, reason: string) => api.post(`/sessions/${id}/terminate`, { reason }),
   pause: (id: string) => api.post(`/sessions/${id}/pause`),
   resume: (id: string) => api.post(`/sessions/${id}/resume`),
@@ -320,7 +326,8 @@ export const examApi = {
   submitAnswer: (token: string, questionId: string, response: any, timeSpentSeconds: number, candidateId?: string) =>
     api.post(`/exam/question/submit?token=${token}${cidParam(candidateId)}`, { questionId, response, timeSpentSeconds, candidateId }),
   getTimer: (token: string) => api.get(`/exam/timer?token=${token}`),
-  getPracticalTask: (token: string) => api.get(`/exam/practical/task?token=${token}`),
+  getPracticalTask: (token: string, candidateId?: string) =>
+    api.get(`/exam/practical/task?token=${token}${cidParam(candidateId)}`),
   submitPractical: (token: string, formData: FormData) =>
     api.post(`/exam/practical/submit?token=${token}`, formData),
 }

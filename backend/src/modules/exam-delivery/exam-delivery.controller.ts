@@ -144,8 +144,11 @@ export class ExamDeliveryController {
   }
 
   @Get('practical/task')
-  async getPracticalTask(@Query('token') token: string) {
-    return this.examDeliveryService.getPracticalTask(token);
+  async getPracticalTask(
+    @Query('token') token: string,
+    @Query('candidateId') candidateId?: string,
+  ) {
+    return this.examDeliveryService.getPracticalTask(token, candidateId);
   }
 
   @Post('practical/submit')
