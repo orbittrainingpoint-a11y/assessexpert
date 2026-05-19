@@ -8,6 +8,7 @@ import { useAudioTranscriber } from '@/lib/useAudioTranscriber'
 import { useSessionWebSocket } from '@/lib/useWebSocket'
 import { useJitsi as useLivekit } from '@/lib/useJitsi'
 import { useFaceDetection } from '@/lib/useFaceDetection'
+import { usePeriodicFRCheck } from '@/lib/usePeriodicFRCheck'
 import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
 import GuidelinesModal from '@/components/candidate/GuidelinesModal'
 import PracticalSetView from '@/components/candidate/PracticalSetView'
@@ -232,6 +233,20 @@ function ExamContent() {
     stream: lkLocalCamera,
     socket: wsSocket,
     sessionId: sessionState?.id || '',
+    candidateId: sessionState?.candidate?.id,
+  })
+
+  // Server-side periodic FR check — uploads a webcam frame every ~2 min
+  // during MCQ/practical so the backend can re-verify identity against
+  // the candidate's persisted reference photo. Disabled during the
+  // verification + waiting phases because the proctor is already
+  // hands-on with the candidate then.
+  const periodicFREnabled = !!sessionState?.id && cameraReady && (phase === 'mcq' || phase === 'practical')
+  usePeriodicFRCheck({
+    enabled: periodicFREnabled,
+    stream: lkLocalCamera,
+    sessionId: sessionState?.id || '',
+    token,
     candidateId: sessionState?.candidate?.id,
   })
 

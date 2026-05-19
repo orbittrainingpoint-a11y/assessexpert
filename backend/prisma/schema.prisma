@@ -685,6 +685,10 @@ model FacialRecognitionLog {
   id                 String      @id @default(cuid())
   sessionId          String
   session            ExamSession @relation(fields: [sessionId], references: [id])
+  // Which candidate this check is about. Backfilled from session.candidateId
+  // on existing rows; required so multi-candidate slots attribute periodic
+  // checks to the right candidate.
+  candidateId        String?
   eventType          FREventType
   timestamp          DateTime    @default(now())
   capturedImagePath  String
@@ -698,6 +702,8 @@ model FacialRecognitionLog {
   detectionMethod    String      @default("MEDIAPIPE")
   faceCount          Int?        // Number of faces detected
   poseData           Json?       // Optional pose detection data
+
+  @@index([sessionId, candidateId])
 }
 
 model Report {

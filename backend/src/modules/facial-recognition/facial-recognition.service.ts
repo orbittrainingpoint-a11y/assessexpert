@@ -1,6 +1,7 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaPipeService } from '../mediapipe/mediapipe.service';
+import { AppGateway } from '../gateway/app.gateway';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,6 +12,7 @@ export class FacialRecognitionService {
   constructor(
     private prisma: PrismaService,
     private mediaPipeService: MediaPipeService,
+    private gateway: AppGateway,
   ) {}
 
   async compareFaces(sourceImageBase64: string, targetImageBase64: string): Promise<{
@@ -128,7 +130,7 @@ export class FacialRecognitionService {
     };
   }
 
-  async runPreExamCheck(sessionId: string, capturedImageBase64: string, referenceImageBase64: string, proctorId: string) {
+  async runPreExamCheck(sessionId: string, capturedImageBase64: string, referenceImageBase64: string, proctorId: string, candidateId?: string) {
     const { similarity, outcome } = await this.compareFaces(capturedImageBase64, referenceImageBase64);
 
     // Extract and store face embedding for future comparisons
@@ -145,6 +147,7 @@ export class FacialRecognitionService {
     const log = await this.prisma.facialRecognitionLog.create({
       data: {
         sessionId,
+        candidateId: candidateId || null,
         eventType: 'PRE_EXAM_ID',
         capturedImagePath: capturedPath,
         similarityScore: similarity,
@@ -156,6 +159,65 @@ export class FacialRecognitionService {
     });
 
     return { log, similarity, outcome };
+  }
+
+  // Candidate-browser periodic check (magic-token authed). Compares the
+  // freshly captured frame against the candidate's persisted reference
+  // embedding on CandidateRecord rather than the in-session PRE_EXAM_ID
+  // log, so this works even when no proctor pre-exam capture was taken
+  // (e.g. drop-in HR self-service flows). Emits a socket event to the
+  // proctor room when the outcome is anything other than VERIFIED.
+  async runCandidatePeriodicCheck(
+    sessionId: string,
+    candidateId: string,
+    capturedImageBase64: string,
+  ) {
+    const storagePath = process.env.STORAGE_PATH || './storage';
+    const frPath = path.join(storagePath, 'fr-images');
+    if (!fs.existsSync(frPath)) fs.mkdirSync(frPath, { recursive: true });
+
+    const capturedPath = path.join(frPath, `${sessionId}-${candidateId}-periodic-${Date.now()}.jpg`);
+    fs.writeFileSync(capturedPath, Buffer.from(capturedImageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64'));
+
+    // compareAgainstReference already handles "no reference photo" and
+    // "no face detected" with REJECTED outcomes so we don't have to
+    // duplicate that here. similarity is a 0..100 number.
+    const { similarity, outcome, reason } = await this.compareAgainstReference(
+      capturedImageBase64,
+      candidateId,
+    );
+
+    const log = await this.prisma.facialRecognitionLog.create({
+      data: {
+        sessionId,
+        candidateId,
+        eventType: 'PERIODIC_CHECK',
+        capturedImagePath: capturedPath,
+        similarityScore: similarity,
+        outcome,
+        reviewNotes: reason || null,
+        detectionMethod: 'MEDIAPIPE',
+      },
+    });
+
+    // Live-flag the proctor on anything other than a clean VERIFIED so
+    // they can act on a face mismatch / missing face before the exam ends.
+    if (outcome !== 'VERIFIED') {
+      try {
+        this.gateway.emitToSession(sessionId, 'fr.periodic.flag', {
+          sessionId,
+          candidateId,
+          similarity,
+          outcome,
+          reason: reason || null,
+          timestamp: log.timestamp,
+        });
+      } catch (e) {
+        this.logger.warn(`Failed to emit fr.periodic.flag: ${(e as Error).message}`);
+      }
+    }
+
+    return { similarity, outcome, reason };
   }
 
   async runPeriodicCheck(sessionId: string, capturedImageBase64: string) {
@@ -199,9 +261,17 @@ export class FacialRecognitionService {
       }
     }
 
+    // Resolve the candidate this log belongs to — falls back to the
+    // session's primary so single-candidate sessions keep working.
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { candidateId: true },
+    });
+
     return this.prisma.facialRecognitionLog.create({
       data: {
         sessionId,
+        candidateId: session?.candidateId || null,
         eventType: 'PERIODIC_CHECK',
         capturedImagePath: capturedPath,
         similarityScore: similarity,
@@ -210,6 +280,37 @@ export class FacialRecognitionService {
         detectionMethod: 'MEDIAPIPE',
       },
     });
+  }
+
+  // Magic-token resolver shared by candidate-side endpoints. Validates
+  // the token matches the session and resolves the candidateId (required
+  // for multi-candidate slots, falls back to primary otherwise).
+  async resolveCandidateFromToken(token: string, sessionId: string, candidateId?: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      select: { id: true, candidateId: true, isMultiCandidate: true, status: true },
+    });
+    if (!session || session.id !== sessionId) {
+      throw new UnauthorizedException('Invalid token for this session');
+    }
+    // Only allow during exam-active phases — there's no reason for the
+    // candidate browser to be capturing frames at any other time.
+    const allowed = ['MCQ_IN_PROGRESS', 'PRACTICAL_IN_PROGRESS'];
+    if (!allowed.includes(session.status)) {
+      throw new BadRequestException(`Periodic FR check not allowed in status ${session.status}`);
+    }
+    if (session.isMultiCandidate && !candidateId) {
+      throw new BadRequestException('candidateId is required for multi-candidate sessions');
+    }
+    let cId = candidateId || session.candidateId;
+    if (cId !== session.candidateId) {
+      const sc = await this.prisma.sessionCandidate.findUnique({
+        where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+        select: { id: true },
+      });
+      if (!sc) throw new UnauthorizedException('candidateId is not part of this session');
+    }
+    return { sessionId, candidateId: cId };
   }
 
   async getFrLogs(sessionId: string) {
