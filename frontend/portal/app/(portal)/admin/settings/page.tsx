@@ -20,8 +20,6 @@ const SETTING_LABELS: Record<string, { label: string; desc: string; type: string
 
 const FEATURE_FLAGS = [
   { key: 'interview_room', label: 'Interview Room', desc: 'Built-in video interview room for HR' },
-  { key: 'whatsapp_notifications', label: 'WhatsApp Notifications', desc: 'Send notifications via WhatsApp (Twilio)' },
-  { key: 'saml_sso', label: 'SAML / SSO Login', desc: 'Enterprise SSO via company identity provider' },
   { key: 'cloud_vdi', label: 'Cloud VDI (Lab Mode)', desc: 'Cloud desktop for candidates without required software' },
   { key: 'arabic_rtl', label: 'Arabic RTL Interface', desc: 'Right-to-left layout for Arabic language' },
   { key: 'light_theme', label: 'Light Theme', desc: 'Allow users to switch to light mode' },

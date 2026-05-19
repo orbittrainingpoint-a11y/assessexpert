@@ -122,7 +122,6 @@ npm run start:dev
 - **SMTP_PASS**: Requires Gmail App Password
 
 ### ℹ️ Optional (Can configure later):
-- Twilio SMS (for SMS notifications)
 - AWS Rekognition (for facial recognition)
 - Redis password (if using Redis auth)
 

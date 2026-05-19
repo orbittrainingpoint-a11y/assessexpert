@@ -98,10 +98,6 @@ GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-1.5-flash               # used by report narrative
 GEMINI_TRANSCRIBE_MODEL=gemini-1.5-flash    # used by verification transcript
 
-# Optional: WhatsApp via Twilio (currently flag-only, no code yet)
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-
 # Optional: point Puppeteer at the system Chromium if the bundled
 # download failed during npm install
 PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
