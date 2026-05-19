@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { Camera, Mic, Monitor, Wifi, Globe, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/LocaleProvider'
+import LocaleSwitcher from '@/components/LocaleSwitcher'
 
 // Standalone, no-token, no-JWT tech check page. We point candidates
 // here from the invitation email so they can verify their setup
@@ -18,6 +20,7 @@ interface CheckState {
 const initial: CheckState = { status: 'idle' }
 
 export default function TechCheckPage() {
+  const { t } = useTranslation()
   const [browser, setBrowser] = useState<CheckState>(initial)
   const [camera, setCamera] = useState<CheckState>(initial)
   const [mic, setMic] = useState<CheckState>(initial)
@@ -233,27 +236,29 @@ export default function TechCheckPage() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: 'var(--text-primary)', padding: '40px 20px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '32px' }}>
-          <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>Pre-Exam Tech Check</h1>
-          <p style={{ margin: '6px 0 0', color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6' }}>
-            Run this on the same computer and browser you'll use for your assessment. Nothing leaves your
-            browser — these checks are entirely local.
-          </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', gap: '20px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 700 }}>{t('tech_check.title')}</h1>
+            <p style={{ margin: '6px 0 0', color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6' }}>
+              {t('tech_check.subtitle')}
+            </p>
+          </div>
+          <LocaleSwitcher compact />
         </div>
 
         <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
           <button className="btn-primary" onClick={runAll} disabled={running} style={{ padding: '10px 20px', fontSize: '14px' }}>
-            {running ? 'Running…' : 'Run All Checks'}
+            {running ? t('tech_check.run_all_busy') : t('tech_check.run_all')}
           </button>
           <button className="btn-ghost" onClick={runScreenCheck} style={{ padding: '10px 20px', fontSize: '14px' }}>
-            Test Screen Share
+            {t('tech_check.test_screen_share')}
           </button>
         </div>
 
-        <CheckRow icon={<Globe size={18} />} title="Browser" state={browser} onRun={runBrowserCheck} />
+        <CheckRow icon={<Globe size={18} />} title={t('tech_check.row.browser')} state={browser} onRun={runBrowserCheck} />
         <CheckRow
           icon={<Camera size={18} />}
-          title="Camera"
+          title={t('tech_check.row.camera')}
           state={camera}
           onRun={runCameraCheck}
           extra={camera.status === 'pass' || camera.status === 'running' ? (
@@ -267,7 +272,7 @@ export default function TechCheckPage() {
         />
         <CheckRow
           icon={<Mic size={18} />}
-          title="Microphone"
+          title={t('tech_check.row.microphone')}
           state={mic}
           onRun={runMicCheck}
           extra={mic.status === 'running' || mic.status === 'pass' ? (
@@ -283,16 +288,16 @@ export default function TechCheckPage() {
             </div>
           ) : null}
         />
-        <CheckRow icon={<Monitor size={18} />} title="Screen share" state={screen} onRun={runScreenCheck} />
-        <CheckRow icon={<Wifi size={18} />} title="Network" state={network} onRun={runNetworkCheck} />
+        <CheckRow icon={<Monitor size={18} />} title={t('tech_check.row.screen_share')} state={screen} onRun={runScreenCheck} />
+        <CheckRow icon={<Wifi size={18} />} title={t('tech_check.row.network')} state={network} onRun={runNetworkCheck} />
 
         {allPass && (
           <div className="glass-card" style={{ padding: '16px 18px', marginTop: '20px', borderLeft: '3px solid var(--emerald)' }}>
             <p style={{ margin: 0, color: 'var(--emerald)', fontSize: '14px', fontWeight: 600 }}>
-              ✓ All checks passed — you're ready for the exam.
+              {t('tech_check.all_passed')}
             </p>
             <p style={{ margin: '6px 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
-              When your appointment time arrives, click the magic link in your invitation email to start.
+              {t('tech_check.next_step')}
             </p>
           </div>
         )}
@@ -314,6 +319,7 @@ function CheckRow({
   onRun: () => void
   extra?: React.ReactNode
 }) {
+  const { t } = useTranslation()
   const color =
     state.status === 'pass' ? 'var(--emerald)' :
     state.status === 'fail' ? 'var(--rose)' :
@@ -345,7 +351,7 @@ function CheckRow({
           disabled={state.status === 'running'}
           style={{ padding: '6px 12px', fontSize: '12px' }}
         >
-          {state.status === 'idle' ? 'Run' : state.status === 'running' ? '…' : 'Retry'}
+          {state.status === 'idle' ? t('tech_check.btn.run') : state.status === 'running' ? '…' : t('tech_check.btn.retry')}
         </button>
       </div>
       {extra}
