@@ -125,7 +125,7 @@ function ItemIdentityEmail({
   )
 }
 
-function ItemGovernmentId({ sessionId, saving, onComplete }: { sessionId: string; saving: boolean; onComplete: (d: any) => void }) {
+function ItemGovernmentId({ sessionId, candidateId, saving, onComplete }: { sessionId: string; candidateId?: string; saving: boolean; onComplete: (d: any) => void }) {
   const [captureState, setCaptureState] = useState<'idle' | 'captured' | 'running' | 'done'>('idle')
   const [frResult, setFrResult] = useState<{ similarity: number; ocrName: string; verdict: 'verified' | 'manual' | 'blocked' } | null>(null)
 
@@ -134,7 +134,10 @@ function ItemGovernmentId({ sessionId, saving, onComplete }: { sessionId: string
   const runFR = async () => {
     setCaptureState('running')
     try {
-      const { data } = await checklistApi.completeItem(sessionId, 'facial_recognition', {})
+      // candidateId is required for multi-candidate slots — without it
+      // the backend rejects this call with 400 because completeItem
+      // can't decide whose checklist row to update.
+      const { data } = await checklistApi.completeItem(sessionId, 'facial_recognition', { candidateId })
       const sim = data.similarity ?? 97.3
       setFrResult({ similarity: sim, ocrName: data.ocrName ?? 'Candidate', verdict: sim >= 90 ? 'verified' : sim >= 70 ? 'manual' : 'blocked' })
     } catch {
@@ -188,11 +191,13 @@ function ItemGovernmentId({ sessionId, saving, onComplete }: { sessionId: string
 
 function ItemFacialRecognition({
   sessionId,
+  candidateId,
   candidateStream,
   saving,
   onComplete,
 }: {
   sessionId: string
+  candidateId?: string
   candidateStream?: MediaStream | null
   saving: boolean
   onComplete: (d: any) => void
@@ -256,7 +261,7 @@ function ItemFacialRecognition({
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
       setPreview(dataUrl)
       const imageBase64 = dataUrl.split(',')[1]
-      const { data } = await faceCaptureApi.captureIdVerification(sessionId, imageBase64, 'facial_recognition')
+      const { data } = await faceCaptureApi.captureIdVerification(sessionId, imageBase64, 'facial_recognition', candidateId)
       setResult({
         faceDetected: !!data.faceDetected,
         capturePath: data.capturePath,
@@ -691,11 +696,41 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
   }, [candId])
 
   useEffect(() => {
-    // Lazy-init only the ACTIVE candidate's checklist row. For multi-
-    // candidate slots this fires once per candidate as the proctor opens
-    // each one. completeItem auto-upserts too so a missed init isn't fatal.
+    // Lazy-init the ACTIVE candidate's checklist row, then hydrate the
+    // local UI state from the backend so the proctor sees previously-
+    // completed items as "done" instead of "pending" after switching
+    // away and back (or after a page refresh). We only OVERWRITE keys
+    // that the backend reports completed — otherwise the local UI
+    // status (active/pending) stays put so the next item still
+    // highlights correctly.
     if (!candidate?.id) return
-    checklistApi.init(sessionId, candidate.id).catch(() => {})
+    let cancelled = false
+    ;(async () => {
+      try {
+        await checklistApi.init(sessionId, candidate.id).catch(() => {})
+        const { data } = await checklistApi.get(sessionId, candidate.id)
+        if (cancelled) return
+        const items = (data?.items as any[]) || []
+        const done = new Set(items.filter(i => i.completed).map(i => i.key))
+        if (done.size === 0) return
+        setItemStates(prev => {
+          const next: ChecklistState = { ...prev }
+          ITEMS.forEach(it => {
+            if (done.has(it.key)) next[it.key] = 'done'
+          })
+          // First not-done item becomes "active" so the UI doesn't show
+          // every row dormant when some are already complete.
+          const firstPending = ITEMS.find(it => next[it.key] !== 'done')
+          if (firstPending) next[firstPending.key] = 'active'
+          return next
+        })
+      } catch {
+        // Best-effort — if hydration fails the user just sees a fresh
+        // checklist and proceeds. completeItem still saves correctly.
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, candidate?.id])
 
   const expectedName = `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim()
@@ -790,7 +825,7 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               )}
 
               {isActive && item.key === 'government_id' && (
-                <ItemGovernmentId sessionId={sessionId} saving={saving} onComplete={d => completeItem('government_id', d)} />
+                <ItemGovernmentId sessionId={sessionId} candidateId={candidate?.id} saving={saving} onComplete={d => completeItem('government_id', d)} />
               )}
 
               {isActive && item.key === 'background_scan' && (
@@ -812,6 +847,7 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               {isActive && item.key === 'facial_recognition' && (
                 <ItemFacialRecognition
                   sessionId={sessionId}
+                  candidateId={candidate?.id}
                   candidateStream={candidateStream}
                   saving={saving}
                   onComplete={d => completeItem('facial_recognition', d)}

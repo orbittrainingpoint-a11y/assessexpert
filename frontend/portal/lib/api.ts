@@ -253,10 +253,15 @@ export const checklistApi = {
 // stream and uploads it for storage + face detection. The backend persists
 // the image and returns capturePath + faceDetected.
 export const faceCaptureApi = {
-  captureIdVerification: (sessionId: string, imageBase64: string, checklistItemKey: string) =>
+  // candidateId is required for multi-candidate slots so the capture
+  // and FR comparison land on the right SessionCandidate. Single-
+  // candidate sessions can omit it and the backend resolves to the
+  // session's primary candidate.
+  captureIdVerification: (sessionId: string, imageBase64: string, checklistItemKey: string, candidateId?: string) =>
     api.post(`/mediapipe/capture/id-verification/${sessionId}`, {
       image: imageBase64,
       checklistItemKey,
+      candidateId,
     }),
 }
 

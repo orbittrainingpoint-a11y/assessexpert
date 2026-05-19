@@ -764,8 +764,13 @@ function ExamContent() {
   const handleEnterWaiting = async () => {
     try {
       const { data } = await examApi.getSession(token, sessionState?.candidate?.id)
-      // Normalise: backend returns sessionId, ensure .id is always set
-      setSessionState({ ...data, id: data.id || data.sessionId })
+      // MERGE rather than replace — the getSession response carries
+      // candidateName / practical info but NOT the `candidate` object
+      // (only the verifyMagicLink + OTP responses set that). Replacing
+      // wholesale was wiping sessionState.candidate.id after OTP, which
+      // broke the recorder (chunks posted without candidateId got 400s
+      // on multi-candidate sessions).
+      setSessionState((prev: any) => ({ ...(prev || {}), ...data, id: data.id || data.sessionId || prev?.id }))
       // Check if multi-candidate session
       if (data.isMultiCandidate) {
         setPhase('verification')
@@ -775,7 +780,8 @@ function ExamContent() {
       // Poll for exam start
       const poll = setInterval(async () => {
         const { data: s } = await examApi.getSession(token, sessionState?.candidate?.id)
-        setSessionState(s)
+        // Same merge reasoning as above — never lose the candidate object.
+        setSessionState((prev: any) => ({ ...(prev || {}), ...s, id: s.id || s.sessionId || prev?.id }))
         if (s.status === 'MCQ_IN_PROGRESS') {
           clearInterval(poll)
           await loadNextQuestion()

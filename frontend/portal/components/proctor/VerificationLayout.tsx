@@ -277,7 +277,12 @@ export default function VerificationLayout({
         </p>
         {activeCandidateId ? (
           <ChecklistPanel
-            key={activeCandidateId}
+            // No key={activeCandidateId} here — using it forced React to
+            // unmount and remount this whole panel on every candidate
+            // switch, wiping the per-candidate progress map inside.
+            // ChecklistPanel already keys its internal state by
+            // candidate.id, so the same component instance handles all
+            // candidates correctly.
             sessionId={sessionId}
             candidateVideoRef={{ current: null } as any}
             candidateStream={candidates.find(c => c.id === activeCandidateId)?.stream || null}
