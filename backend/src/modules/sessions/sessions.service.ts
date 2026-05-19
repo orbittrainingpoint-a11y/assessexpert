@@ -506,6 +506,43 @@ export class SessionsService {
     return updated;
   }
 
+  // Reassign a live session to a different proctor. Master-proctor-only
+  // from the controller. Returns the previous proctorId so the caller
+  // can emit `proctor.reassigned` and write an audit entry — the service
+  // stays free of gateway / audit dependencies on purpose.
+  async reassignProctor(sessionId: string, newProctorId: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, proctorId: true, status: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    // Verify the incoming proctor exists, is ACTIVE, and has the right
+    // role. Reassigning to a non-PROCTOR (e.g. an HR user) would let
+    // someone bypass the role guard entirely on subsequent calls.
+    const newProctor = await this.prisma.user.findUnique({
+      where: { id: newProctorId },
+      select: { id: true, role: true, status: true, firstName: true, lastName: true, email: true },
+    });
+    if (!newProctor) throw new NotFoundException('Target proctor not found');
+    if (newProctor.status !== 'ACTIVE') {
+      throw new BadRequestException('Target proctor is not active');
+    }
+    if (!['PROCTOR', 'MASTER_PROCTOR'].includes(newProctor.role)) {
+      throw new BadRequestException('Target user is not a proctor');
+    }
+    if (session.proctorId === newProctorId) {
+      throw new BadRequestException('Session is already assigned to this proctor');
+    }
+
+    const previousProctorId = session.proctorId;
+    const updated = await this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: { proctorId: newProctorId },
+    });
+    return { session: updated, previousProctorId, newProctor };
+  }
+
   async terminateSession(sessionId: string, reason: string, proctorId: string) {
     const updated = await this.prisma.examSession.update({
       where: { id: sessionId },

@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Get, Post, Put, Body, Param, Query, Re
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SessionsService } from './sessions.service';
 import { AiTranscriptionService } from '../ai-transcription/ai-transcription.service';
+import { AdminService } from '../admin/admin.service';
 import { AppGateway } from '../gateway/app.gateway';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -17,6 +18,7 @@ export class SessionsController {
     private sessionsService: SessionsService,
     private gateway: AppGateway,
     private aiTranscription: AiTranscriptionService,
+    private admin: AdminService,
   ) {}
 
   // Proctor-side audio chunk → Gemini → appended to transcript.
@@ -172,6 +174,57 @@ export class SessionsController {
       } : null,
     });
     return result;
+  }
+
+  // Master proctor reassigns a live session to a different proctor.
+  // Both the kicked proctor and the new one need to know — the kicked
+  // browser listens for proctor.reassigned and bails out, and the new
+  // proctor's dashboard re-queries to pick up the session. A signed
+  // audit entry is written so the chain-hashed log captures who did
+  // the swap and why.
+  @Put(':id/proctor')
+  @Roles('MASTER_PROCTOR')
+  async reassignProctor(
+    @Param('id') id: string,
+    @Body() body: { newProctorId: string; reason?: string },
+    @Req() req: any,
+  ) {
+    const result = await this.sessionsService.reassignProctor(id, body.newProctorId);
+    const payload = {
+      sessionId: id,
+      previousProctorId: result.previousProctorId,
+      newProctorId: body.newProctorId,
+      newProctorName: `${result.newProctor.firstName} ${result.newProctor.lastName}`.trim(),
+      reassignedBy: req.user.id,
+      reason: body.reason || null,
+      timestamp: new Date().toISOString(),
+    };
+    this.gateway.emitToSession(id, 'proctor.reassigned', payload);
+
+    // Audit log. Failure here shouldn't abort the reassignment — the
+    // socket emit already went out and the DB row is updated. Just
+    // log a warning so we know to investigate.
+    try {
+      await this.admin.writeAuditLog({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        role: req.user.role,
+        eventType: 'SESSION_PROCTOR_REASSIGNED',
+        target: 'ExamSession',
+        targetId: id,
+        payload: {
+          previousProctorId: result.previousProctorId,
+          newProctorId: body.newProctorId,
+          reason: body.reason || null,
+        },
+        ipAddress: req.ip || 'unknown',
+      });
+    } catch (e: any) {
+      // Don't reuse the controller logger — fall back to console.
+      // eslint-disable-next-line no-console
+      console.warn(`Audit log write failed for reassign ${id}: ${e?.message || e}`);
+    }
+    return result.session;
   }
 
   @Post(':id/terminate')

@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { sessionsApi, proctoringApi, reportsApi } from '@/lib/api'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useAuthStore } from '@/store/auth.store'
 import { AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -22,6 +23,8 @@ type SessionPhase = 'checklist' | 'mcq' | 'practical' | 'complete'
 function SessionContent() {
   const qc = useQueryClient()
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const { user } = useAuthStore()
   const sessionId = searchParams.get('id') || ''
 
   const [phase, setPhase] = useState<SessionPhase>('checklist')
@@ -89,6 +92,25 @@ function SessionContent() {
           if (cid) next.delete(cid)
           return next
         })
+      }
+
+      // Master proctor reassigned this session away from us. If the
+      // current user is the one being kicked, leave the page — we no
+      // longer have the right to monitor this session and the new
+      // proctor will pick it up on their own dashboard.
+      if (event === 'proctor.reassigned') {
+        const me = user?.id
+        if (me && data.previousProctorId === me) {
+          toast(
+            `Session reassigned${data.newProctorName ? ` to ${data.newProctorName}` : ''}${data.reason ? ` — ${data.reason}` : ''}`,
+            { icon: '🔄', duration: 6000 },
+          )
+          router.push('/proctor/today')
+        } else {
+          // Not us — could be the new proctor's dashboard. Just refresh
+          // the session row so the proctor list reflects the change.
+          qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
+        }
       }
     },
   })

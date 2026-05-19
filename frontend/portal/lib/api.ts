@@ -217,6 +217,10 @@ export const sessionsApi = {
   begin: (id: string) => api.post(`/sessions/${id}/begin`),
   assignPractical: (id: string, practicalTaskId: string, candidateId?: string) =>
     api.post(`/sessions/${id}/assign-practical`, { practicalTaskId, candidateId }),
+  // Master proctor reassigns a live session to a different proctor.
+  // Kicks the previous proctor via the proctor.reassigned socket event.
+  reassignProctor: (id: string, newProctorId: string, reason?: string) =>
+    api.put(`/sessions/${id}/proctor`, { newProctorId, reason }),
   terminate: (id: string, reason: string) => api.post(`/sessions/${id}/terminate`, { reason }),
   pause: (id: string) => api.post(`/sessions/${id}/pause`),
   resume: (id: string) => api.post(`/sessions/${id}/resume`),
