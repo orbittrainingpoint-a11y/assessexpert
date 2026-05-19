@@ -252,9 +252,18 @@ function ItemFacialRecognition({
     setState('capturing')
     setErrorMsg(null)
     try {
+      // Downscale to a 640px-wide frame before encoding. MediaPipe FR
+      // works fine on 640×480 input and we keep the base64 payload
+      // around 50-80 KB — well under the 10 MB server cap, but more
+      // importantly fast over a flaky candidate connection. Without
+      // this, a 1080p webcam frame at quality 0.85 produced ~300 KB
+      // of base64 which used to overflow the old 100 KB default body
+      // parser limit and 500-error the capture mid-checklist.
+      const MAX_WIDTH = 640
+      const scale = v.videoWidth > MAX_WIDTH ? MAX_WIDTH / v.videoWidth : 1
       const canvas = document.createElement('canvas')
-      canvas.width = v.videoWidth
-      canvas.height = v.videoHeight
+      canvas.width = Math.round(v.videoWidth * scale)
+      canvas.height = Math.round(v.videoHeight * scale)
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('Canvas context failed')
       ctx.drawImage(v, 0, 0, canvas.width, canvas.height)

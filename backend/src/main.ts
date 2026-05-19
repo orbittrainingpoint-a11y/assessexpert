@@ -10,7 +10,21 @@ import helmet from 'helmet';
 import * as compression from 'compression';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Disable the default body parser (100KB JSON limit) so we can install
+  // our own with a roomier ceiling. Several endpoints accept base64-
+  // encoded webcam frames (ID verification capture, periodic FR check,
+  // reference-photo upload) which routinely run 200-400KB — the default
+  // limit was rejecting them with a 500 right at the moment the proctor
+  // tried to capture a face. 10MB is comfortable for any single still
+  // frame at 1080p and well below what multer handles for chunk uploads.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const bodyParser = require('body-parser');
+  app.use(bodyParser.json({ limit: '10mb' }));
+  app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
   // Serve uploaded files (question images, practical assets) at /uploads/*
   // Storage dir layout: ./storage/question-assets/*, ./storage/practical-files/*, etc.
