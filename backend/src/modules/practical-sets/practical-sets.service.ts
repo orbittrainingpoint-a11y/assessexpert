@@ -373,6 +373,15 @@ export class PracticalSetsService {
           throw new BadRequestException(`File type not allowed. Accepted: ${allowedExts.join(', ')}`);
         }
       }
+      // SVG and HTML are flat-out rejected — both are XSS vectors when
+      // served back via /uploads/*. SVG bodies can contain <script>
+      // elements that run when an HR user views the answer. We don't
+      // need either format for legitimate practical submissions.
+      const blockedExts = ['.svg', '.html', '.htm', '.xhtml', '.xml', '.js', '.mjs'];
+      const ext = path.extname(payload.file.originalname).toLowerCase();
+      if (blockedExts.includes(ext)) {
+        throw new BadRequestException(`File type ${ext} is not allowed for security reasons`);
+      }
       // Validate size
       if (question.maxFileSizeMB && payload.file.size > question.maxFileSizeMB * 1024 * 1024) {
         throw new BadRequestException(`File too large. Max ${question.maxFileSizeMB} MB`);

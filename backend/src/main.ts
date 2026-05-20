@@ -10,6 +10,27 @@ import helmet from 'helmet';
 import * as compression from 'compression';
 
 async function bootstrap() {
+  // Refuse to boot without a real JWT_SECRET. The previous behaviour
+  // silently fell back to the literal string 'fallback-secret' when the
+  // env var was missing — anyone reading the repo could forge admin
+  // tokens against a misconfigured deployment. Crash loudly instead.
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '\n[FATAL] JWT_SECRET is missing or too short (need ≥32 chars).\n' +
+      'Generate one with `openssl rand -hex 32` and set it in backend/.env.\n',
+    );
+    process.exit(1);
+  }
+  if (!process.env.JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET.length < 32) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '\n[FATAL] JWT_REFRESH_SECRET is missing or too short (need ≥32 chars).\n' +
+      'Set a second random secret in backend/.env (must differ from JWT_SECRET).\n',
+    );
+    process.exit(1);
+  }
+
   // Disable the default body parser (100KB JSON limit) so we can install
   // our own with a roomier ceiling. Several endpoints accept base64-
   // encoded webcam frames (ID verification capture, periodic FR check,

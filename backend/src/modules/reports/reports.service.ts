@@ -228,9 +228,21 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
   }
 
   // All per-candidate reports for a session (multi-candidate aware).
-  async reportsForSession(sessionId: string) {
+  // Enforces tenant isolation: HR / ORG_ADMIN / HIRING_MANAGER only see
+  // PUBLISHED reports inside their own organization. Without this check
+  // any HR who guesses a session ID from a different organization could
+  // read those candidates' reports — the controller @Roles by itself
+  // wasn't enough.
+  async reportsForSession(sessionId: string, requestingUser: any) {
+    const where: any = { sessionId };
+    if (requestingUser && ['HR_MANAGER', 'HIRING_MANAGER', 'ORG_ADMIN'].includes(requestingUser.role)) {
+      where.organizationId = requestingUser.organizationId;
+      where.status = 'PUBLISHED';
+    }
+    // SUPER_ADMIN / MASTER_PROCTOR / PROCTOR fall through with no extra
+    // filter — they're allowed to see drafts and across orgs by design.
     return this.prisma.report.findMany({
-      where: { sessionId },
+      where,
       orderBy: { createdAt: 'asc' },
     });
   }

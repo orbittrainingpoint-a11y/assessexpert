@@ -161,6 +161,27 @@ export class AutoCaptureService {
         }
       }
 
+      // Update the FacialRecognitionLog row we wrote at line 111 with
+      // the real comparison outcome + similarity. The previous code
+      // left every log entry stamped 'VERIFIED' regardless of result,
+      // which made the log useless for "did this candidate ever fail
+      // an FR check" queries. Best-effort: if the update fails the
+      // capture still succeeds; only the audit trail is degraded.
+      try {
+        await this.prismaService.facialRecognitionLog.update({
+          where: { id: captureId },
+          data: {
+            outcome,
+            similarityScore: similarity,
+            reviewNotes: reason || null,
+            capturedImagePath: capturePath,
+            candidateId: resolvedCandidateId || null,
+          },
+        });
+      } catch (e: any) {
+        this.logger.warn(`Failed to update FR log ${captureId}: ${e?.message || e}`);
+      }
+
       return {
         success: outcome === 'VERIFIED',
         capturePath,

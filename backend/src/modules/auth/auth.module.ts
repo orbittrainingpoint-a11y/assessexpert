@@ -11,7 +11,9 @@ import { UsersModule } from '../users/users.module';
   imports: [
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'fallback-secret',
+      // main.ts crashes the process if JWT_SECRET is missing or too
+      // short, so by the time this module loads we know it's set.
+      secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '15m' },
     }),
     UsersModule,

@@ -12,6 +12,7 @@ import { usePeriodicFRCheck } from '@/lib/usePeriodicFRCheck'
 import CandidateVerificationLayout from '@/components/candidate/CandidateVerificationLayout'
 import GuidelinesModal from '@/components/candidate/GuidelinesModal'
 import PracticalSetView from '@/components/candidate/PracticalSetView'
+import DOMPurify from 'isomorphic-dompurify'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
 
@@ -1054,8 +1055,24 @@ function ExamContent() {
                   {legalContent && (legalView === 'terms' ? legalContent.termsAndConditions : legalContent.privacyPolicy) ? (
                     <div
                       style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}
+                      // Legal content comes from PlatformSettings, edited
+                      // by SUPER_ADMIN. Even with that trust boundary we
+                      // sanitise here — a compromised admin account could
+                      // otherwise inject <script> that runs on every
+                      // candidate exam page and steals the magic token
+                      // from localStorage. ALLOWED_TAGS is the standard
+                      // rich-text safe-list; FORBID_ATTR strips inline
+                      // event handlers and href javascript:.
                       dangerouslySetInnerHTML={{
-                        __html: legalView === 'terms' ? legalContent.termsAndConditions : legalContent.privacyPolicy,
+                        __html: DOMPurify.sanitize(
+                          legalView === 'terms' ? legalContent.termsAndConditions : legalContent.privacyPolicy,
+                          {
+                            ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'span', 'div', 'blockquote', 'hr'],
+                            ALLOWED_ATTR: ['href', 'target', 'rel'],
+                            FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style'],
+                            ALLOW_DATA_ATTR: false,
+                          },
+                        ),
                       }}
                     />
                   ) : (

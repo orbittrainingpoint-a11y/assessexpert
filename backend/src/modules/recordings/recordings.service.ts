@@ -1,15 +1,25 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class RecordingsService {
-  private signedUrls = new Map<string, { path: string; expires: Date }>();
+  // Signed-URL tokens used to live in a per-process Map — they were lost
+  // on every restart and didn't survive across PM2 cluster workers. We
+  // now persist them in Redis (with the in-memory fallback in
+  // RedisService when REDIS_URL is unset, so single-instance dev still
+  // works). Tokens carry the absolute file path + still expire after
+  // 2h. Key namespace: `recording:url:{token}`.
+  private readonly URL_TTL_SECONDS = 2 * 60 * 60;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
 
   // PER-CANDIDATE chunk save. Chunks live at:
   //   {RECORDINGS_PATH}/{sessionId}/{candidateId}/{webcam|screen}-chunk-{N}.webm
@@ -158,10 +168,11 @@ export class RecordingsService {
     }
     if (!filePath) throw new NotFoundException('Recording not available');
 
-    // Generate signed token (2-hour expiry)
+    // Generate signed token (2-hour expiry). Stored in Redis (or the
+    // in-memory fallback) so workers in a PM2 cluster all resolve it.
     const token = randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    this.signedUrls.set(token, { path: filePath, expires });
+    const expires = new Date(Date.now() + this.URL_TTL_SECONDS * 1000);
+    await this.redis.setex(`recording:url:${token}`, this.URL_TTL_SECONDS, filePath);
 
     return {
       url: `/api/recordings/stream/${token}`,
@@ -170,13 +181,14 @@ export class RecordingsService {
   }
 
   async streamRecording(token: string): Promise<{ filePath: string }> {
-    const entry = this.signedUrls.get(token);
-    if (!entry || entry.expires < new Date()) {
-      this.signedUrls.delete(token);
+    const filePath = await this.redis.get(`recording:url:${token}`);
+    if (!filePath) {
+      // Redis TTL or unknown token. Both manifest the same way to the
+      // caller — the link is invalid or has expired.
       throw new ForbiddenException('Recording link has expired');
     }
-    if (!fs.existsSync(entry.path)) throw new NotFoundException('Recording file not found');
-    return { filePath: entry.path };
+    if (!fs.existsSync(filePath)) throw new NotFoundException('Recording file not found');
+    return { filePath };
   }
 
   async getRecordingStatus(sessionId: string) {

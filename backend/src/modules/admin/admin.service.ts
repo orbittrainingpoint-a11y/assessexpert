@@ -101,15 +101,25 @@ export class AdminService {
     payload?: any;
     ipAddress: string;
   }) {
-    // Get last entry for chain hash
-    const last = await this.prisma.auditLog.findFirst({ orderBy: { createdAt: 'desc' } });
-    const prevHash = last?.chainHash || '0000000000000000';
-    const content = JSON.stringify({ ...data, prevHash, timestamp: new Date().toISOString() });
-    const chainHash = crypto.createHash('sha256').update(content).digest('hex');
-
-    return this.prisma.auditLog.create({
-      data: { ...data, chainHash },
-    });
+    // Tamper-evidence relies on the chain being a true linked list.
+    // The old code did `findFirst` then `create` outside any transaction
+    // — two concurrent writers could read the same prevHash and both
+    // write children of the same node, forking the chain silently. We
+    // now wrap the read+write in a Serializable transaction so Postgres
+    // refuses to commit one of them on conflict; the loser is retried
+    // by Prisma's serialization-failure handler in the next attempt.
+    // This is intentionally not lock-free — audit volume is low and
+    // serialization correctness is the whole point of having a chain.
+    return this.prisma.$transaction(
+      async tx => {
+        const last = await tx.auditLog.findFirst({ orderBy: { createdAt: 'desc' } });
+        const prevHash = last?.chainHash || '0000000000000000';
+        const content = JSON.stringify({ ...data, prevHash, timestamp: new Date().toISOString() });
+        const chainHash = crypto.createHash('sha256').update(content).digest('hex');
+        return tx.auditLog.create({ data: { ...data, chainHash } });
+      },
+      { isolationLevel: 'Serializable' },
+    );
   }
 
   async addReportComment(reportId: string, comment: string, type: string, adminId: string) {

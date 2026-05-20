@@ -42,11 +42,13 @@ export class ReportsController {
     return this.reportsService.getReportBySession(sessionId, req.user, candidateId);
   }
 
-  // Per-candidate report list for a multi-candidate slot.
+  // Per-candidate report list for a multi-candidate slot. Tenant
+  // isolation is enforced inside reportsForSession: HR-tier roles only
+  // see PUBLISHED rows inside their own org. Pass req.user through.
   @Get('session/:sessionId/list')
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'HIRING_MANAGER')
-  async listReportsForSession(@Param('sessionId') sessionId: string) {
-    return this.reportsService.reportsForSession(sessionId);
+  async listReportsForSession(@Param('sessionId') sessionId: string, @Req() req: any) {
+    return this.reportsService.reportsForSession(sessionId, req.user);
   }
 
   // Generate-on-demand PDF. Cached on disk; regenerated when pdfVersion bumps.

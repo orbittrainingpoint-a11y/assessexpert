@@ -109,6 +109,30 @@ export class SchedulingService {
     scheduledAt: Date;
     proctorId?: string;
   }) {
+    // Tenant isolation: refuse to schedule a candidate that belongs to a
+    // different organization than the one the caller is scoped to. Without
+    // this an HR account from Org A could quietly schedule (and mail a
+    // magic link to) candidates from Org B simply by passing their id in
+    // the request body. We also reject if the candidate doesn't exist —
+    // cleaner than letting Prisma's FK constraint throw later.
+    const candidate = await this.prisma.candidateRecord.findUnique({
+      where: { id: data.candidateId },
+      select: { id: true, organizationId: true },
+    });
+    if (!candidate) {
+      throw new BadRequestException('Candidate not found');
+    }
+    if (candidate.organizationId !== data.organizationId) {
+      throw new BadRequestException('Candidate does not belong to this organization');
+    }
+    // Same check for assessment type — assessments are global today but
+    // we still want to fail fast on an unknown id.
+    const at = await this.prisma.assessmentType.findUnique({
+      where: { id: data.assessmentTypeId },
+      select: { id: true },
+    });
+    if (!at) throw new BadRequestException('Assessment type not found');
+
     // Auto-assign proctor if not specified
     let proctorId = data.proctorId;
     if (!proctorId) {
