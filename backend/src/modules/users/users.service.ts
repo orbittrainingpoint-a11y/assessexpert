@@ -40,7 +40,7 @@ export class UsersService {
           certificationLevel: true, certificationDomains: true,
         },
         orderBy: { createdAt: 'desc' },
-        take: parseInt(filters?.limit) || 50,
+        take: Math.min(parseInt(filters?.limit) || 50, 500),
         skip: parseInt(filters?.offset) || 0,
       }),
       this.prisma.user.count({ where }),

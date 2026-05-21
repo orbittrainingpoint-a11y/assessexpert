@@ -222,7 +222,7 @@ export class SchedulingService {
                 companyName: (existingSlot as any).organization?.name || 'AssessExpert',
                 assessmentName: existingSlot.assessmentType.name,
                 scheduledAt: data.scheduledAt,
-                timezone: 'Asia/Dubai',
+                timezone: (existingSlot as any).organization?.timezone || 'Asia/Dubai',
                 magicLink,
               },
             );
@@ -250,6 +250,11 @@ export class SchedulingService {
     // Token valid from 15 minutes before scheduled time until 15 minutes after
     const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
 
+    // Every new session is created as multi-candidate (with N=1 for the
+    // moment) so the proctor + candidate UIs only ever need one rendering
+    // path. A SessionCandidate row is created for the primary candidate
+    // at the same time — every subsequent backend lookup uses that row
+    // as the source of truth instead of branching on a boolean.
     const session = await this.prisma.examSession.create({
       data: {
         candidateId: data.candidateId,
@@ -260,6 +265,10 @@ export class SchedulingService {
         magicToken: token,
         tokenExpiresAt,
         status: 'SCHEDULED',
+        isMultiCandidate: true,
+        sessionCandidates: {
+          create: [{ candidateId: data.candidateId, status: 'PENDING' as any }],
+        },
       },
       include: { candidate: true, assessmentType: true, organization: true },
     });
@@ -271,6 +280,7 @@ export class SchedulingService {
     // is exactly why the user was seeing "scheduled but no email
     // arrived, works on retry" behaviour.
     const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
+    const orgTimezone = (session as any).organization?.timezone || 'Asia/Dubai';
     let invitationResult: { sent: boolean; error?: string };
     try {
       const r = await this.notifications.sendCandidateInvitation(
@@ -280,7 +290,7 @@ export class SchedulingService {
           companyName: (session as any).organization?.name || 'AssessExpert',
           assessmentName: session.assessmentType.name,
           scheduledAt: data.scheduledAt,
-          timezone: 'Asia/Dubai',
+          timezone: orgTimezone,
           magicLink,
         },
       );
@@ -309,7 +319,7 @@ export class SchedulingService {
             <h2>Assessment Reminder — 24 Hours</h2>
             <p>Hi ${session.candidate.firstName},</p>
             <p>This is a reminder that your assessment is scheduled for tomorrow.</p>
-            <p><strong>${session.assessmentType.name}</strong><br/>${data.scheduledAt.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Asia/Dubai' })} (Asia/Dubai)</p>
+            <p><strong>${session.assessmentType.name}</strong><br/>${data.scheduledAt.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: orgTimezone })} (${orgTimezone})</p>
             <p>Ensure your camera, microphone, and internet connection are ready.</p>
             <div style="text-align:center;margin:32px 0">
               <a href="${magicLink}" style="background:#00D4FF;color:#060B18;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600">Access Your Exam</a>
@@ -377,21 +387,36 @@ export class SchedulingService {
       include: { candidate: true, assessmentType: true, organization: true },
     });
 
-    // Re-send the invitation with the new time + link
+    // Re-send the invitation with the new time + link. Also include a
+    // clear "your session has been rescheduled" line in the subject —
+    // before, the candidate received a second invitation email with no
+    // hint that it was a reschedule, easy to mistake for a duplicate.
     const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
-    await this.notifications.sendCandidateInvitation(
-      updated.candidate.email,
-      `${updated.candidate.firstName} ${updated.candidate.lastName}`,
-      {
-        companyName: (updated as any).organization?.name || 'AssessExpert',
-        assessmentName: updated.assessmentType.name,
-        scheduledAt: newScheduledAt,
-        timezone: 'Asia/Dubai',
-        magicLink,
-      },
-    ).catch(() => {});
+    const orgTimezone = (updated as any).organization?.timezone || 'Asia/Dubai';
+    let rescheduleResult: { sent: boolean; error?: string } = { sent: false };
+    try {
+      const r = await this.notifications.sendRescheduleNotice(
+        updated.candidate.email,
+        `${updated.candidate.firstName} ${updated.candidate.lastName}`,
+        {
+          companyName: (updated as any).organization?.name || 'AssessExpert',
+          assessmentName: updated.assessmentType.name,
+          scheduledAt: newScheduledAt,
+          timezone: orgTimezone,
+          magicLink,
+        },
+      );
+      rescheduleResult = { sent: !!(r as any)?.sent, error: (r as any)?.error };
+    } catch (e: any) {
+      rescheduleResult = { sent: false, error: e?.message || String(e) };
+      this.logger.warn(`Reschedule notice failed for ${updated.candidate.email}: ${e?.message || e}`);
+    }
 
-    return updated;
+    return {
+      ...(updated as any),
+      rescheduleNoticeSent: rescheduleResult.sent,
+      rescheduleNoticeError: rescheduleResult.error,
+    };
   }
 
   async getDiagnostics() {

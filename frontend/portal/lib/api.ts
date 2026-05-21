@@ -339,6 +339,13 @@ export const examApi = {
     api.get(`/exam/practical/task?token=${token}${cidParam(candidateId)}`),
   submitPractical: (token: string, formData: FormData) =>
     api.post(`/exam/practical/submit?token=${token}`, formData),
+  // Client-side "your timer just hit zero" notification. The candidate's
+  // browser calls this when the visible countdown reaches 0 so the
+  // backend records the auto-submit promptly — without it we used to
+  // rely entirely on the 1-minute server-side cron, which left a
+  // visible "exam complete" UI without any DB state for up to a minute.
+  notifyTimerExpired: (token: string, phase: 'mcq' | 'practical', candidateId?: string) =>
+    api.post(`/exam/timer/expired?token=${token}${cidParam(candidateId)}`, { phase, candidateId }),
 }
 
 // Notifications

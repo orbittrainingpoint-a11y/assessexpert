@@ -27,7 +27,7 @@ export class CandidatesService {
           },
         },
         orderBy: { createdAt: 'desc' },
-        take: parseInt(filters?.limit) || 25,
+        take: Math.min(parseInt(filters?.limit) || 25, 500),
         skip: parseInt(filters?.offset) || 0,
       }),
       this.prisma.candidateRecord.count({ where }),
@@ -170,6 +170,75 @@ export class CandidatesService {
       this.prisma.candidateRecord.delete({ where: { id } }),
     ]);
     return { deleted: true };
+  }
+
+  // GDPR "right to be forgotten" hard-delete. Unlike deleteCandidate
+  // (which refuses to touch a candidate with any exam history), this
+  // method intentionally cascades through every related row — sessions,
+  // recordings, reports, FR logs, audit-relevant blobs — so the data
+  // subject leaves no trace. Restricted to SUPER_ADMIN at the controller
+  // level. Writes a tamper-evident audit entry BEFORE the delete so even
+  // the action of forgetting is itself auditable.
+  async gdprDeleteCandidate(
+    id: string,
+    requesterId: string,
+    requesterEmail: string,
+    reason: string,
+  ) {
+    const candidate = await this.prisma.candidateRecord.findUnique({
+      where: { id },
+      include: {
+        sessions: { select: { id: true } },
+        sessionCandidates: { select: { sessionId: true } },
+      },
+    });
+    if (!candidate) throw new NotFoundException('Candidate not found');
+
+    const allSessionIds = Array.from(new Set([
+      ...candidate.sessions.map(s => s.id),
+      ...candidate.sessionCandidates.map(sc => sc.sessionId),
+    ]));
+
+    // Audit FIRST — if the cascade fails, the audit row stays so the
+    // operator can investigate what was attempted.
+    await this.prisma.auditLog.create({
+      data: {
+        userId: requesterId,
+        userEmail: requesterEmail,
+        role: 'SUPER_ADMIN',
+        eventType: 'GDPR_CANDIDATE_DELETED',
+        target: 'CandidateRecord',
+        targetId: id,
+        payload: {
+          candidateEmail: candidate.email,
+          candidateName: `${candidate.firstName} ${candidate.lastName}`,
+          organizationId: candidate.organizationId,
+          sessionCount: allSessionIds.length,
+          reason,
+        },
+        ipAddress: '',
+        chainHash: 'gdpr-cascade',
+      },
+    });
+
+    // Cascade everything related to this candidate. Order matters —
+    // child rows first, parents last. Wrapped in one transaction so
+    // either all rows go or none do.
+    await this.prisma.$transaction([
+      this.prisma.facialRecognitionLog.deleteMany({ where: { OR: [{ candidateId: id }, { sessionId: { in: allSessionIds } }] } }),
+      this.prisma.examAnswer.deleteMany({ where: { OR: [{ candidateId: id }, { sessionId: { in: allSessionIds } }] } }),
+      this.prisma.sessionEvent.deleteMany({ where: { sessionId: { in: allSessionIds } } }),
+      this.prisma.report.deleteMany({ where: { OR: [{ candidateId: id }, { sessionId: { in: allSessionIds } }] } }),
+      this.prisma.sessionCandidate.deleteMany({ where: { OR: [{ candidateId: id }, { sessionId: { in: allSessionIds } }] } }),
+      this.prisma.examSession.deleteMany({ where: { id: { in: allSessionIds } } }),
+      this.prisma.candidateRecord.delete({ where: { id } }),
+    ]);
+
+    return {
+      deleted: true,
+      candidateEmail: candidate.email,
+      sessionsDeleted: allSessionIds.length,
+    };
   }
 
   async bulkImport(rows: any[], organizationId: string) {

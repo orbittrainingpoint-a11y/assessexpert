@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { parse as parseCsv } from 'csv-parse/sync';
 import { CandidatesService } from './candidates.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -54,17 +55,47 @@ export class CandidatesController {
     return this.candidatesService.deleteCandidate(id, req.user.organizationId);
   }
 
+  // GDPR "right to be forgotten". Unlike DELETE above (which refuses to
+  // touch candidates with any exam history), this purges everything —
+  // sessions, answers, recordings, FR logs, reports — and writes a
+  // tamper-evident audit row so the action of forgetting is itself
+  // auditable. SUPER_ADMIN only because it's destructive and irreversible.
+  @Post(':id/gdpr-delete')
+  @Roles('SUPER_ADMIN')
+  async gdprDeleteCandidate(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    const reason = (body?.reason || '').trim();
+    if (reason.length < 10) {
+      throw new BadRequestException('A reason of at least 10 characters is required for GDPR delete (data-subject request ref, ticket id, etc.).');
+    }
+    return this.candidatesService.gdprDeleteCandidate(id, req.user.id, req.user.email, reason);
+  }
+
   @Post('import')
   @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
   @UseInterceptors(FileInterceptor('file'))
   async bulkImport(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
-    const content = file.buffer.toString();
-    const lines = content.split('\n').filter(l => l.trim());
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    const rows = lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-      return headers.reduce((obj, h, i) => ({ ...obj, [h]: values[i] }), {} as any);
-    });
+    if (!file?.buffer) throw new BadRequestException('CSV file required');
+    // Use a real RFC-4180 parser. The previous hand-rolled split-on-comma
+    // broke on quoted fields containing commas ("Smith, John"), didn't
+    // handle CRLF, and didn't unescape doubled quotes.
+    let rows: any[];
+    try {
+      rows = parseCsv(file.buffer, {
+        columns: header => header.map((h: string) => h.trim()),
+        skip_empty_lines: true,
+        trim: true,
+        bom: true,
+      });
+    } catch (e: any) {
+      throw new BadRequestException(`Invalid CSV: ${e.message}`);
+    }
+    if (rows.length > 5000) {
+      throw new BadRequestException('CSV exceeds 5000 rows. Split the file and import in batches.');
+    }
     return this.candidatesService.bulkImport(rows, req.user.organizationId);
   }
 }

@@ -201,6 +201,71 @@ export class PracticalSetsService {
   // get different sets; with no candidateId on a multi-candidate slot we
   // write the set to EVERY candidate (the "assign-to-all" default).
   // Single-candidate sessions keep using the ExamSession columns.
+  // Auto-assign a RANDOM ACTIVE practical paper set to every candidate
+  // in a session. Called when MCQ_COMPLETE is reached so candidates don't
+  // sit idle waiting for the proctor to manually pick a set. Each
+  // candidate gets an independent random pick from the active pool — so
+  // co-located cheating is harder (different candidates, different
+  // questions) and a slot with N candidates fans out to N (possibly
+  // different) sets in one call.
+  //
+  // Idempotent on retry: candidates with an existing practicalPaperSetId
+  // are left alone (keeps an explicit proctor override or earlier
+  // auto-pick stable).
+  async autoAssignRandomSets(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        sessionCandidates: { select: { candidateId: true, practicalPaperSetId: true } },
+      },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const sets = await this.prisma.practicalPaperSet.findMany({
+      where: { assessmentTypeId: session.assessmentTypeId, status: 'ACTIVE' },
+      select: { id: true, name: true },
+    });
+    if (sets.length === 0) {
+      // No paper sets configured — return without auto-assigning so the
+      // proctor's manual flow still works. Common during early customer
+      // onboarding where the library hasn't been populated yet.
+      return { assigned: false, reason: 'no_active_sets', assignments: [] };
+    }
+
+    const pickRandom = () => sets[Math.floor(Math.random() * sets.length)];
+    const assignments: Array<{ candidateId: string; setId: string; setName: string }> = [];
+
+    // Always include the primary candidate even if no SessionCandidate
+    // row exists (defensive — unification migration adds it but legacy
+    // pre-backfill rows might still be around).
+    const expected = new Map<string, string | null>();
+    expected.set(session.candidateId, null);
+    for (const sc of session.sessionCandidates) {
+      expected.set(sc.candidateId, sc.practicalPaperSetId);
+    }
+
+    for (const [cId, existingSetId] of expected) {
+      if (existingSetId) {
+        // Keep the existing assignment intact — proctor override or
+        // earlier auto-pick.
+        const existing = sets.find(s => s.id === existingSetId);
+        if (existing) {
+          assignments.push({ candidateId: cId, setId: existing.id, setName: existing.name });
+        }
+        continue;
+      }
+      const pick = pickRandom();
+      await this.prisma.sessionCandidate.upsert({
+        where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+        create: { sessionId, candidateId: cId, practicalPaperSetId: pick.id, practicalTaskId: null },
+        update: { practicalPaperSetId: pick.id, practicalTaskId: null },
+      });
+      assignments.push({ candidateId: cId, setId: pick.id, setName: pick.name });
+    }
+
+    return { assigned: true, assignments };
+  }
+
   async assignSetToSession(sessionId: string, setId: string, candidateId?: string) {
     const set = await this.prisma.practicalPaperSet.findUnique({ where: { id: setId } });
     if (!set) throw new NotFoundException('Set not found');

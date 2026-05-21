@@ -41,6 +41,16 @@ export class StorageController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadPracticalFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
+    // Block active-content extensions. Files here are served from
+    // /uploads/* on the API origin with no Content-Disposition, so an
+    // uploaded .svg / .html / .js would render/execute inline (stored
+    // XSS). Practical resource files are documents + media, never
+    // scripts, so this blocklist costs nothing legitimate.
+    const blockedExts = ['.svg', '.html', '.htm', '.xhtml', '.xml', '.js', '.mjs', '.cjs', '.php', '.phtml'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (blockedExts.includes(ext)) {
+      throw new BadRequestException(`File type ${ext} is not allowed for practical files.`);
+    }
     const filePath = await this.storageService.saveFile('practical-files', file.originalname, file.buffer);
     return {
       url: this.toPublicUrl(filePath),

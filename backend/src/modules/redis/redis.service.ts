@@ -111,6 +111,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.memStore.delete(key);
   }
 
+  // Set / refresh TTL on an existing key. Used by the per-email OTP rate
+  // limiter to apply a window only on the first request — subsequent
+  // INCRs within the window leave the TTL alone, which is exactly the
+  // Redis EXPIRE NX semantic we want.
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    if (this.client && this.connected) {
+      try { await this.client.expire(key, ttlSeconds); return; } catch (e) {
+        this.logger.warn(`expire ${key} failed: ${(e as Error).message}, falling back`);
+      }
+    }
+    const entry = this.memStore.get(key);
+    if (entry) {
+      this.memStore.set(key, { value: entry.value, expiresAt: Date.now() + ttlSeconds * 1000 });
+    }
+  }
+
   // ── In-memory fallback ───────────────────────────────────────────────
 
   private memGet(key: string): string | null {

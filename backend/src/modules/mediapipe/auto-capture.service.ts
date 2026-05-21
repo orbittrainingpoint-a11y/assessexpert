@@ -452,6 +452,25 @@ export class AutoCaptureService {
       return [];
     }
 
+    // Hydrate face count + landmark/quality data from the FR log rows so
+    // the dashboard shows the actual detection result for each capture
+    // (not the old hardcoded `faceCount: 1` placeholder). We index by
+    // capturedImagePath because that's what the FR service writes when
+    // it stores the JPEG — same filesystem path we're reading here.
+    const logs = await this.prismaService.facialRecognitionLog.findMany({
+      where: { sessionId },
+      select: { capturedImagePath: true, faceCount: true, landmarkData: true },
+    });
+    const logByPath = new Map<string, { faceCount: number | null; landmarkData: any }>();
+    for (const l of logs) {
+      if (l.capturedImagePath) {
+        logByPath.set(path.basename(l.capturedImagePath), {
+          faceCount: l.faceCount,
+          landmarkData: l.landmarkData,
+        });
+      }
+    }
+
     const files = fs.readdirSync(sessionDir);
     const captures = files
       .filter(f => !f.startsWith('thumb-'))
@@ -467,14 +486,18 @@ export class AutoCaptureService {
         else if (filename.startsWith('event-triggered')) type = 'EVENT_TRIGGERED';
         else if (filename.startsWith('manual')) type = 'MANUAL';
 
+        const meta = logByPath.get(filename);
         return {
           id: filename,
           path: filepath,
           thumbnailPath: fs.existsSync(thumbnailPath) ? thumbnailPath : filepath,
           type,
           timestamp: stats.mtime,
-          faceCount: 1, // TODO: Get from metadata
-          quality: null,
+          // Fall back to 1 when there's no matching FR log row — that
+          // means a legacy capture from before we started persisting
+          // faceCount, not a definitively-single-face frame.
+          faceCount: meta?.faceCount ?? 1,
+          quality: meta?.landmarkData ?? null,
         };
       });
 
@@ -549,8 +572,8 @@ export class AutoCaptureService {
     // Calculate total size
     for (const capture of captures) {
       if (fs.existsSync(capture.path)) {
-        const stats = fs.statSync(capture.path);
-        (stats as any).totalSize += stats.size;
+        const fileStat = fs.statSync(capture.path);
+        stats.totalSize += fileStat.size;
       }
     }
 

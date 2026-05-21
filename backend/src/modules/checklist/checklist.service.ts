@@ -114,10 +114,35 @@ export class ChecklistService {
       updateData.completedAt = new Date();
     }
 
-    return this.prisma.proctorChecklist.update({
+    const updated = await this.prisma.proctorChecklist.update({
       where: { sessionId_candidateId: { sessionId, candidateId: cId } },
       data: updateData,
     });
+
+    // Mirror "checklist fully done" onto SessionCandidate.status so the
+    // frontend can derive `allVerified` from a single source of truth.
+    // Without this, the proctor UI had two sources (local verifiedIds
+    // set + DB) that drifted on refresh and stale-reloaded the "All
+    // Verified — Start Exam" button into the disabled state.
+    if (allRequired) {
+      try {
+        await this.prisma.sessionCandidate.updateMany({
+          where: {
+            sessionId,
+            candidateId: cId,
+            status: { in: ['PENDING' as any, 'JOINED' as any, 'VERIFYING' as any] },
+          },
+          data: { status: 'VERIFIED' as any, verifiedAt: new Date() },
+        });
+      } catch {
+        // SessionCandidate row may not exist for very old single-candidate
+        // sessions that pre-date the unification backfill. The backend
+        // checklist row is still the durable record of completion, so we
+        // swallow this rather than letting it break the proctor flow.
+      }
+    }
+
+    return updated;
   }
 
   async getChecklist(sessionId: string, candidateId?: string) {

@@ -154,12 +154,15 @@ function SessionContent() {
     refetchInterval: 10000,
   })
 
+  // Every session is treated as multi-candidate now (N may be 1). The
+  // SessionCandidate rows are the single source of truth for who is in
+  // the slot — no more branching on isMultiCandidate.
   const { data: sessionCandidates } = useQuery({
     queryKey: ['session-candidates', sessionId],
     queryFn: () => fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/${sessionId}/candidates`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
     }).then(r => r.json()),
-    enabled: !!sessionId && !!session?.isMultiCandidate,
+    enabled: !!sessionId,
     refetchInterval: 5000,
   })
 
@@ -201,15 +204,12 @@ function SessionContent() {
     if (wsSocket?.connected) {
       wsSocket.emit('proctor.allVerified', { sessionId })
     }
-    // For single candidate, begin the session via API
-    if (!session?.isMultiCandidate) {
-      sessionsApi.begin(sessionId)
-        .then(() => qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] }))
-        .catch((e: any) => toast.error(e.response?.data?.message || 'Failed to begin exam'))
-    }
+    // Move to MCQ phase. The actual `sessionsApi.begin` call happens in
+    // handlePushMCQ when the proctor clicks "Push MCQ" inside
+    // PostVerificationLayout — same flow for N=1 and N>1.
     setMcqPushed(true)
     setPhase('mcq')
-  }, [sessionId, wsSocket, session?.isMultiCandidate, qc])
+  }, [sessionId, wsSocket])
 
   const handlePushMCQ = useCallback(async () => {
     try {
@@ -255,6 +255,22 @@ function SessionContent() {
     else setPhase('checklist')
   }, [session?.status])
 
+  // Keep the active candidate's socketId in sync with the live peer map.
+  // When the proctor selects a candidate tile BEFORE the WebRTC peer is
+  // established (which happens often — auto-select fires on the first
+  // render, but the peer connection takes 500ms+ to set up), the socketId
+  // captured at click time is undefined. Once useJitsi establishes the
+  // peer and rebuilds lkPeers, we pull the real socketId out and update
+  // the active target so the 1-to-1 audio routing actually targets the
+  // right connection during verification.
+  useEffect(() => {
+    if (!activeCandidateId) return
+    const peer = lkPeers.get(`candidate-${activeCandidateId}`)
+    if (peer?.socketId && peer.socketId !== activeCandidateSocketId) {
+      setActiveCandidateSocketId(peer.socketId)
+    }
+  }, [activeCandidateId, lkPeers, activeCandidateSocketId])
+
   const pauseMutation = useMutation({
     mutationFn: () => sessionsApi.pause(sessionId),
     onSuccess: () => { setIsPaused(true); qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] }) },
@@ -284,64 +300,84 @@ function SessionContent() {
   if (!session) return <div style={{ color: 'var(--rose)', padding: '40px' }}>Session not found.</div>
 
   const candidate = session.candidate
-  const isMultiCandidate = session.isMultiCandidate
   const candidateStream: MediaStream | null = remoteStreams.size > 0 ? (Array.from(remoteStreams.values())[0] as MediaStream) : null
-  
-  // For single-candidate, derive socketId from the first remote stream key
-  const firstRemoteSocketId = remoteStreams.size > 0 ? Array.from(remoteStreams.keys())[0] as string : undefined
-
   const candidatePeer = Array.from(lkPeers.values()).find(p => p.role === 'CANDIDATE')
   const candidateScreenStream = candidatePeer?.screenStream || null
+  // The lkPeers Map carries the real socket.io socketId now (added to
+  // RemotePeer). Falling back to the first candidate peer's socketId
+  // keeps single-candidate sessions working when the SessionCandidate
+  // lookup misses (e.g. the candidate just connected and lkPeers is
+  // still keyed by `candidate-${socketId}` until the next rebuild).
+  const fallbackSocketId = candidatePeer?.socketId
 
-  const candidates = isMultiCandidate && sessionCandidates
-    ? sessionCandidates.map((sc: any) => ({
-        id: sc.candidateId,
-        name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
-        firstName: sc.candidate.firstName,
-        lastName: sc.candidate.lastName,
-        email: sc.candidate.email,
-        stream: lkPeers.get(`candidate-${sc.candidateId}`)?.cameraStream || null,
-        screenStream: lkPeers.get(`candidate-${sc.candidateId}`)?.screenStream || null,
-        socketId: sc.socketId,
-        mcqSubmitted: sc.status === 'MCQ_SUBMITTED',
-      }))
-    : [{
-        id: candidate?.id || sessionId,
-        name: `${candidate?.firstName} ${candidate?.lastName}`,
-        firstName: candidate?.firstName,
-        lastName: candidate?.lastName,
-        email: candidate?.email,
-        stream: candidateStream,
-        screenStream: candidateScreenStream,
-        socketId: firstRemoteSocketId,
-        mcqSubmitted: session.status === 'MCQ_SUBMITTED',
-      }]
+  // Unified candidate list — always derived from SessionCandidate rows
+  // when available. The fallback to `[session.candidate]` covers the
+  // brief window between page load and the first sessionCandidates fetch,
+  // plus any legacy session that pre-dates the backfill migration.
+  const candidates =
+    sessionCandidates && sessionCandidates.length > 0
+      ? sessionCandidates.map((sc: any) => {
+          const peer = lkPeers.get(`candidate-${sc.candidateId}`)
+          return {
+            id: sc.candidateId,
+            name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
+            firstName: sc.candidate.firstName,
+            lastName: sc.candidate.lastName,
+            email: sc.candidate.email,
+            stream: peer?.cameraStream || candidateStream,
+            screenStream: peer?.screenStream || candidateScreenStream,
+            socketId: peer?.socketId || fallbackSocketId,
+            mcqSubmitted: sc.status === 'MCQ_SUBMITTED',
+          }
+        })
+      : [{
+          id: candidate?.id || sessionId,
+          name: `${candidate?.firstName} ${candidate?.lastName}`,
+          firstName: candidate?.firstName,
+          lastName: candidate?.lastName,
+          email: candidate?.email,
+          stream: candidateStream,
+          screenStream: candidateScreenStream,
+          socketId: fallbackSocketId,
+          mcqSubmitted: session.status === 'MCQ_SUBMITTED',
+        }]
 
-  const allVerified = isMultiCandidate && sessionCandidates
-    ? sessionCandidates.every((sc: any) => sc.status !== 'PENDING' && sc.status !== 'JOINED' && sc.status !== 'VERIFYING')
-    : verifiedCandidates.size > 0
+  // After the checklist→VERIFIED wiring, SessionCandidate.status is the
+  // single source of truth. A candidate counts as verified the moment
+  // their proctor checklist completes (status flips to VERIFIED or any
+  // later phase). Fallback to the local `verifiedCandidates` set covers
+  // the brief load gap before sessionCandidates arrives.
+  const allVerified =
+    sessionCandidates && sessionCandidates.length > 0
+      ? sessionCandidates.every((sc: any) =>
+          ['VERIFIED', 'MCQ_IN_PROGRESS', 'MCQ_SUBMITTED', 'PRACTICAL_IN_PROGRESS', 'PRACTICAL_SUBMITTED', 'COMPLETED'].includes(sc.status),
+        )
+      : verifiedCandidates.size > 0
 
-  const allMcqSubmitted = isMultiCandidate && sessionCandidates
-    ? sessionCandidates.every((sc: any) => sc.status === 'MCQ_SUBMITTED' || sc.status === 'PRACTICAL_IN_PROGRESS' || sc.status === 'PRACTICAL_SUBMITTED' || sc.status === 'COMPLETED')
-    : session.status === 'MCQ_SUBMITTED'
+  const allMcqSubmitted =
+    sessionCandidates && sessionCandidates.length > 0
+      ? sessionCandidates.every((sc: any) => sc.status === 'MCQ_SUBMITTED' || sc.status === 'PRACTICAL_IN_PROGRESS' || sc.status === 'PRACTICAL_SUBMITTED' || sc.status === 'COMPLETED')
+      : session.status === 'MCQ_SUBMITTED'
     
   const allEvents: any[] = Array.isArray(events) ? events : []
   const activeFlags = allEvents.filter(
     e => (e.severity === 'CRITICAL' || e.severity === 'WARNING') && !resolvedFlagIds.includes(e.id)
   )
 
-  const candidateTiles = [{
-    id: candidate?.id || sessionId,
-    firstName: candidate?.firstName || 'Candidate',
-    lastName: candidate?.lastName || '',
-    questionProgress: candidateProgress[candidate?.id] ?? 0,
+  // Practical-phase MonitorGrid tiles — same source as the unified
+  // candidate list above, so N=1 and N>1 render identically.
+  const candidateTiles = candidates.map((c: any) => ({
+    id: c.id,
+    firstName: c.firstName || 'Candidate',
+    lastName: c.lastName || '',
+    questionProgress: candidateProgress[c.id] ?? 0,
     totalQuestions: session.assessmentType?.mcqCount || 25,
     faceStatus: 'present' as const,
-    screenStatus: screenSharingCandidateIds.has(candidate?.id) ? 'active' as const : 'issue' as const,
-    submittedPractical: session.status === 'SUBMITTED',
-    stream: candidateStream,
-    screenStream: candidateScreenStream,
-  }]
+    screenStatus: screenSharingCandidateIds.has(c.id) ? 'active' as const : 'issue' as const,
+    submittedPractical: c.mcqSubmitted || session.status === 'SUBMITTED',
+    stream: c.stream,
+    screenStream: c.screenStream,
+  }))
 
   // Prefer the live socket score, then the backend's computed correctCount, then
   // fall back to answers length / 0. This makes the submission view correct
@@ -398,27 +434,16 @@ function SessionContent() {
       )}
 
       {phase === 'mcq' && !['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'].includes(session.status) && (
-        isMultiCandidate ? (
-          <PostVerificationLayout
-            sessionId={sessionId}
-            candidates={candidates.map((c: any) => ({ ...c, screenStream: c.stream, cameraStream: c.stream }))}
-            proctorStream={proctorStream}
-            onPushMCQ={handlePushMCQ}
-            onPushPractical={handlePushPractical}
-            onDisqualify={handleDisqualify}
-            mcqPushed={mcqPushed}
-            allMcqSubmitted={allMcqSubmitted}
-          />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
-            <MonitorGrid sessionId={sessionId} candidates={candidateTiles} phase="mcq" onPause={() => pauseMutation.mutate()} onResume={() => resumeMutation.mutate()} isPaused={isPaused} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <AIMonitoringPanel alerts={alerts} behaviorScore={behaviorScore} isMonitoring={isMonitoring} onDismissAlert={dismissAlert} />
-              <CaptureGallery sessionId={sessionId} enabled={phase === 'mcq'} />
-              <FlagQueue flags={activeFlags} onFlagActioned={id => setResolvedFlagIds(p => [...p, id])} />
-            </div>
-          </div>
-        )
+        <PostVerificationLayout
+          sessionId={sessionId}
+          candidates={candidates.map((c: any) => ({ ...c, screenStream: c.screenStream || c.stream, cameraStream: c.stream }))}
+          proctorStream={proctorStream}
+          onPushMCQ={handlePushMCQ}
+          onPushPractical={handlePushPractical}
+          onDisqualify={handleDisqualify}
+          mcqPushed={mcqPushed}
+          allMcqSubmitted={allMcqSubmitted}
+        />
       )}
 
       {phase === 'mcq' && ['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'].includes(session.status) && (

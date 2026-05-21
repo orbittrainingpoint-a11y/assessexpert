@@ -19,7 +19,7 @@ export class OrganizationsService {
         where,
         include: { _count: { select: { users: true, candidates: true, sessions: true } } },
         orderBy: { createdAt: 'desc' },
-        take: parseInt(filters?.limit) || 50,
+        take: Math.min(parseInt(filters?.limit) || 50, 500),
         skip: parseInt(filters?.offset) || 0,
       }),
       this.prisma.organization.count({ where }),

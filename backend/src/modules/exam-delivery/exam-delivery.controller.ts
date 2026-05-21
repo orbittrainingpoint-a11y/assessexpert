@@ -143,6 +143,25 @@ export class ExamDeliveryController {
     return this.examDeliveryService.getTimer(token);
   }
 
+  // Candidate-facing notification that the client-side countdown just
+  // hit zero. The backend re-validates the timer (defence against a
+  // tampered clock) and only auto-submits if the server agrees time
+  // has actually run out. Without this the server-side cron is the
+  // only thing that catches expired exams — fine in the worst case,
+  // but a minute of "session still in progress" UX is jarring.
+  @Post('timer/expired')
+  async notifyTimerExpired(
+    @Query('token') token: string,
+    @Query('candidateId') candidateIdQuery: string | undefined,
+    @Body() body: { phase: 'mcq' | 'practical'; candidateId?: string },
+  ) {
+    return this.examDeliveryService.handleClientTimerExpired(
+      token,
+      body.phase,
+      candidateIdQuery || body.candidateId,
+    );
+  }
+
   @Get('practical/task')
   async getPracticalTask(
     @Query('token') token: string,

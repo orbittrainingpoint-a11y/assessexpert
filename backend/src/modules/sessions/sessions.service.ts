@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RecordingsService } from '../recordings/recordings.service';
+import { PracticalSetsService } from '../practical-sets/practical-sets.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class SessionsService {
   constructor(
     private prisma: PrismaService,
     private recordings: RecordingsService,
+    private practicalSets: PracticalSetsService,
   ) {}
 
   // Best-effort recording finalize. Awaits the merge so the recording
@@ -96,7 +98,7 @@ export class SessionsService {
   ) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, status: true, verificationTranscript: true },
+      select: { id: true, status: true, candidateId: true, verificationTranscript: true },
     });
     if (!session) throw new NotFoundException('Session not found');
     const FROZEN = ['SUBMITTED', 'GRADING', 'PENDING_PROCTOR_REVIEW', 'REPORT_PUBLISHED', 'COMPLETED', 'DISQUALIFIED'];
@@ -104,8 +106,22 @@ export class SessionsService {
       // Don't error — just refuse to mutate. Caller can ignore the response.
       return { appended: false, reason: 'transcript frozen' };
     }
-    const text = (line.text || '').trim();
+    // Cap line length so a flooded mic / runaway TTS can't fill the JSON
+    // column or blow up dashboard queries. 5000 chars is generous (~750
+    // words) and well under Postgres jsonb size.
+    const text = (line.text || '').trim().slice(0, 5000);
     if (!text) return { appended: false, reason: 'empty' };
+
+    // If the caller names a candidateId, it MUST belong to this session.
+    // Otherwise an attacker with one candidate's token could inject lines
+    // attributed to another candidate.
+    if (line.candidateId && line.candidateId !== session.candidateId) {
+      const sc = await this.prisma.sessionCandidate.findUnique({
+        where: { sessionId_candidateId: { sessionId, candidateId: line.candidateId } },
+        select: { id: true },
+      });
+      if (!sc) return { appended: false, reason: 'candidate not in session' };
+    }
 
     const current: any = (session.verificationTranscript as any) || { lines: [] };
     const lines = Array.isArray(current.lines) ? current.lines : [];
@@ -409,20 +425,35 @@ export class SessionsService {
       const allDone = Array.from(expectedIds).every(id => finishedIds.has(id));
 
       if (allDone) {
-        return this.prisma.examSession.update({
+        const updated = await this.prisma.examSession.update({
           where: { id: sessionId },
           data: { status: 'MCQ_COMPLETE', mcqSubmittedAt: new Date() },
         });
+        // Auto-assign a random practical set per candidate the moment
+        // the slot finishes MCQ — fire-and-forget so a failure here
+        // doesn't roll back the MCQ_COMPLETE transition. The proctor
+        // can still manually override any assignment in PracticalPanel
+        // before pushing practical to the candidates.
+        this.practicalSets.autoAssignRandomSets(sessionId).catch(e => {
+          this.logger.warn(`Auto-assign practical sets failed for ${sessionId}: ${e?.message || e}`);
+        });
+        return updated;
       }
       // Some candidates still going — leave session.status at MCQ_IN_PROGRESS.
       return this.prisma.examSession.findUnique({ where: { id: sessionId } });
     }
 
-    // Single-candidate: legacy behaviour, flip the whole session.
-    return this.prisma.examSession.update({
+    // Single-candidate legacy branch. Post-unification every session has
+    // isMultiCandidate=true so this only fires for pre-migration rows;
+    // still auto-assign a random set so behaviour is identical.
+    const updated = await this.prisma.examSession.update({
       where: { id: sessionId },
       data: { status: 'MCQ_COMPLETE', mcqSubmittedAt: new Date() },
     });
+    this.practicalSets.autoAssignRandomSets(sessionId).catch(e => {
+      this.logger.warn(`Auto-assign practical sets failed for ${sessionId}: ${e?.message || e}`);
+    });
+    return updated;
   }
 
   // Assign a legacy practical task to a session. With candidateId on a
@@ -488,7 +519,50 @@ export class SessionsService {
     });
   }
 
-  async submitPractical(sessionId: string, filePath?: string, fileName?: string) {
+  // Per-candidate practical submit. Mirrors completeMcq: in a multi-
+  // candidate slot we flip ONE candidate to PRACTICAL_SUBMITTED, then
+  // only flip session.status=SUBMITTED once EVERY candidate has finished.
+  // candidateId may be undefined for single-candidate / legacy callers —
+  // we resolve to the primary in that case.
+  async submitPractical(sessionId: string, filePath?: string, fileName?: string, candidateId?: string) {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { isMultiCandidate: true, candidateId: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    const cId = candidateId || session.candidateId;
+
+    if (session.isMultiCandidate) {
+      await this.prisma.sessionCandidate.upsert({
+        where: { sessionId_candidateId: { sessionId, candidateId: cId } },
+        create: {
+          sessionId, candidateId: cId,
+          status: 'PRACTICAL_SUBMITTED',
+          practicalSubmittedAt: new Date(),
+        },
+        update: {
+          status: 'PRACTICAL_SUBMITTED',
+          practicalSubmittedAt: new Date(),
+        },
+      });
+
+      const scRows = await this.prisma.sessionCandidate.findMany({
+        where: { sessionId },
+        select: { candidateId: true, status: true },
+      });
+      const expectedIds = new Set<string>([session.candidateId]);
+      scRows.forEach(r => expectedIds.add(r.candidateId));
+      const finishedStatuses = new Set(['PRACTICAL_SUBMITTED', 'COMPLETED', 'DISQUALIFIED']);
+      const allDone = Array.from(expectedIds).every(id => {
+        const sc = scRows.find(r => r.candidateId === id);
+        return sc ? finishedStatuses.has(sc.status as any) : false;
+      });
+
+      if (!allDone) {
+        return this.prisma.examSession.findUnique({ where: { id: sessionId } });
+      }
+    }
+
     const updated = await this.prisma.examSession.update({
       where: { id: sessionId },
       data: {

@@ -18,13 +18,17 @@ const SETTING_LABELS: Record<string, { label: string; desc: string; type: string
   report_sla_hours: { label: 'Report SLA (hours)', desc: 'Target hours from session end to published report', type: 'number' },
 }
 
-const FEATURE_FLAGS = [
-  { key: 'interview_room', label: 'Interview Room', desc: 'Built-in video interview room for HR' },
-  { key: 'cloud_vdi', label: 'Cloud VDI (Lab Mode)', desc: 'Cloud desktop for candidates without required software' },
-  { key: 'arabic_rtl', label: 'Arabic RTL Interface', desc: 'Right-to-left layout for Arabic language' },
-  { key: 'light_theme', label: 'Light Theme', desc: 'Allow users to switch to light mode' },
-  { key: 'batch_csv_import', label: 'Batch CSV Import', desc: 'Bulk candidate import via CSV/Excel' },
-  { key: 'auto_scheduling', label: 'Auto-Scheduling Engine', desc: 'Automatically assign proctors to sessions' },
+// `comingSoon: true` greys the toggle out and prevents it from flipping
+// — the underlying setting is still saved (so when the feature ships we
+// can flip an existing org's flag without re-typing), but the UI makes
+// it clear the toggle currently doesn't do anything.
+const FEATURE_FLAGS: Array<{ key: string; label: string; desc: string; comingSoon?: boolean }> = [
+  { key: 'notify_candidate_on_publish', label: 'Email Candidate on Report Publish', desc: 'When ON, candidates receive a courtesy email when their result is published' },
+  { key: 'interview_room', label: 'Interview Room', desc: 'Built-in video interview room for HR', comingSoon: true },
+  { key: 'cloud_vdi', label: 'Cloud VDI (Lab Mode)', desc: 'Cloud desktop for candidates without required software', comingSoon: true },
+  { key: 'arabic_rtl', label: 'Arabic RTL Interface', desc: 'Right-to-left layout for Arabic language', comingSoon: true },
+  { key: 'light_theme', label: 'Light Theme', desc: 'Allow users to switch to light mode', comingSoon: true },
+  { key: 'auto_scheduling', label: 'Auto-Scheduling Engine', desc: 'Automatically assign proctors to sessions', comingSoon: true },
 ]
 
 const AUDIT_EVENT_TYPES = ['', 'LOGIN', 'REPORT_PUBLISHED', 'COMPANY_CREATED', 'USER_CREATED', 'QUESTION_MODIFIED', 'SESSION_TERMINATED', 'SETTINGS_CHANGED']
@@ -135,13 +139,21 @@ export default function AdminSettingsPage() {
       {activeTab === 'flags' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {FEATURE_FLAGS.map(ff => (
-            <div key={ff.key} className="glass-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div key={ff.key} className="glass-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: ff.comingSoon ? 0.55 : 1 }}>
               <div>
-                <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: 'var(--text-primary)' }}>{ff.label}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: 'var(--text-primary)' }}>{ff.label}</p>
+                  {ff.comingSoon && (
+                    <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--amber)', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px', borderRadius: '4px' }}>Coming Soon</span>
+                  )}
+                </div>
                 <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>{ff.desc}</p>
               </div>
-              <button type="button" onClick={() => setFlags(f => ({ ...f, [ff.key]: !f[ff.key] }))}
-                style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', background: flags[ff.key] ? 'var(--emerald)' : 'var(--bg-elevated)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+              <button type="button"
+                disabled={ff.comingSoon}
+                onClick={() => { if (!ff.comingSoon) setFlags(f => ({ ...f, [ff.key]: !f[ff.key] })) }}
+                title={ff.comingSoon ? 'Not available yet' : undefined}
+                style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: ff.comingSoon ? 'not-allowed' : 'pointer', background: flags[ff.key] ? 'var(--emerald)' : 'var(--bg-elevated)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
                 <div style={{ position: 'absolute', top: '3px', left: flags[ff.key] ? '25px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
               </button>
             </div>

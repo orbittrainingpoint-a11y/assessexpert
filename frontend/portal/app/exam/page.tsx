@@ -22,10 +22,9 @@ type Phase =
   | 'not-open' 
   | 'otp-email' 
   | 'otp-verify' 
-  | 'camera' 
+  | 'camera'
   | 'verification'
-  | 'waiting' 
-  | 'mcq' 
+  | 'mcq'
   | 'mcq-complete' 
   | 'practical' 
   | 'complete' 
@@ -117,7 +116,7 @@ function ExamContent() {
   const { emit: wsEmit, socket: wsSocket } = useSessionWebSocket({
     sessionId: sessionState?.id || '',
     role: 'CANDIDATE',
-    enabled: !!sessionState?.id && (phase === 'verification' || phase === 'waiting' || phase === 'mcq' || phase === 'practical'),
+    enabled: !!sessionState?.id && (phase === 'verification' || phase === 'mcq' || phase === 'practical'),
     onEvent: (event, data) => {
       if (event === 'session.phase') {
         if (data.phase === 'MCQ_IN_PROGRESS') {
@@ -189,7 +188,6 @@ function ExamContent() {
   // proctor loses visibility right when the candidate is most idle.
   const livekitEnabled = !!sessionState?.id && (
     phase === 'verification' ||
-    phase === 'waiting' ||
     phase === 'mcq' ||
     phase === 'mcq-complete' ||
     phase === 'practical'
@@ -228,7 +226,7 @@ function ExamContent() {
 
   // Client-side MediaPipe face detection — runs locally on candidate video, emits
   // ai.multiple_faces / ai.face_absent socket events the proctor sees in real time.
-  const faceDetectionEnabled = !!sessionState?.id && cameraReady && (phase === 'mcq' || phase === 'practical' || phase === 'verification' || phase === 'waiting')
+  const faceDetectionEnabled = !!sessionState?.id && cameraReady && (phase === 'mcq' || phase === 'practical' || phase === 'verification')
   useFaceDetection({
     enabled: faceDetectionEnabled,
     stream: lkLocalCamera,
@@ -286,15 +284,13 @@ function ExamContent() {
         if (doneStatuses.includes(data.status)) {
           setPhase('link-expired')
         } else {
-          // In a multi-candidate slot, multiple people share this link — DON'T
-          // pre-fill the email, every candidate must enter their own.
-          // For a single-candidate session, pre-filling is a convenience.
-          const isMulti = !!data.isMultiCandidate
-          const prefill = isMulti ? '' : (data.candidate?.email || '')
-
+          // Every slot is treated as multi-candidate now (N may be 1), so
+          // we never pre-fill the email — each candidate must type their
+          // own. This also means the same magic link works whether the
+          // slot has one candidate or several, with no UX divergence.
           if (activeStatuses.includes(data.status)) {
             setPhase('otp-email')
-            setEmail(prefill)
+            setEmail('')
           } else {
             const now = new Date()
             const scheduled = new Date(data.scheduledAt)
@@ -303,7 +299,7 @@ function ExamContent() {
               setPhase('not-open')
             } else {
               setPhase('otp-email')
-              setEmail(prefill)
+              setEmail('')
             }
           }
         }
@@ -345,14 +341,26 @@ function ExamContent() {
     }
   }, [])
 
-  // Timer sync
+  // Timer sync. When the countdown reaches zero we now also POST a
+  // notify-timer-expired call so the backend records the auto-submit
+  // immediately instead of waiting up to a minute for the server-side
+  // sweep cron to catch up. Idempotent — the backend re-validates the
+  // timer and rejects calls where the timer hasn't actually expired
+  // (defence against a tampered client clock).
   useEffect(() => {
     if (phase !== 'mcq' && phase !== 'practical') return
+    const notifyExpired = async () => {
+      try {
+        const cid = sessionState?.candidate?.id
+        await examApi.notifyTimerExpired(token, phase as 'mcq' | 'practical', cid)
+      } catch {}
+    }
     const sync = async () => {
       try {
         const { data } = await examApi.getTimer(token)
         setTimeRemaining(data.remaining)
         if (data.remaining <= 0) {
+          await notifyExpired()
           if (phase === 'mcq') setPhase('mcq-complete')
           else if (phase === 'practical') setPhase('complete')
         }
@@ -363,6 +371,10 @@ function ExamContent() {
       setTimeRemaining(t => {
         if (t <= 1) {
           clearInterval(timerRef.current)
+          // Fire-and-forget: phase change happens immediately so the
+          // UI doesn't hang waiting for the network. The backend will
+          // also get a cron-driven sweep within ~60s as a safety net.
+          notifyExpired()
           if (phase === 'mcq') setPhase('mcq-complete')
           else setPhase('complete')
           return 0
@@ -372,6 +384,7 @@ function ExamContent() {
     }, 1000)
     const serverSync = setInterval(sync, 30000)
     return () => { clearInterval(timerRef.current); clearInterval(serverSync) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, token])
 
   // Connection Monitoring
@@ -467,13 +480,13 @@ function ExamContent() {
   // shown on screen — its utterances no longer hit the persistent record.
   const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
   useAudioTranscriber({
-    enabled: (phase === 'verification' || phase === 'waiting') && !!token && !!lkLocalCamera,
+    enabled: (phase === 'verification') && !!token && !!lkLocalCamera,
     micStream: lkLocalCamera,
     endpoint: `${baseApiUrl}/exam/transcribe-audio?token=${encodeURIComponent(token)}`,
     extraFields: () => ({ candidateId: sessionState?.candidate?.id }),
   })
   useSpeechTranscription({
-    enabled: (phase === 'verification' || phase === 'waiting') && !!token,
+    enabled: (phase === 'verification') && !!token,
     // No onUtterance — interim text is consumed by the proctor's
     // VerificationLayout for the live caption banner only.
   })
@@ -484,7 +497,6 @@ function ExamContent() {
   useSessionRecorder({
     enabled: !!sessionState?.id && (
       phase === 'verification' ||
-      phase === 'waiting' ||
       phase === 'mcq' ||
       phase === 'mcq-complete' ||
       phase === 'practical'
@@ -610,9 +622,9 @@ function ExamContent() {
   }, [phase, token])
 
   // Checklist Polling — uses public by-token endpoint (no JWT needed)
-  // Polls during verification/waiting as fallback; real-time updates come via socket
+  // Polls during verification as fallback; real-time updates come via socket
   useEffect(() => {
-    if (phase !== 'waiting' && phase !== 'verification') return
+    if (phase !== 'verification') return
     const poll = async () => {
       try {
         const cid = sessionState?.candidate?.id
@@ -778,41 +790,51 @@ function ExamContent() {
       // broke the recorder (chunks posted without candidateId got 400s
       // on multi-candidate sessions).
       setSessionState((prev: any) => ({ ...(prev || {}), ...data, id: data.id || data.sessionId || prev?.id }))
-      // Check if multi-candidate session
-      if (data.isMultiCandidate) {
-        setPhase('verification')
-      } else {
-        setPhase('waiting')
-      }
-      // Poll for exam start
-      const poll = setInterval(async () => {
-        const { data: s } = await examApi.getSession(token, sessionState?.candidate?.id)
-        // Same merge reasoning as above — never lose the candidate object.
-        setSessionState((prev: any) => ({ ...(prev || {}), ...s, id: s.id || s.sessionId || prev?.id }))
-        if (s.status === 'MCQ_IN_PROGRESS') {
-          clearInterval(poll)
-          await loadNextQuestion()
-          setPhase('mcq')
-        } else if (s.status === 'PRACTICAL_IN_PROGRESS') {
-          clearInterval(poll)
-          // Fetch practical task details separately if not included in session
-          if (s.practicalTask) {
-            setPracticalTask(s.practicalTask)
-          } else {
-            try {
-              const { data: taskData } = await examApi.getPracticalTask(token)
-              setPracticalTask(taskData)
-            } catch {
-              setPracticalTask({ title: 'Practical Task', description: 'Please follow the proctor\'s instructions.' })
-            }
-          }
-          setPhase('practical')
-        }
-      }, 3000)
+      // Every session uses the verification phase first — the proctor
+      // greets each candidate (whether the slot has 1 or many) before
+      // pushing MCQ. The legacy `waiting` shortcut for single-candidate
+      // skipped the live face-to-face check, which we never want.
+      // The exam-start poll lives in a useEffect (keyed on the
+      // verification phase) so it's properly torn down — the old inline
+      // setInterval here was never cleared and leaked one timer per
+      // entry, polling getSession every 3s for the life of the tab.
+      setPhase('verification')
     } catch (err: any) {
       toast.error('Failed to load session')
     }
   }
+
+  // Exam-start poll — fallback to the socket `session.phase` event.
+  // Runs only during the verification phase and is cleaned up on phase
+  // change / unmount (this replaces the leaky inline poll that used to
+  // live inside handleEnterWaiting).
+  useEffect(() => {
+    if (phase !== 'verification') return
+    const poll = setInterval(async () => {
+      try {
+        const { data: s } = await examApi.getSession(token, sessionState?.candidate?.id)
+        setSessionState((prev: any) => ({ ...(prev || {}), ...s, id: s.id || s.sessionId || prev?.id }))
+        if (s.status === 'MCQ_IN_PROGRESS') {
+          await loadNextQuestion()
+          setPhase('mcq')
+        } else if (s.status === 'PRACTICAL_IN_PROGRESS') {
+          if (s.practicalTask) {
+            setPracticalTask(s.practicalTask)
+          } else if (!s.practicalPaperSetId && !s.practicalPaperSet) {
+            try {
+              const { data: taskData } = await examApi.getPracticalTask(token, sessionState?.candidate?.id)
+              setPracticalTask(taskData)
+            } catch {
+              setPracticalTask({ title: 'Practical Task', description: "Please follow the proctor's instructions." })
+            }
+          }
+          setPhase('practical')
+        }
+      } catch {}
+    }, 3000)
+    return () => clearInterval(poll)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, token])
 
   const handleFileUpload = async (file: File) => {
     if (!file) return
@@ -1142,7 +1164,7 @@ function ExamContent() {
     </div>
   )
 
-  if (phase === 'verification' || phase === 'waiting') return (
+  if (phase === 'verification') return (
     <>
       <CandidateVerificationLayout
         sessionId={sessionState?.id || ''}

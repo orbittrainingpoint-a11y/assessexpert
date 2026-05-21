@@ -1,6 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as crypto from 'crypto';
+
+// Per-setting validation rules. Keys not listed here are accepted as-is
+// (booleans for feature flags, free-text legal content, etc.). This
+// matches the labels in the admin settings UI so a typo'd value is
+// rejected at the API instead of silently saved.
+const NUMERIC_SETTING_BOUNDS: Record<string, { min: number; max: number; integer?: boolean }> = {
+  recording_retention_days:           { min: 1,   max: 3650, integer: true },
+  fr_image_retention_days:            { min: 1,   max: 3650, integer: true },
+  max_concurrent_sessions:            { min: 1,   max: 10000, integer: true },
+  fr_similarity_threshold_verified:   { min: 0,   max: 100 },
+  fr_similarity_threshold_review:     { min: 0,   max: 100 },
+  fr_check_interval_seconds:          { min: 5,   max: 3600, integer: true },
+  face_absence_threshold_seconds:     { min: 1,   max: 300,  integer: true },
+  tab_switch_escalation_count:        { min: 1,   max: 50,   integer: true },
+  min_proctor_narrative_chars:        { min: 0,   max: 10000, integer: true },
+  report_sla_hours:                   { min: 1,   max: 168,  integer: true },
+};
 
 @Injectable()
 export class AdminService {
@@ -37,27 +55,35 @@ export class AdminService {
   async getActivityData(range: string, organizationId?: string, assessmentTypeId?: string) {
     const days = range === '7d' ? 7 : range === '30d' ? 30 : range === '3m' ? 90 : 365;
     const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const where: any = { createdAt: { gte: from } };
-    if (organizationId) where.organizationId = organizationId;
-    if (assessmentTypeId) where.assessmentTypeId = assessmentTypeId;
 
-    const sessions = await this.prisma.examSession.findMany({
-      where,
-      select: { createdAt: true, status: true },
-    });
+    // Aggregate in the database with date_trunc + filtered counts instead
+    // of loading every session row into Node and grouping in JS. The old
+    // approach pulled the full result set into memory — fine for a small
+    // org, an OOM risk for a busy tenant over a 1-year range.
+    const rows = await this.prisma.$queryRaw<Array<{
+      date: Date; scheduled: bigint; completed: bigint; pending: bigint; noshow: bigint;
+    }>>`
+      SELECT
+        date_trunc('day', "createdAt") AS date,
+        COUNT(*) FILTER (WHERE "status" = 'SCHEDULED')               AS scheduled,
+        COUNT(*) FILTER (WHERE "status" = 'REPORT_PUBLISHED')        AS completed,
+        COUNT(*) FILTER (WHERE "status" = 'PENDING_PROCTOR_REVIEW')  AS pending,
+        COUNT(*) FILTER (WHERE "status" = 'NO_SHOW')                 AS noshow
+      FROM "ExamSession"
+      WHERE "createdAt" >= ${from}
+        ${organizationId ? Prisma.sql`AND "organizationId" = ${organizationId}` : Prisma.empty}
+        ${assessmentTypeId ? Prisma.sql`AND "assessmentTypeId" = ${assessmentTypeId}` : Prisma.empty}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `;
 
-    // Group by date
-    const grouped: Record<string, { scheduled: number; completed: number; pending: number; noShow: number }> = {};
-    sessions.forEach(s => {
-      const date = s.createdAt.toISOString().split('T')[0];
-      if (!grouped[date]) grouped[date] = { scheduled: 0, completed: 0, pending: 0, noShow: 0 };
-      if (s.status === 'SCHEDULED') grouped[date].scheduled++;
-      else if (s.status === 'REPORT_PUBLISHED') grouped[date].completed++;
-      else if (s.status === 'PENDING_PROCTOR_REVIEW') grouped[date].pending++;
-      else if (s.status === 'NO_SHOW') grouped[date].noShow++;
-    });
-
-    return Object.entries(grouped).map(([date, counts]) => ({ date, ...counts }));
+    return rows.map(r => ({
+      date: r.date.toISOString().split('T')[0],
+      scheduled: Number(r.scheduled),
+      completed: Number(r.completed),
+      pending: Number(r.pending),
+      noShow: Number(r.noshow),
+    }));
   }
 
   async getSettings() {
@@ -66,6 +92,23 @@ export class AdminService {
   }
 
   async updateSettings(key: string, value: any, updatedBy: string) {
+    // Reject out-of-bounds numeric settings before they hit the DB so a
+    // typo in the admin UI (e.g. retention=-5 or threshold=999%) can't
+    // brick downstream code that expects sane values.
+    const bound = NUMERIC_SETTING_BOUNDS[key];
+    if (bound) {
+      const n = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(n)) {
+        throw new BadRequestException(`${key} must be a number`);
+      }
+      if (n < bound.min || n > bound.max) {
+        throw new BadRequestException(`${key} must be between ${bound.min} and ${bound.max}`);
+      }
+      if (bound.integer && !Number.isInteger(n)) {
+        throw new BadRequestException(`${key} must be an integer`);
+      }
+      value = n;
+    }
     return this.prisma.platformSettings.upsert({
       where: { key },
       create: { key, value, updatedBy },
@@ -83,7 +126,7 @@ export class AdminService {
       this.prisma.auditLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: parseInt(filters?.limit) || 100,
+        take: Math.min(parseInt(filters?.limit) || 100, 1000),
         skip: parseInt(filters?.offset) || 0,
       }),
       this.prisma.auditLog.count({ where }),

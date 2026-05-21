@@ -13,6 +13,7 @@ export class ProctoringController {
   constructor(private proctoringService: ProctoringService) {}
 
   @Post('events')
+  @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
   async logEvent(@Body() body: any) {
     return this.proctoringService.logEvent(body.sessionId, body);
   }

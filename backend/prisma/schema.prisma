@@ -230,6 +230,11 @@ model Organization {
   maxConcurrentSessions Int      @default(5)
   recordingRetentionDays Int     @default(7)
   reportingLanguage    String    @default("en")
+  // Org-level timezone used for every candidate-facing email and any
+  // dashboard timestamp formatting. Falls back to Asia/Dubai for
+  // historical rows so existing customers don't suddenly see UTC times
+  // in reminder emails after the migration.
+  timezone             String    @default("Asia/Dubai")
   allowedAssessmentTypes String[]
   accountTier          String    @default("STANDARD")
   internalNotes        String?

@@ -49,8 +49,22 @@ async function bootstrap() {
 
   // Serve uploaded files (question images, practical assets) at /uploads/*
   // Storage dir layout: ./storage/question-assets/*, ./storage/practical-files/*, etc.
+  //
+  // Defence-in-depth against stored XSS: even though uploads are
+  // extension-filtered at write time, we tell the browser never to
+  // sniff the content type and to treat anything that isn't a plain
+  // image/pdf as an attachment (download) rather than rendering it
+  // inline on our origin. An attacker who somehow lands an .html/.svg
+  // on disk still can't get it to execute in a victim's session.
   app.useStaticAssets(path.resolve(process.env.STORAGE_PATH || './storage'), {
     prefix: '/uploads/',
+    setHeaders: (res, filePath) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      const inlineSafe = /\.(png|jpe?g|gif|webp|pdf)$/i.test(filePath);
+      if (!inlineSafe) {
+        res.setHeader('Content-Disposition', 'attachment');
+      }
+    },
   });
 
   // Security headers. We mostly serve a JSON API + uploads, so the CSP
@@ -94,13 +108,23 @@ async function bootstrap() {
   app.use(compression());
   app.use(cookieParser());
 
-  // CORS
+  // CORS — origin list is env-driven. FRONTEND_URLS may be a single
+  // value or a comma-separated list (e.g. "https://app.foo.com,https://staging.foo.com").
+  // We fall back to localhost dev ports only when NODE_ENV !== production
+  // so prod servers can't accidentally allow localhost origins.
+  const corsOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (!isProd && corsOrigins.length === 0) {
+    corsOrigins.push('http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002');
+  }
+  if (isProd && corsOrigins.length === 0) {
+    console.error('[FATAL] FRONTEND_URLS (or FRONTEND_URL) must be set in production.');
+    process.exit(1);
+  }
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-    ],
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

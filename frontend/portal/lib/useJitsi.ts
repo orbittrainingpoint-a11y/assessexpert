@@ -39,6 +39,13 @@ export interface RemotePeer {
   name: string
   role: 'PROCTOR' | 'CANDIDATE' | 'OBSERVER'
   candidateId?: string
+  // Socket.io id of the remote peer. Needed by the proctor UI so it
+  // can pass activeTargetSocketId back to useJitsi when the proctor
+  // selects an active candidate during verification (1-to-1 routing).
+  // Without this, the proctor's React state had no way to know each
+  // candidate's socket id and fell back to a buggy identity-as-socketId
+  // approximation that broke outbound audio routing.
+  socketId: string
   cameraTrack: MediaStreamTrack | null
   micTrack: MediaStreamTrack | null
   screenTrack: MediaStreamTrack | null
@@ -124,6 +131,11 @@ export function useJitsi({
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
   const myIdentityRef = useRef('')
+  // socketId → candidateId cache, populated from peer.joined announcements.
+  // The proctor uses this in handleOffer to build a candidate-${candidateId}
+  // identity (so the React side can look up tiles by database id) instead
+  // of candidate-${socketId} (which the React side has no way to match).
+  const socketIdToCandidateIdRef = useRef<Map<string, string>>(new Map())
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null)
@@ -156,6 +168,7 @@ export function useJitsi({
         name: conn.identity,
         role: parseRole(conn.identity),
         candidateId: parseCandidateId(conn.identity),
+        socketId: conn.socketId,
         cameraTrack: conn.cameraStream?.getVideoTracks()[0] || null,
         micTrack: conn.cameraStream?.getAudioTracks()[0] || null,
         screenTrack: conn.screenStream?.getVideoTracks()[0] || null,
@@ -356,9 +369,27 @@ export function useJitsi({
     // Ignore self — filter by socket ID AND by role (never connect to same role)
     if (data.peerId === mySocketId) return
     if (data.peerRole === role) return  // proctor never connects to another proctor
-    const remoteIdentity = data.peerRole === 'PROCTOR'
-      ? `proctor-${data.peerId}`
-      : `candidate-${data.candidateId || data.peerId}`
+
+    // Cache the socketId → candidateId mapping for later use in
+    // handleOffer. The candidate's offer arrives with only the socketId
+    // (data.fromId), but we want to key the PC by candidate database id
+    // so the React side can match streams to SessionCandidate rows.
+    if (data.peerRole === 'CANDIDATE' && data.candidateId) {
+      socketIdToCandidateIdRef.current.set(data.peerId, data.candidateId)
+    }
+
+    // GLARE PREVENTION — only the CANDIDATE side initiates the offer.
+    // Before this guard, both proctor and candidate called initiateOffer
+    // on the same peer.joined event, so each ended up with a PC in
+    // `have-local-offer` state when the other's offer arrived. The
+    // setRemoteDescription on the conflicting state threw, leaving ONE
+    // direction broken — exactly the "proctor can't see candidate but
+    // candidate can see proctor" symptom we kept hitting in prod. With
+    // candidate-always-offers, the proctor simply waits for an incoming
+    // webrtc.offer and answers via handleOffer.
+    if (role !== 'CANDIDATE') return
+
+    const remoteIdentity = `proctor-${data.peerId}`
     setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 500)
   }, [getMySocketId, role, initiateOffer])
 
@@ -367,7 +398,18 @@ export function useJitsi({
     if (data.fromId === getMySocketId()) return
     let conn = peerConnsRef.current.get(data.fromId)
     if (!conn) {
-      const remoteIdentity = role === 'PROCTOR' ? `candidate-${data.fromId}` : `proctor-${data.fromId}`
+      // Build the identity. For the PROCTOR receiving a candidate's
+      // offer we prefer the candidate's database id (cached from the
+      // earlier peer.joined). Without that we fall back to the raw
+      // socketId so the connection still works — the React tile just
+      // won't match by candidateId until rebuildPeers runs again.
+      let remoteIdentity: string
+      if (role === 'PROCTOR') {
+        const cid = socketIdToCandidateIdRef.current.get(data.fromId)
+        remoteIdentity = cid ? `candidate-${cid}` : `candidate-${data.fromId}`
+      } else {
+        remoteIdentity = `proctor-${data.fromId}`
+      }
       conn = createPeerConn(data.fromId, remoteIdentity)
     }
     try {
@@ -403,6 +445,10 @@ export function useJitsi({
       peerConnsRef.current.delete(data.peerId)
       rebuildPeers()
     }
+    // Drop the cached socketId → candidateId entry so the next person
+    // who happens to land on this socket id isn't mis-identified as the
+    // candidate who just left.
+    socketIdToCandidateIdRef.current.delete(data.peerId)
   }, [rebuildPeers])
 
   // ── Attach signalling handlers to external socket when it becomes available

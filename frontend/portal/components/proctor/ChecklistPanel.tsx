@@ -52,7 +52,11 @@ const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
   { key: 'no_materials',       title: 'No Unauthorized Materials',  description: 'Confirm no reference materials, secondary monitors, or other people visible.' },
   { key: 'facial_recognition', title: 'Facial Recognition',         description: 'Run facial recognition against government ID.' },
   { key: 'screen_share',       title: 'Screen Share',               description: 'Confirm screen share is active and full screen.' },
-  { key: 'guardpro',           title: 'GuardPro / Tech Check',      description: 'Review automated system check results.' },
+  // GuardPro is a manual confirmation step — there is no auto-fetch
+  // from any external monitoring product yet. Proctor visually inspects
+  // the candidate's tech-check results in their own browser and ticks
+  // this off. Wire to a real integration when the product is built.
+  { key: 'guardpro',           title: 'GuardPro / Tech Check (manual)', description: 'Proctor confirms candidate has run the tech check successfully.' },
   { key: 'guidelines_agreed',  title: 'Guidelines & Agreement',     description: 'Read exam guidelines aloud and confirm candidate agrees.' },
 ]
 
@@ -716,7 +720,19 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
     let cancelled = false
     ;(async () => {
       try {
-        await checklistApi.init(sessionId, candidate.id).catch(() => {})
+        // init can return 4xx (e.g. proctor opens the panel before the
+        // session row exists) — log that to the proctor so they know
+        // *why* the checklist is empty instead of silently swallowing.
+        try {
+          await checklistApi.init(sessionId, candidate.id)
+        } catch (initErr: any) {
+          // Only surface real failures — 409 ("already exists") is
+          // expected on revisits and should stay quiet.
+          const status = initErr?.response?.status
+          if (status && status !== 409 && status !== 400) {
+            toast.error(`Checklist init failed: ${initErr?.response?.data?.message || initErr?.message || status}`)
+          }
+        }
         const { data } = await checklistApi.get(sessionId, candidate.id)
         if (cancelled) return
         const items = (data?.items as any[]) || []
@@ -733,9 +749,13 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
           if (firstPending) next[firstPending.key] = 'active'
           return next
         })
-      } catch {
-        // Best-effort — if hydration fails the user just sees a fresh
-        // checklist and proceeds. completeItem still saves correctly.
+      } catch (e: any) {
+        // Hydration GET failed — likely 404 if the checklist hasn't
+        // been created yet. Tolerate it but log so the proctor knows
+        // the panel may be stale.
+        if (e?.response?.status && e.response.status !== 404) {
+          toast.error(`Checklist hydration failed: ${e?.response?.data?.message || e?.message}`)
+        }
       }
     })()
     return () => { cancelled = true }

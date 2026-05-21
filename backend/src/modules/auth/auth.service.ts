@@ -180,6 +180,7 @@ export class AuthService {
   // shape in both modes — only the storage layer differs.
   private otpKey(email: string) { return `otp:code:${this.normalizeEmail(email)}`; }
   private otpAttemptsKey(email: string) { return `otp:attempts:${this.normalizeEmail(email)}`; }
+  private otpRateKey(email: string) { return `otp:rate:${this.normalizeEmail(email)}`; }
 
   // Email-matching helper. The DB sometimes carries mixed-case emails
   // from CSV imports and users type their address with whatever
@@ -212,6 +213,18 @@ export class AuthService {
     ]);
     if (!allEmails.has(normalized)) {
       throw new BadRequestException('Email does not match session');
+    }
+    // Per-email throttle on OTP issuance. The controller already enforces
+    // 10/min per-IP, but a determined attacker can rotate IPs to spam a
+    // specific candidate's inbox. Cap to 3 OTP emails per email address
+    // per 5 minutes. We INCR with a TTL that's only set on first write
+    // — equivalent to a 5-min sliding window per recipient.
+    const rateCount = await this.redis.incr(this.otpRateKey(email));
+    if (rateCount === 1) {
+      await this.redis.expire(this.otpRateKey(email), 300);
+    }
+    if (rateCount > 3) {
+      throw new BadRequestException('Too many OTP requests for this email. Please wait a few minutes and try again.');
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     // 10-minute TTL — Redis (or the in-memory fallback) expires the key

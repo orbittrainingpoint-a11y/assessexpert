@@ -202,7 +202,7 @@ export class QuestionsService {
         where,
         include: { assessmentType: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
-        take: parseInt(filters.limit) || 50,
+        take: Math.min(parseInt(filters.limit) || 50, 500),
         skip: parseInt(filters.offset) || 0,
       }),
       this.prisma.question.count({ where }),

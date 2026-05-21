@@ -105,14 +105,12 @@ export class SessionsController {
     });
   }
 
-  @Post('multi-candidate')
-  @Roles('SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN')
-  async createMultiCandidateSession(@Body() body: any, @Req() req: any) {
-    return this.sessionsService.createMultiCandidateSession({
-      ...body,
-      organizationId: req.user.organizationId || body.organizationId,
-    });
-  }
+  // /sessions/multi-candidate was a dedicated path for creating an
+  // exam slot with a pre-populated list of candidates. Now that every
+  // session is created as multi-candidate (with the primary already
+  // promoted to a SessionCandidate row), the regular scheduling flow
+  // and the @Post(':id/candidates') endpoint below cover all the same
+  // use cases — the dedicated path was just one more shape to maintain.
 
   @Post(':id/candidates')
   @Roles('SUPER_ADMIN', 'HR_MANAGER', 'ORG_ADMIN', 'PROCTOR')

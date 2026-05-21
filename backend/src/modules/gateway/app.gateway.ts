@@ -10,12 +10,21 @@ import {
 import { Server, Socket } from 'socket.io';
 import { UseGuards } from '@nestjs/common';
 
+// CORS origin list mirrors what main.ts hands to enableCors() — same
+// env var so the WebSocket and HTTP surfaces never drift apart. Without
+// this, a deploy that updates FRONTEND_URLS only fixes REST and silently
+// rejects every socket.io upgrade with a CORS error.
+const wsCorsOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+if (wsCorsOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+  wsCorsOrigins.push('http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002');
+}
+
 @WebSocketGateway({
   cors: {
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3001',
-    ],
+    origin: wsCorsOrigins,
     credentials: true,
   },
   namespace: '/',
@@ -87,6 +96,21 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     return { joined: true, room: `session:${data.sessionId}` };
+  }
+
+  // ── Client joins their organisation room ─────────────────────────────────
+  // Authenticated portal clients (HR, proctor, admin) call this once after
+  // connecting so they receive org-scoped broadcasts (report.published,
+  // etc.) without us having to broadcast to every tenant.
+  @SubscribeMessage('join_org')
+  handleJoinOrg(
+    @MessageBody() data: { organizationId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (data?.organizationId) {
+      client.join(`org:${data.organizationId}`);
+    }
+    return { joined: !!data?.organizationId };
   }
 
   // ── Candidate leaves session room ────────────────────────────────────────
@@ -608,5 +632,13 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitToAll(event: string, data: any) {
     this.server.emit(event, data);
+  }
+
+  // Emit to a single organisation's room. Clients join `org:${orgId}`
+  // when they identify themselves via `join_org`. Used for tenant-scoped
+  // broadcasts (report published, etc.) so we never leak one org's data
+  // to another org's connected sockets.
+  emitToOrg(organizationId: string, event: string, data: any) {
+    this.server.to(`org:${organizationId}`).emit(event, data);
   }
 }

@@ -367,14 +367,42 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
       ).catch(() => {});
     }
 
-    // Emit WebSocket to HR org room
-    this.gateway.emitToAll('report.published', {
-      organizationId: session?.organizationId,
-      candidateName: reportCandidate ? `${reportCandidate.firstName} ${reportCandidate.lastName}` : '',
-      candidateId: cId,
-      sessionId,
-      reportId: published.id,
+    // Email the candidate that their result is ready. Some customers
+    // prefer to deliver the result themselves (sales-call follow-up
+    // before sending official feedback) — the org-level
+    // `notify_candidate_on_publish` flag lets them opt out. Defaults
+    // to TRUE so existing customers still get the courtesy email.
+    const notifyCandidate = await this.prisma.platformSettings.findUnique({
+      where: { key: 'notify_candidate_on_publish' },
     });
+    const candidateNotifyEnabled = notifyCandidate?.value === false ? false : true;
+    if (candidateNotifyEnabled && reportCandidate?.email) {
+      await this.notifications.sendCandidateReportNotice(
+        reportCandidate.email,
+        `${reportCandidate.firstName} ${reportCandidate.lastName}`,
+        {
+          companyName: session?.organization?.name || 'AssessExpert',
+          assessmentName: session?.assessmentType.name || '',
+          overallResult: published.overallPassed ? 'PASS' : 'FAIL',
+        },
+      // eslint-disable-next-line no-console
+      ).catch((e: any) => console.warn(`Candidate report notice failed: ${e?.message || e}`));
+    }
+
+    // Notify the org's connected clients that a report was published.
+    // This used to call emitToAll() which broadcast the candidate's name
+    // + ids to EVERY connected socket on EVERY tenant — a cross-tenant
+    // PII leak. Now we emit to the org-scoped room only, and we drop the
+    // candidate name from the payload entirely. Clients use it purely as
+    // a "refetch your reports list" signal; the name comes back through
+    // the authenticated, org-filtered API on refetch.
+    if (session?.organizationId) {
+      this.gateway.emitToOrg(session.organizationId, 'report.published', {
+        organizationId: session.organizationId,
+        sessionId,
+        reportId: published.id,
+      });
+    }
 
     return published;
   }
@@ -394,7 +422,7 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
           session: { include: { candidate: true, assessmentType: true } },
         },
         orderBy: { publishedAt: 'desc' },
-        take: parseInt(filters?.limit) || 200,
+        take: Math.min(parseInt(filters?.limit) || 200, 500),
         skip: parseInt(filters?.offset) || 0,
       }),
       this.prisma.report.count({ where }),
@@ -436,15 +464,23 @@ Give a 1-paragraph hiring recommendation: Hire / Do Not Hire / Proceed with Caut
     const normalized = this.normalizeReportStatus(filters?.status);
     if (normalized) where.status = normalized;
     if (filters?.organizationId) where.organizationId = filters.organizationId;
-    return this.prisma.report.findMany({
-      where,
-      include: {
-        session: { include: { candidate: true, assessmentType: true, organization: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(filters?.limit) || 50,
-      skip: parseInt(filters?.offset) || 0,
-    });
+    // Return { reports, total } to match getReportsForOrg's shape. The
+    // frontend already defends against both with `reports?.reports || reports`
+    // but inconsistent shapes were causing role-dependent UI bugs (no
+    // total shown for admin/master-proctor views).
+    const [reports, total] = await Promise.all([
+      this.prisma.report.findMany({
+        where,
+        include: {
+          session: { include: { candidate: true, assessmentType: true, organization: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(parseInt(filters?.limit) || 50, 500),
+        skip: parseInt(filters?.offset) || 0,
+      }),
+      this.prisma.report.count({ where }),
+    ]);
+    return { reports, total };
   }
 
   async rateReport(sessionId: string, rating: number, note: string, userId: string, candidateId?: string) {
