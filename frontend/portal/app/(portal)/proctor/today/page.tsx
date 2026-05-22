@@ -64,47 +64,84 @@ export default function ProctorTodayPage() {
   const SessionCard = ({ s }: { s: any }) => {
     const joinState = getJoinState(s.scheduledAt, s.status)
     const scheduledTime = new Date(s.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const slotEnd = new Date(new Date(s.scheduledAt).getTime() + (s.slotDurationMinutes || 60) * 60000)
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     const opensAt = new Date(new Date(s.scheduledAt).getTime() - 15 * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+    // The slot's candidates. Falls back to the primary candidate for any
+    // legacy session with no SessionCandidate rows. Each one carries its
+    // own join status so the proctor sees who has already arrived.
+    const slotCandidates: any[] = (s.sessionCandidates && s.sessionCandidates.length > 0)
+      ? s.sessionCandidates
+      : [{ candidate: s.candidate, status: 'PENDING' }]
+    const joinedStatuses = ['JOINED', 'VERIFYING', 'VERIFIED', 'MCQ_IN_PROGRESS', 'MCQ_SUBMITTED', 'PRACTICAL_IN_PROGRESS', 'PRACTICAL_SUBMITTED', 'COMPLETED']
+    const joinedCount = slotCandidates.filter(sc => joinedStatuses.includes(sc.status)).length
+    const isSlot = slotCandidates.length > 1
+    const statusColor = (st: string) =>
+      st === 'COMPLETED' ? 'var(--emerald)'
+      : joinedStatuses.includes(st) ? 'var(--cyan)'
+      : 'var(--text-muted)'
+    // If anyone has already joined, let the proctor open the slot NOW even
+    // if we're still before the scheduled window — "open when anyone joins".
+    const effectiveJoinState = (joinedCount > 0 && (joinState === 'too-early' || joinState === 'active')) ? 'now' : joinState
+    const openLabel = isSlot ? 'Open Slot' : 'Join'
+
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--bg-surface)', border: `1px solid ${joinState === 'live' ? 'rgba(225,29,72,0.3)' : joinState === 'now' || joinState === 'active' ? 'rgba(0,212,255,0.3)' : 'var(--border)'}`, borderRadius: '10px', borderLeft: `3px solid ${joinState === 'live' ? 'var(--rose)' : joinState === 'now' || joinState === 'active' ? 'var(--cyan)' : joinState === 'done' ? 'var(--emerald)' : 'var(--border)'}` }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--bg-surface)', border: `1px solid ${joinState === 'live' ? 'rgba(225,29,72,0.3)' : joinState === 'now' || joinState === 'active' ? 'rgba(0,212,255,0.3)' : 'var(--border)'}`, borderRadius: '10px', borderLeft: `3px solid ${joinState === 'live' ? 'var(--rose)' : joinState === 'now' || joinState === 'active' ? 'var(--cyan)' : joinState === 'done' ? 'var(--emerald)' : 'var(--border)'}`, gap: '16px' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
-              {s.candidate?.firstName} {s.candidate?.lastName}
+              {isSlot
+                ? `Slot · ${slotCandidates.length} candidate${slotCandidates.length !== 1 ? 's' : ''}`
+                : `${s.candidate?.firstName || ''} ${s.candidate?.lastName || ''}`}
             </span>
             <span className={`badge ${joinState === 'live' ? 'badge-live' : joinState === 'done' ? (s.status === 'REPORT_PUBLISHED' ? 'badge-pass' : 'badge-pending') : 'badge-pending'}`} style={{ fontSize: '11px' }}>
               {s.status.replace(/_/g, ' ')}
             </span>
+            {isSlot && joinedCount > 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--cyan)', fontWeight: 600 }}>
+                {joinedCount}/{slotCandidates.length} joined
+              </span>
+            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={11} /> {scheduledTime}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'var(--text-muted)', marginBottom: isSlot ? '10px' : 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={11} /> {scheduledTime}–{slotEnd}</span>
             <span>{s.assessmentType?.name}</span>
             {s.organization?.name && <span>· {s.organization.name}</span>}
           </div>
+          {isSlot && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {slotCandidates.map((sc: any, i: number) => (
+                <span key={sc.candidateId || sc.candidate?.id || i} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 10px', borderRadius: '9999px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: statusColor(sc.status), flexShrink: 0 }} />
+                  {sc.candidate?.firstName} {sc.candidate?.lastName}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {joinState === 'too-early' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {effectiveJoinState === 'too-early' && (
             <span style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 14px', border: '1px solid var(--border)', borderRadius: '8px' }}>
               Opens at {opensAt}
             </span>
           )}
-          {joinState === 'active' && (
+          {effectiveJoinState === 'active' && (
             <Link href={`/proctor/session?id=${s.id}`} className="btn-primary"
               style={{ padding: '8px 18px', fontSize: '13px', textDecoration: 'none', boxShadow: '0 0 12px rgba(0,212,255,0.3)' }}>
-              Join at {opensAt} →
+              {openLabel} at {opensAt} →
             </Link>
           )}
-          {joinState === 'now' && (
+          {effectiveJoinState === 'now' && (
             <Link href={`/proctor/session?id=${s.id}`} className="btn-primary"
               style={{ padding: '8px 18px', fontSize: '13px', textDecoration: 'none', boxShadow: '0 0 16px rgba(0,212,255,0.5)' }}>
-              Join Now →
+              {openLabel} Now →
             </Link>
           )}
-          {joinState === 'live' && (
+          {effectiveJoinState === 'live' && (
             <Link href={`/proctor/session?id=${s.id}`} className="btn-primary"
               style={{ padding: '8px 18px', fontSize: '13px', textDecoration: 'none', background: 'var(--rose)', borderColor: 'var(--rose)' }}>
-              Rejoin →
+              {isSlot ? 'Rejoin Slot' : 'Rejoin'} →
             </Link>
           )}
           {joinState === 'done' && s.status === 'PENDING_PROCTOR_REVIEW' && (

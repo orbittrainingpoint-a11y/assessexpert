@@ -25,6 +25,20 @@ export class CandidatesService {
             take: 1,
             include: { reports: { select: { overallScore: true, overallPassed: true, status: true, candidateId: true } } },
           },
+          // Slot memberships: a candidate merged into someone else's slot is
+          // a SessionCandidate, NOT the session's primary `candidateId`, so
+          // they would otherwise look "not scheduled" in the HR list even
+          // though they're booked. Surface their latest slot here so the UI
+          // can show the schedule for every candidate in a slot.
+          sessionCandidates: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              session: {
+                select: { id: true, status: true, scheduledAt: true, slotDurationMinutes: true, assessmentTypeId: true },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         take: Math.min(parseInt(filters?.limit) || 25, 500),

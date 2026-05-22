@@ -231,7 +231,15 @@ export class SessionsService {
     }
     const sessions = await this.prisma.examSession.findMany({
       where,
-      include: { candidate: true, assessmentType: true, organization: true },
+      include: {
+        candidate: true,
+        assessmentType: true,
+        organization: true,
+        // Include the slot's candidates so the proctor's "today" list can
+        // show every person in a slot (not just the primary) and reflect
+        // who has already joined.
+        sessionCandidates: { include: { candidate: true } },
+      },
       orderBy: { scheduledAt: 'asc' },
     });
     return { sessions };

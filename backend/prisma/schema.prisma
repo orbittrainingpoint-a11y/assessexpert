@@ -551,6 +551,11 @@ model ExamSession {
   tokenUsedFromIp  String?
   status           SessionStatus  @default(SCHEDULED)
   isMultiCandidate Boolean        @default(false)
+  // Length of the booking slot in minutes (default 1 hour). Candidates
+  // scheduled with the same proctor + assessment whose time falls inside
+  // an existing slot's [scheduledAt, scheduledAt + slotDurationMinutes)
+  // window are auto-grouped into that one slot/session.
+  slotDurationMinutes Int         @default(60)
   checklistCompletedAt   DateTime?
   mcqStartedAt           DateTime?
   mcqSubmittedAt         DateTime?

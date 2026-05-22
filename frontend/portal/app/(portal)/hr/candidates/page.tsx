@@ -251,6 +251,9 @@ export default function CandidatesPage() {
   const [schedTimePref, setSchedTimePref] = useState('MORNING')
   const [selectedSlot, setSelectedSlot] = useState<any>(null)
   const [slotsQueried, setSlotsQueried] = useState(false)
+  // Slot length in minutes (default 1h). Candidates booked into the same
+  // proctor + assessment within this window are auto-grouped into one slot.
+  const [schedDuration, setSchedDuration] = useState(60)
 
   const { data, isLoading } = useQuery({
     queryKey: ['candidates', search],
@@ -355,6 +358,9 @@ export default function CandidatesPage() {
   const openReschedule = (candidate: any) => {
     const sess = candidate.sessions?.find((s: any) => ['SCHEDULED', 'INVITED'].includes(s.status))
       || candidate.sessions?.[0]
+      // Merged-into-a-slot candidate has no primary session — reschedule
+      // against the slot they belong to.
+      || candidate.sessionCandidates?.[0]?.session
     if (!sess) { toast.error('No scheduled session found to reschedule'); return }
     setScheduleCandidate(candidate)
     setRescheduleSessionId(sess.id)
@@ -410,6 +416,7 @@ export default function CandidatesPage() {
       candidateId: scheduleCandidate.id,
       assessmentTypeId: schedAssessmentId,
       scheduledAt: selectedSlot.datetime,
+      slotDurationMinutes: schedDuration,
     })
   }
 
@@ -452,7 +459,14 @@ export default function CandidatesPage() {
               <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No candidates yet. Add your first candidate.</td></tr>
             ) : candidates.map((c: any) => {
               const report = c.sessions?.[0]?.report
-              const hasScheduled = c.sessions?.some((s: any) => ['SCHEDULED', 'INVITED'].includes(s.status))
+              // A candidate can be booked two ways: as a session's primary
+              // candidate (c.sessions) OR merged into someone else's slot
+              // (c.sessionCandidates → session). Count BOTH so a merged
+              // candidate no longer shows "Not Scheduled" / a 2nd link.
+              const slotSession = c.sessionCandidates?.[0]?.session
+              const slotScheduled = slotSession && ['SCHEDULED', 'INVITED'].includes(slotSession.status)
+              const hasScheduled = c.sessions?.some((s: any) => ['SCHEDULED', 'INVITED'].includes(s.status)) || slotScheduled
+              const sessionCount = c.sessions?.length || (slotSession ? 1 : 0)
               return (
                 <tr key={c.id}>
                   <td style={{ color: 'var(--text-primary)', fontWeight: '500' }}>
@@ -463,7 +477,7 @@ export default function CandidatesPage() {
                   <td style={{ fontSize: '13px' }}>{c.email}</td>
                   <td style={{ fontSize: '13px' }}>{c.jobPosition}</td>
                   <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.assessmentType?.name || '—'}</td>
-                  <td style={{ textAlign: 'center' }}>{c.sessions?.length || 0}</td>
+                  <td style={{ textAlign: 'center' }}>{sessionCount}</td>
                   <td>
                     {report ? (
                       <span className={`badge ${report.overallPassed ? 'badge-pass' : 'badge-fail'}`}>
@@ -675,6 +689,20 @@ export default function CandidatesPage() {
                   <input className="form-input" type="date" value={schedDateTo} onChange={e => { setSchedDateTo(e.target.value); setSelectedSlot(null); setSlotsQueried(false) }} />
                 </div>
               </div>
+
+              {!rescheduleSessionId && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Slot length <span style={{ color: 'var(--text-muted)' }}>· candidates booked in the same window share one slot</span>
+                  </label>
+                  <select className="form-input" value={schedDuration} onChange={e => setSchedDuration(Number(e.target.value))}>
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour (default)</option>
+                    <option value={90}>90 minutes</option>
+                    <option value={120}>2 hours</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Time Preference</label>

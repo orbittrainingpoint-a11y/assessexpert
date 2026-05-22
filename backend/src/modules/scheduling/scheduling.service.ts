@@ -108,6 +108,7 @@ export class SchedulingService {
     organizationId: string;
     scheduledAt: Date;
     proctorId?: string;
+    slotDurationMinutes?: number;
   }) {
     // Tenant isolation: refuse to schedule a candidate that belongs to a
     // different organization than the one the caller is scoped to. Without
@@ -142,38 +143,61 @@ export class SchedulingService {
       proctorId = proctor?.id;
     }
 
-    // Auto-merge: if a session already exists for the same slot (same
-    // proctor + assessment + org, still SCHEDULED) with scheduledAt within
-    // a ±60-second window of the request, add this candidate to it instead
-    // of creating a new session. The window forgives "10:00:00 vs 10:00:30"
-    // clock drift between HR users scheduling siblings — exact-match would
-    // otherwise spawn a near-duplicate slot. All candidates in the slot
-    // then share one magic link and one proctor window.
+    // Slot grouping: a "slot" is a time WINDOW (slotDurationMinutes, default
+    // 60). When a candidate is scheduled with the same proctor + assessment +
+    // org and their time overlaps an existing SCHEDULED slot's window, we add
+    // them to that ONE session instead of spawning a duplicate. All candidates
+    // in the slot then share one magic link and one proctor multi-candidate
+    // screen. (Previously this only merged within a ±60-second window, so
+    // siblings scheduled minutes apart wrongly became separate sessions —
+    // which is exactly why each candidate landed on a separate proctor screen
+    // and a re-schedule produced a second link.)
+    const slotDurationMinutes =
+      Number(data.slotDurationMinutes) > 0 ? Math.round(Number(data.slotDurationMinutes)) : 60;
     if (proctorId) {
-      const AUTO_MERGE_WINDOW_MS = 60_000;
-      const windowStart = new Date(data.scheduledAt.getTime() - AUTO_MERGE_WINDOW_MS);
-      const windowEnd = new Date(data.scheduledAt.getTime() + AUTO_MERGE_WINDOW_MS);
-      const existingSlot = await this.prisma.examSession.findFirst({
+      const newStart = data.scheduledAt.getTime();
+      const newEnd = newStart + slotDurationMinutes * 60_000;
+      // Bound the scan to ±6h around the request so we don't read the whole
+      // table, then test true window overlap in JS (Prisma can't express the
+      // computed slot end — scheduledAt + duration — in a where clause).
+      const SEARCH_BOUND_MS = 6 * 60 * 60_000;
+      const candidateSlots = await this.prisma.examSession.findMany({
         where: {
           assessmentTypeId: data.assessmentTypeId,
           organizationId: data.organizationId,
           proctorId,
-          scheduledAt: { gte: windowStart, lte: windowEnd },
           status: 'SCHEDULED',
+          scheduledAt: {
+            gte: new Date(newStart - SEARCH_BOUND_MS),
+            lte: new Date(newEnd + SEARCH_BOUND_MS),
+          },
         },
-        // Tie-breaker: if two slots somehow fall inside the window
-        // (shouldn't happen unless the boundary was hit twice in 60s),
-        // pick the closer one so the candidate ends up next to the
-        // session they were actually trying to join.
         orderBy: { scheduledAt: 'asc' },
         include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: true },
       });
+      // First overlapping slot wins (earliest start, thanks to orderBy).
+      const existingSlot = candidateSlots.find(s => {
+        const sStart = new Date(s.scheduledAt).getTime();
+        const sEnd = sStart + ((s as any).slotDurationMinutes || 60) * 60_000;
+        return newStart < sEnd && sStart < newEnd;
+      });
 
-      // Don't merge if the candidate is the primary or already a SessionCandidate
       const alreadyIn =
         existingSlot &&
         (existingSlot.candidateId === data.candidateId ||
           existingSlot.sessionCandidates.some(sc => sc.candidateId === data.candidateId));
+
+      // Idempotent re-schedule: the candidate is ALREADY in this slot. Do not
+      // create a duplicate session or send a second link — just return the
+      // slot so the HR UI reflects it. This kills the "schedule again →
+      // second link" bug.
+      if (existingSlot && alreadyIn) {
+        const slot = await this.prisma.examSession.findUnique({
+          where: { id: existingSlot.id },
+          include: { candidate: true, assessmentType: true, organization: true, sessionCandidates: { include: { candidate: true } } },
+        });
+        return { ...(slot as any), invitationSent: false, alreadyScheduled: true };
+      }
 
       if (existingSlot && !alreadyIn) {
         // Promote the slot to multi-candidate the first time we merge a new person.
@@ -262,6 +286,7 @@ export class SchedulingService {
         organizationId: data.organizationId,
         proctorId,
         scheduledAt: data.scheduledAt,
+        slotDurationMinutes,
         magicToken: token,
         tokenExpiresAt,
         status: 'SCHEDULED',
