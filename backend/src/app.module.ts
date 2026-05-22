@@ -29,6 +29,7 @@ import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JitsiModule } from './modules/jitsi/jitsi.module';
 import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
 import { LegalModule } from './modules/legal/legal.module';
+import { CmsModule } from './modules/cms/cms.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { AppController } from './app.controller';
 
@@ -74,6 +75,7 @@ import { AppController } from './app.controller';
     JitsiModule,
     PracticalSetsModule,
     LegalModule,
+    CmsModule,
   ],
   controllers: [AppController],
 })

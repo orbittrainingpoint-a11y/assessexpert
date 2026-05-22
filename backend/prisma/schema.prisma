@@ -21,6 +21,8 @@ enum UserRole {
   HR_MANAGER
   HIRING_MANAGER
   PROCTOR
+  CMS_ADMIN
+  CMS_EDITOR
 }
 
 enum UserStatus {
@@ -841,4 +843,66 @@ model PlatformSettings {
   value                 Json
   updatedBy             String?
   updatedAt             DateTime @updatedAt
+}
+
+// ── CMS ──────────────────────────────────────────────────────────────
+// Content for the public marketing site. Managed via the separate CMS
+// admin (/cms) by CMS_ADMIN / CMS_EDITOR users. Read publicly (no auth)
+// by the Next.js marketing pages for SSR/SEO.
+
+enum CmsContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// One row per marketing page (home, about, services, contact). The
+// editable section content lives in `content` (structured JSON) so the
+// shape can evolve without a migration per tweak; SEO fields are first-
+// class columns because they are queried/rendered uniformly.
+model CmsPage {
+  id              String           @id @default(cuid())
+  slug            String           @unique // home | about | services | contact
+  title           String
+  status          CmsContentStatus @default(PUBLISHED)
+  content         Json             @default("{}")
+  metaTitle       String?
+  metaDescription String?
+  ogImage         String?
+  keywords        String[]         @default([])
+  updatedBy       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model CmsPost {
+  id              String           @id @default(cuid())
+  slug            String           @unique
+  title           String
+  excerpt         String?
+  // Sanitised HTML body (sanitised again on the client before render).
+  body            String           @default("")
+  coverImage      String?
+  tags            String[]         @default([])
+  status          CmsContentStatus @default(DRAFT)
+  authorName      String?
+  metaTitle       String?
+  metaDescription String?
+  keywords        String[]         @default([])
+  publishedAt     DateTime?
+  updatedBy       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status, publishedAt])
+}
+
+model CmsMedia {
+  id         String   @id @default(cuid())
+  url        String   // public /uploads/* path
+  filename   String
+  mimeType   String
+  size       Int
+  alt        String?
+  uploadedBy String?
+  createdAt  DateTime @default(now())
 }

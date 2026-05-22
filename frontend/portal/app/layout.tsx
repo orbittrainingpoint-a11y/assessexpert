@@ -6,8 +6,16 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'assessexpert — Pre-Employment Assessment Platform',
-  description: 'B2B SaaS Pre-Employment Assessment Portal',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://assessexpert.ae'),
+  title: {
+    default: 'AssessExpert — AI-Proctored Pre-Employment Assessment Platform',
+    template: '%s',
+  },
+  description:
+    'AssessExpert delivers AI-proctored, proctor-controlled technical assessments with verified, human-reviewed reports across any industry or job role.',
+  applicationName: 'AssessExpert',
+  authors: [{ name: 'Orbit Training' }],
+  robots: { index: true, follow: true },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
