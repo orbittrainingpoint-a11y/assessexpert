@@ -376,6 +376,17 @@ export function useJitsi({
     // so the React side can match streams to SessionCandidate rows.
     if (data.peerRole === 'CANDIDATE' && data.candidateId) {
       socketIdToCandidateIdRef.current.set(data.peerId, data.candidateId)
+      // If the candidate's offer already arrived (before this peer.joined),
+      // its PeerConn was keyed by `candidate-${socketId}` as a fallback.
+      // Now that we know the real database id, upgrade the identity so the
+      // proctor's React tiles match by candidateId — otherwise that peer
+      // stays socketId-keyed forever and its tile never binds, leaving the
+      // grid showing only the candidates that happened to match.
+      const existing = peerConnsRef.current.get(data.peerId)
+      if (existing && existing.identity === `candidate-${data.peerId}`) {
+        existing.identity = `candidate-${data.candidateId}`
+        rebuildPeers()
+      }
     }
 
     // GLARE PREVENTION — only the CANDIDATE side initiates the offer.
@@ -391,7 +402,7 @@ export function useJitsi({
 
     const remoteIdentity = `proctor-${data.peerId}`
     setTimeout(() => initiateOffer(data.peerId, remoteIdentity), 500)
-  }, [getMySocketId, role, initiateOffer])
+  }, [getMySocketId, role, initiateOffer, rebuildPeers])
 
   const handleOffer = useCallback(async (data: { fromId: string; offer: RTCSessionDescriptionInit }) => {
     // Ignore offers from ourselves

@@ -314,19 +314,35 @@ function SessionContent() {
   // when available. The fallback to `[session.candidate]` covers the
   // brief window between page load and the first sessionCandidates fetch,
   // plus any legacy session that pre-dates the backfill migration.
+  // A "single slot" is one candidate (or the pre-fetch fallback). Only
+  // then is it safe to fall back to the lone shared stream; in a
+  // multi-candidate slot we must NEVER reuse another candidate's stream.
+  const isSingleSlot = !sessionCandidates || sessionCandidates.length <= 1
   const candidates =
     sessionCandidates && sessionCandidates.length > 0
       ? sessionCandidates.map((sc: any) => {
-          const peer = lkPeers.get(`candidate-${sc.candidateId}`)
+          // Match THIS candidate's peer strictly by their database id —
+          // first by the exact map key, then by the candidateId parsed
+          // onto any candidate peer. The previous `|| candidateStream`
+          // fallback made every tile show the FIRST candidate whenever a
+          // lookup missed — the "same person in every screen" bug. We now
+          // only fall back to the shared stream for a true single-candidate
+          // slot; in a multi slot an unmatched tile shows no stream
+          // ("connecting") instead of the wrong person.
+          const peer =
+            lkPeers.get(`candidate-${sc.candidateId}`) ||
+            Array.from(lkPeers.values()).find(
+              (p: any) => p.role === 'CANDIDATE' && p.candidateId === sc.candidateId,
+            )
           return {
             id: sc.candidateId,
             name: `${sc.candidate.firstName} ${sc.candidate.lastName}`,
             firstName: sc.candidate.firstName,
             lastName: sc.candidate.lastName,
             email: sc.candidate.email,
-            stream: peer?.cameraStream || candidateStream,
-            screenStream: peer?.screenStream || candidateScreenStream,
-            socketId: peer?.socketId || fallbackSocketId,
+            stream: peer?.cameraStream || (isSingleSlot ? candidateStream : null),
+            screenStream: peer?.screenStream || (isSingleSlot ? candidateScreenStream : null),
+            socketId: peer?.socketId || (isSingleSlot ? fallbackSocketId : undefined),
             mcqSubmitted: sc.status === 'MCQ_SUBMITTED',
           }
         })
