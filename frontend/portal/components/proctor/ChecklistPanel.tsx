@@ -47,7 +47,7 @@ const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
   { key: 'camera_verified',    title: 'Camera Verification',        description: 'Confirm candidate face is clearly visible and camera is active.' },
   { key: 'identity_name',      title: 'Verbal Identity (Name)',     description: 'Ask candidate to state their full legal name.' },
   { key: 'identity_email',     title: 'Verbal Identity (Email)',    description: 'Ask candidate to state their email address.' },
-  { key: 'government_id',      title: 'Government ID Check',        description: 'Capture ID photo and run facial recognition.' },
+  { key: 'government_id',      title: 'Government ID Check',        description: 'Capture a real photo of the candidate holding their ID and visually confirm it matches.' },
   { key: 'background_scan',    title: 'Environment Scan',           description: 'Ask candidate to rotate camera 360° to show the full room.' },
   { key: 'no_materials',       title: 'No Unauthorized Materials',  description: 'Confirm no reference materials, secondary monitors, or other people visible.' },
   { key: 'facial_recognition', title: 'Facial Recognition',         description: 'Run facial recognition against government ID.' },
@@ -129,65 +129,92 @@ function ItemIdentityEmail({
   )
 }
 
-function ItemGovernmentId({ sessionId, candidateId, saving, onComplete }: { sessionId: string; candidateId?: string; saving: boolean; onComplete: (d: any) => void }) {
-  const [captureState, setCaptureState] = useState<'idle' | 'captured' | 'running' | 'done'>('idle')
-  const [frResult, setFrResult] = useState<{ similarity: number; ocrName: string; verdict: 'verified' | 'manual' | 'blocked' } | null>(null)
+function ItemGovernmentId({ candidateStream, saving, onComplete }: { sessionId: string; candidateId?: string; candidateStream?: MediaStream | null; saving: boolean; onComplete: (d: any) => void }) {
+  // Real frame capture + visual confirmation. The previous version fabricated
+  // a 97.3% similarity (with a fixed "AUTO VERIFIED" verdict) even on errors,
+  // and never actually captured a photo. Now the proctor takes a real frame
+  // of the candidate holding their ID, visually verifies it matches, and
+  // ticks the item. The dedicated "Facial Recognition" item runs the real
+  // server-side FR comparison against the reference photo.
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [state, setState] = useState<'idle' | 'captured' | 'error'>('idle')
+  const [preview, setPreview] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const captureId = () => setCaptureState('captured')
-
-  const runFR = async () => {
-    setCaptureState('running')
-    try {
-      // candidateId is required for multi-candidate slots — without it
-      // the backend rejects this call with 400 because completeItem
-      // can't decide whose checklist row to update.
-      const { data } = await checklistApi.completeItem(sessionId, 'facial_recognition', { candidateId })
-      const sim = data.similarity ?? 97.3
-      setFrResult({ similarity: sim, ocrName: data.ocrName ?? 'Candidate', verdict: sim >= 90 ? 'verified' : sim >= 70 ? 'manual' : 'blocked' })
-    } catch {
-      setFrResult({ similarity: 97.3, ocrName: 'Candidate', verdict: 'verified' })
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (candidateStream && v.srcObject !== candidateStream) {
+      v.srcObject = candidateStream
+      v.play().catch(() => {})
     }
-    setCaptureState('done')
-  }
+  }, [candidateStream])
 
-  const verdictColor = frResult?.verdict === 'verified' ? 'var(--emerald)' : frResult?.verdict === 'manual' ? 'var(--amber)' : 'var(--rose)'
+  const captureId = () => {
+    setErrorMsg(null)
+    if (!candidateStream) { setErrorMsg('Candidate camera not available yet.'); setState('error'); return }
+    const v = videoRef.current
+    if (!v || !v.videoWidth) { setErrorMsg('Video feed is not ready — try again in a few seconds.'); setState('error'); return }
+    try {
+      const MAX_WIDTH = 800
+      const scale = v.videoWidth > MAX_WIDTH ? MAX_WIDTH / v.videoWidth : 1
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(v.videoWidth * scale)
+      canvas.height = Math.round(v.videoHeight * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas not available')
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+      setPreview(canvas.toDataURL('image/jpeg', 0.85))
+      setState('captured')
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'Capture failed')
+      setState('error')
+    }
+  }
 
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-        Ask the candidate to hold their government-issued ID clearly in front of the camera.
+        Ask the candidate to hold their government-issued ID clearly in front of the camera, then capture the frame. Visually confirm the photo and details match the candidate before ticking. (Automatic face matching against the reference photo runs in the next step.)
       </div>
-      {captureState === 'idle' && (
-        <button className="btn-primary" style={{ width: '100%', padding: '10px', marginBottom: '8px' }} onClick={captureId}>
-          Capture ID Photo
+
+      {/* Hidden video element fed by the candidate's live stream */}
+      <video ref={videoRef} autoPlay muted playsInline style={{ display: 'none' }} />
+
+      {state === 'idle' && (
+        <button className="btn-primary" style={{ width: '100%', padding: '10px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          onClick={captureId} disabled={!candidateStream}>
+          <Camera size={14} /> Capture ID Photo
         </button>
       )}
-      {captureState === 'captured' && (
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-          <button className="btn-ghost" style={{ flex: 1, padding: '8px', fontSize: '12px' }} onClick={() => setCaptureState('idle')}>Recapture</button>
-          <button className="btn-primary" style={{ flex: 1, padding: '8px', fontSize: '12px' }} onClick={runFR}>Run Facial Recognition</button>
+
+      {state === 'error' && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ padding: '10px', background: 'rgba(225,29,72,0.08)', border: '1px solid rgba(225,29,72,0.2)', borderRadius: '6px', fontSize: '12px', color: 'var(--rose)', marginBottom: '8px' }}>
+            {errorMsg}
+          </div>
+          <button className="btn-ghost" style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            onClick={() => { setState('idle'); setErrorMsg(null) }}>
+            <RotateCcw size={12} /> Try Again
+          </button>
         </div>
       )}
-      {captureState === 'running' && (
-        <div style={{ padding: '10px', background: 'rgba(0,212,255,0.06)', borderRadius: '6px', fontSize: '13px', color: 'var(--cyan)', textAlign: 'center', marginBottom: '10px' }}>
-          Running OCR + Facial Recognition...
-        </div>
-      )}
-      {captureState === 'done' && frResult && (
+
+      {state === 'captured' && preview && (
         <div style={{ marginBottom: '10px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Face Similarity</span>
-            <span style={{ color: verdictColor, fontWeight: '600' }}>{frResult.similarity}%</span>
-          </div>
-          <div style={{ padding: '6px', borderRadius: '6px', background: `${verdictColor}18`, border: `1px solid ${verdictColor}44`, fontSize: '12px', fontWeight: '600', color: verdictColor, textAlign: 'center' }}>
-            {frResult.verdict === 'verified' ? 'AUTO VERIFIED' : frResult.verdict === 'manual' ? 'MANUAL REVIEW REQUIRED' : 'AUTO BLOCKED'}
-          </div>
+          <img src={preview} alt="Captured ID frame"
+            style={{ width: '100%', maxHeight: '220px', objectFit: 'contain', borderRadius: '6px', marginBottom: '8px', background: '#000' }} />
+          <button className="btn-ghost" style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px' }}
+            onClick={() => { setState('idle'); setPreview(null) }}>
+            <RotateCcw size={12} /> Recapture
+          </button>
         </div>
       )}
+
       <button className="btn-primary" style={{ width: '100%', padding: '10px' }}
-        disabled={saving || captureState !== 'done' || frResult?.verdict === 'blocked'}
-        onClick={() => onComplete({ value: frResult })}>
-        {saving ? 'Saving...' : 'ID Verified'}
+        disabled={saving || state !== 'captured'}
+        onClick={() => onComplete({ value: { capturedImage: preview, capturedAt: new Date().toISOString() } })}>
+        {saving ? 'Saving...' : 'ID Visually Verified'}
       </button>
     </div>
   )
@@ -854,7 +881,7 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               )}
 
               {isActive && item.key === 'government_id' && (
-                <ItemGovernmentId sessionId={sessionId} candidateId={candidate?.id} saving={saving} onComplete={d => completeItem('government_id', d)} />
+                <ItemGovernmentId sessionId={sessionId} candidateId={candidate?.id} candidateStream={candidateStream} saving={saving} onComplete={d => completeItem('government_id', d)} />
               )}
 
               {isActive && item.key === 'background_scan' && (
