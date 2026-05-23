@@ -34,8 +34,13 @@ export function useFaceDetection({
   sessionId,
   candidateId,
   intervalMs = 1000,
-  absentThreshold = 3,
-  multipleThreshold = 2,
+  // Raised to 5s of no face / 4s of multiple faces before alerting. The
+  // previous 3s/2s defaults fired on routine blur, head turns, and a
+  // partner walking past in the background — clarity issues, not real
+  // integrity events. The proctor still sees the alert if the condition
+  // persists, just not on transient frames.
+  absentThreshold = 5,
+  multipleThreshold = 4,
 }: UseFaceDetectionOptions) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const detectorRef = useRef<any>(null)
@@ -71,7 +76,11 @@ export function useFaceDetection({
             delegate: 'GPU',
           },
           runningMode: 'VIDEO',
-          minDetectionConfidence: 0.5,
+          // Lowered from 0.5 → 0.4 so blurry / poorly-lit frames still
+          // register as a detected face. With 0.5, even a clear face went
+          // undetected when the candidate's webcam compressed hard, and
+          // the proctor saw a "face absent" alert every minute.
+          minDetectionConfidence: 0.4,
         })
         if (cancelled) {
           detector.close()
@@ -97,8 +106,8 @@ export function useFaceDetection({
 
     const emitAlert = (type: 'multiple_faces' | 'face_absent', data: any) => {
       const now = Date.now()
-      // Throttle: don't fire the same alert type more than once every 10 seconds
-      if (lastAlertRef.current.type === type && now - lastAlertRef.current.t < 10_000) return
+      // Throttle: don't fire the same alert type more than once every 15 seconds
+      if (lastAlertRef.current.type === type && now - lastAlertRef.current.t < 15_000) return
       lastAlertRef.current = { type, t: now }
       if (!socket?.connected) return
       socket.emit(`ai.${type}`, { sessionId, candidateId, ...data, timestamp: new Date().toISOString() })

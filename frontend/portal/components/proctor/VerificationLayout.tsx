@@ -80,6 +80,12 @@ export default function VerificationLayout({
   screenSharingCandidateIds,
 }: Props) {
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(candidates[0]?.id || null)
+  // Start muted so the active candidate's <video> can autoplay. Modern
+  // browsers reject autoplay-with-sound when the user gesture is stale,
+  // which previously left the proctor with a black tile and NO video AND
+  // no audio. The proctor unmutes once; that click satisfies the gesture
+  // requirement and audio plays for every subsequent active candidate.
+  const [audioUnmuted, setAudioUnmuted] = useState(false)
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
   // Set of candidate ids who have accepted the exam guidelines popup
   const [agreedIds, setAgreedIds] = useState<Set<string>>(new Set())
@@ -157,10 +163,14 @@ export default function VerificationLayout({
             </span>
           </div>
 
-          {/* Audio + transcription indicator */}
-          <div style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 10, background: 'rgba(0,0,0,0.75)', padding: '4px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Mic size={12} color="var(--emerald)" />
-            <span style={{ fontSize: '11px', color: 'var(--emerald)', fontWeight: '600' }}>AUDIO LIVE</span>
+          {/* Audio + transcription indicator. Clicking toggles mute so
+              the proctor can enable audio with a single user gesture
+              (browsers refuse autoplay-with-sound otherwise). */}
+          <div onClick={() => setAudioUnmuted(v => !v)} role="button" tabIndex={0} aria-label={audioUnmuted ? 'Mute candidate audio' : 'Unmute candidate audio'} style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 10, background: 'rgba(0,0,0,0.75)', padding: '4px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            {audioUnmuted ? <Mic size={12} color="var(--emerald)" /> : <MicOff size={12} color="var(--amber)" />}
+            <span style={{ fontSize: '11px', color: audioUnmuted ? 'var(--emerald)' : 'var(--amber)', fontWeight: '600' }}>
+              {audioUnmuted ? 'AUDIO LIVE' : 'CLICK TO UNMUTE'}
+            </span>
             {srSupported && (
               <>
                 <span style={{ opacity: 0.4, fontSize: '11px' }}>·</span>
@@ -178,12 +188,13 @@ export default function VerificationLayout({
             </div>
           )}
 
-          {/* Candidate stream — unmuted so proctor hears candidate */}
+          {/* Candidate stream — defaults to muted so autoplay succeeds;
+              proctor toggles audio via the indicator above. */}
           <div style={{ width: '100%', height: '100%' }}>
             <VideoBox
               stream={activeCandidate?.stream || null}
               label="No candidate selected — click a tile"
-              muted={false}
+              muted={!audioUnmuted}
             />
           </div>
 

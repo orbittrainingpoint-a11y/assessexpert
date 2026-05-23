@@ -214,11 +214,17 @@ export class MediaPipeService implements OnModuleInit {
     embedding2: number[]
   ): FaceComparisonResult {
     const similarity = this.cosineSimilarity(embedding1, embedding2);
-    
+
+    // Lowered defaults so typical webcam quality (blur, lighting, low
+    // resolution) doesn't false-flag the same person as PENDING_REVIEW or
+    // REJECTED. Override via env if you need stricter biometric matching.
+    const verifyAt = Number(process.env.MEDIAPIPE_FACE_COMPARISON_THRESHOLD) || 0.5;
+    const reviewAt = Number(process.env.MEDIAPIPE_FACE_REVIEW_THRESHOLD) || 0.3;
+
     let outcome: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
-    if (similarity >= 0.6) {
+    if (similarity >= verifyAt) {
       outcome = 'VERIFIED';
-    } else if (similarity >= 0.4) {
+    } else if (similarity >= reviewAt) {
       outcome = 'PENDING_REVIEW';
     } else {
       outcome = 'REJECTED';

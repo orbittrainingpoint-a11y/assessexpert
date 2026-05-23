@@ -229,20 +229,32 @@ export function useJitsi({
     }
 
     pc.ontrack = (e) => {
-      const stream = e.streams[0] || new MediaStream([e.track])
-      if (e.track.kind === 'video') {
-        // First video = camera, second video = screen
+      // Tracks from the same source MediaStream (camera+mic bundle) arrive
+      // in any ORDER. The previous order-dependent logic put audio-first
+      // arrivals into cameraStream and then mis-classified the video as
+      // screen, leaving the proctor with a silent or invisible tile. Key
+      // off the inbound MediaStream's id instead so cam vs screen is
+      // unambiguous regardless of which track lands first.
+      const inbound = e.streams[0]
+      if (inbound) {
         if (!conn.cameraStream) {
-          conn.cameraStream = stream
-        } else {
-          conn.screenStream = stream
+          conn.cameraStream = inbound
+        } else if (conn.cameraStream.id !== inbound.id) {
+          // A different MediaStream — that's the screen share.
+          conn.screenStream = inbound
         }
-      } else if (e.track.kind === 'audio') {
-        if (conn.cameraStream) {
-          // Attach audio to camera stream
+        // Same stream id as cameraStream → the track was added to it
+        // automatically by the browser, nothing for us to do.
+      } else {
+        // No bundled stream (rare). Synthesise one from the loose track.
+        const synth = new MediaStream([e.track])
+        if (e.track.kind === 'video') {
+          if (!conn.cameraStream) conn.cameraStream = synth
+          else conn.screenStream = synth
+        } else if (conn.cameraStream) {
           try { conn.cameraStream.addTrack(e.track) } catch {}
         } else {
-          conn.cameraStream = stream
+          conn.cameraStream = synth
         }
       }
       rebuildPeers()
@@ -275,6 +287,23 @@ export function useJitsi({
 
     return conn
   }, [rebuildPeers, getSocket])
+
+  // CANDIDATE: re-announce whenever candidateId resolves AFTER mount.
+  // useLivekit captures candidateId once at mount, but in multi-candidate
+  // slots `sessionState.candidate.id` typically populates only after OTP
+  // verification. Without this re-announce the initial peer.announce
+  // carries candidateId=undefined → the proctor's cache misses → the peer
+  // is stuck keyed by socketId → the proctor's tile shows the wrong/no
+  // stream. Re-emitting peer.announce with the resolved id triggers a
+  // fresh peer.joined to everyone in the room, and the proctor's
+  // handlePeerJoined upgrades the cached identity in-place.
+  useEffect(() => {
+    if (role !== 'CANDIDATE') return
+    if (!candidateId || !sessionId) return
+    const sock = getSocket()
+    if (!sock?.connected) return
+    sock.emit('peer.announce', { sessionId, role, socketId: sock.id, candidateId })
+  }, [candidateId, role, sessionId, getSocket])
 
   // Proctor 1-to-1 routing: when the proctor picks an active candidate,
   // mute the outbound audio/video to every OTHER candidate. Inactive
