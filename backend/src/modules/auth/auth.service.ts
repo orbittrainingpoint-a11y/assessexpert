@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
 import * as nodemailer from 'nodemailer';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -226,7 +226,11 @@ export class AuthService {
     if (rateCount > 3) {
       throw new BadRequestException('Too many OTP requests for this email. Please wait a few minutes and try again.');
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Cryptographically secure OTP. Math.random() is a pseudo-RNG seeded by
+    // V8 and biased on hot reload — an attacker who can request several OTPs
+    // in sequence could narrow the next value's range. crypto.randomInt
+    // pulls from the OS CSPRNG (same source as JWT signing).
+    const otp = String(randomInt(100000, 1000000));
     // 10-minute TTL — Redis (or the in-memory fallback) expires the key
     // automatically so we don't have to track an explicit expires field.
     // Reset the attempts counter on every fresh OTP issuance.

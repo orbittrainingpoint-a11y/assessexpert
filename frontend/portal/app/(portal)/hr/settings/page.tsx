@@ -45,12 +45,25 @@ export default function HRSettingsPage() {
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   })
 
+  // Cryptographically secure throw-away password the invited user resets
+  // on first login. Math.random() was V8's biased PRNG — predictable enough
+  // that an attacker who triggered a few invites in sequence could narrow
+  // the next password's range.
+  const generateTempPassword = () => {
+    const bytes = new Uint8Array(12)
+    crypto.getRandomValues(bytes)
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+    let out = ''
+    for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length]
+    return out
+  }
+
   const inviteMutation = useMutation({
     mutationFn: () => usersApi.create({
       email: inviteEmail, role: inviteRole,
       organizationId: user?.organizationId,
       firstName: '', lastName: '',
-      password: Math.random().toString(36).slice(-10),
+      password: generateTempPassword(),
     }),
     onSuccess: () => {
       toast.success('Invitation sent')

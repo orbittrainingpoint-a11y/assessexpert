@@ -70,8 +70,8 @@ npm run start:dev
 
 Your `.env` file now has cryptographically secure JWT secrets:
 ```env
-JWT_SECRET=bQ7vBvleZvUeO06Ce9wqozKUjXrlcUNnh4pfUIyFkGA=
-JWT_REFRESH_SECRET=vQgaKizioxkrQ7pON0qOUfcT25xjm25aabKjXxDHyWY=
+JWT_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
+JWT_REFRESH_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
 ```
 
 **Details:** See `JWT_SECRETS_SETUP.md`

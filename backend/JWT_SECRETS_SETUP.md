@@ -1,5 +1,20 @@
 # JWT Secrets - Setup Complete ✅
 
+> **⚠️ SECURITY NOTICE (2026-05-25):** earlier revisions of this file
+> contained the literal JWT_SECRET / JWT_REFRESH_SECRET values used in
+> production. They've been redacted here, **but they remain in git
+> history** — you must treat them as compromised and rotate.
+>
+> Rotate on the live server:
+> ```bash
+> cd /var/www/html/assessexpert/backend
+> node generate-secrets.js          # prints two new base64 values
+> # paste both into backend/.env, replacing JWT_SECRET + JWT_REFRESH_SECRET
+> pm2 reload assessexpert-backend --update-env
+> ```
+> All issued JWTs (access + refresh) will be invalidated. Users will need
+> to sign in again — expected. Never paste these values into any doc again.
+
 ## What Was Done
 
 Your `.env` file has been updated with **cryptographically secure JWT secrets**.
@@ -7,8 +22,8 @@ Your `.env` file has been updated with **cryptographically secure JWT secrets**.
 ### Generated Secrets:
 
 ```env
-JWT_SECRET=bQ7vBvleZvUeO06Ce9wqozKUjXrlcUNnh4pfUIyFkGA=
-JWT_REFRESH_SECRET=vQgaKizioxkrQ7pON0qOUfcT25xjm25aabKjXxDHyWY=
+JWT_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
+JWT_REFRESH_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
 ```
 
 ### Security Details:
@@ -117,8 +132,8 @@ Your `.env` file now has:
 
 ```env
 # JWT - Secure secrets generated on 2024
-JWT_SECRET=bQ7vBvleZvUeO06Ce9wqozKUjXrlcUNnh4pfUIyFkGA=
-JWT_REFRESH_SECRET=vQgaKizioxkrQ7pON0qOUfcT25xjm25aabKjXxDHyWY=
+JWT_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
+JWT_REFRESH_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
 ```
@@ -163,8 +178,8 @@ curl -X GET http://localhost:4000/api/candidates \
 ```diff
 - JWT_SECRET=assessexpert-jwt-secret-change-in-production-min-32-chars
 - JWT_REFRESH_SECRET=assessexpert-refresh-secret-change-in-production-min-32-chars
-+ JWT_SECRET=bQ7vBvleZvUeO06Ce9wqozKUjXrlcUNnh4pfUIyFkGA=
-+ JWT_REFRESH_SECRET=vQgaKizioxkrQ7pON0qOUfcT25xjm25aabKjXxDHyWY=
++ JWT_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
++ JWT_REFRESH_SECRET=REDACTED-ROTATE-ON-LIVE-SERVER
 ```
 
 ### 2. `generate-secrets.js` (NEW)
