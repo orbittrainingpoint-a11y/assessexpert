@@ -265,9 +265,17 @@ function SessionContent() {
   // right connection during verification.
   useEffect(() => {
     if (!activeCandidateId) return
-    const peer = lkPeers.get(`candidate-${activeCandidateId}`)
-    if (peer?.socketId && peer.socketId !== activeCandidateSocketId) {
-      setActiveCandidateSocketId(peer.socketId)
+    // Try the strict map key first, then scan every candidate peer by the
+    // parsed candidateId. The scan recovers in the brief window before the
+    // identity-upgrade in useJitsi runs (offer arrived before peer.joined
+    // brought the real candidateId). Without it the proctor's selection
+    // never gets a socketId → 1-to-1 routing silently broadcasts to all.
+    const direct = lkPeers.get(`candidate-${activeCandidateId}`)
+    const scanned = direct || Array.from(lkPeers.values()).find(
+      (p: any) => p.role === 'CANDIDATE' && p.candidateId === activeCandidateId,
+    )
+    if (scanned?.socketId && scanned.socketId !== activeCandidateSocketId) {
+      setActiveCandidateSocketId(scanned.socketId)
     }
   }, [activeCandidateId, lkPeers, activeCandidateSocketId])
 

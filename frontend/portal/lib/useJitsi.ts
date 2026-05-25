@@ -136,6 +136,11 @@ export function useJitsi({
   // identity (so the React side can look up tiles by database id) instead
   // of candidate-${socketId} (which the React side has no way to match).
   const socketIdToCandidateIdRef = useRef<Map<string, string>>(new Map())
+  // Latest candidateId in a ref so every announce (initial, on connect,
+  // re-announce, reconnect) reads the up-to-date value instead of the
+  // stale prop captured in a useEffect closure at mount time.
+  const candidateIdRef = useRef<string | undefined>(candidateId)
+  candidateIdRef.current = candidateId
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null)
@@ -301,8 +306,19 @@ export function useJitsi({
     if (role !== 'CANDIDATE') return
     if (!candidateId || !sessionId) return
     const sock = getSocket()
-    if (!sock?.connected) return
-    sock.emit('peer.announce', { sessionId, role, socketId: sock.id, candidateId })
+    if (!sock) return
+    const emit = () => sock.emit('peer.announce', {
+      sessionId, role, socketId: sock.id, candidateId: candidateIdRef.current,
+    })
+    if (sock.connected) {
+      emit()
+    } else {
+      // Socket isn't connected YET. Queue the announce on the next
+      // 'connect' so the proctor's cache still gets the real candidateId
+      // when the socket comes up. Cleanup detaches it if the effect re-runs.
+      sock.once('connect', emit)
+      return () => { try { sock.off('connect', emit) } catch {} }
+    }
   }, [candidateId, role, sessionId, getSocket])
 
   // Proctor 1-to-1 routing: when the proctor picks an active candidate,
@@ -572,12 +588,12 @@ export function useJitsi({
           sock.on('connect', () => {
             if (cancelled) return
             mySocketIdRef.current = sock.id
-            sock.emit('join_session', { sessionId, role, userId: myIdentity, candidateId })
-            // Critical for multi-candidate slots: include candidateId so the
-            // proctor can map this peer to a specific SessionCandidate row.
-            // Without it, multiple candidates collide on `candidate-${socketId}`
-            // and the proctor's stream lookup by database id fails.
-            sock.emit('peer.announce', { sessionId, role, socketId: sock.id, candidateId })
+            // Read candidateId from the ref so a reconnect (or a connect
+            // that happens AFTER OTP resolved candidateId) carries the
+            // current id, not the undefined value captured at mount.
+            const cid = candidateIdRef.current
+            sock.emit('join_session', { sessionId, role, userId: myIdentity, candidateId: cid })
+            sock.emit('peer.announce', { sessionId, role, socketId: sock.id, candidateId: cid })
             setConnectionState(ConnectionState.Connected)
           })
           sock.on('peer.joined', handlePeerJoined)
@@ -587,18 +603,25 @@ export function useJitsi({
           sock.on('peer.left', handlePeerLeft)
           sock.on('disconnect', () => setConnectionState(ConnectionState.Disconnected))
         } else {
-          // External socket already connected — store its ID and announce
+          // External socket already connected — store its ID and announce.
+          // Reads candidateId from the ref so it's always current even when
+          // 'connect' fires AFTER candidateId was resolved post-OTP.
           const announceOnSocket = () => {
             if (cancelled) return
             mySocketIdRef.current = externalSocket.id
-            externalSocket.emit('peer.announce', { sessionId, role, socketId: externalSocket.id, candidateId })
+            externalSocket.emit('peer.announce', {
+              sessionId, role, socketId: externalSocket.id,
+              candidateId: candidateIdRef.current,
+            })
             setConnectionState(ConnectionState.Connected)
           }
           if (externalSocket.connected) {
             announceOnSocket()
-          } else {
-            externalSocket.once('connect', announceOnSocket)
           }
+          // Always attach a (persistent) 'connect' listener — covers the
+          // initial connect AND any reconnects. The previous .once() lost
+          // the announce on transient WS drops.
+          externalSocket.on('connect', announceOnSocket)
         }
 
         if (publishScreen) await startScreenShare()
