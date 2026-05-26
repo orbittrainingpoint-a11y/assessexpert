@@ -168,11 +168,26 @@ export function useJitsi({
   const rebuildPeers = useCallback(() => {
     const next = new Map<string, RemotePeer>()
     peerConnsRef.current.forEach((conn) => {
-      next.set(conn.identity, {
-        identity: conn.identity,
-        name: conn.identity,
-        role: parseRole(conn.identity),
-        candidateId: parseCandidateId(conn.identity),
+      // If the PeerConn identity is still socketId-based (offer arrived
+      // before peer.joined brought the real candidateId), check the
+      // socketId→candidateId cache and upgrade. This ensures the React
+      // side can look up the peer by `candidate-${databaseId}` even
+      // during the brief race window between offer and peer.joined.
+      const cachedCid = socketIdToCandidateIdRef.current.get(conn.socketId)
+      let identity = conn.identity
+      const role = parseRole(identity)
+      let cid = parseCandidateId(identity)
+      if (role === 'CANDIDATE' && cachedCid && cid !== cachedCid) {
+        identity = `candidate-${cachedCid}`
+        cid = cachedCid
+        conn.identity = identity
+      }
+
+      next.set(identity, {
+        identity,
+        name: identity,
+        role,
+        candidateId: cid,
         socketId: conn.socketId,
         cameraTrack: conn.cameraStream?.getVideoTracks()[0] || null,
         micTrack: conn.cameraStream?.getAudioTracks()[0] || null,
@@ -262,6 +277,13 @@ export function useJitsi({
           conn.cameraStream = synth
         }
       }
+      // Proctor: mute incoming audio from non-active candidates as soon as
+      // the track arrives so the proctor never hears someone they haven't
+      // selected. The routing effect re-applies on every switch, but this
+      // catches new peers that connect while another candidate is active.
+      if (role === 'PROCTOR' && e.track.kind === 'audio' && activeTargetRef.current && remoteSocketId !== activeTargetRef.current) {
+        e.track.enabled = false
+      }
       rebuildPeers()
     }
 
@@ -330,8 +352,13 @@ export function useJitsi({
     activeTargetRef.current = activeTargetSocketId
     peerConnsRef.current.forEach((conn, peerSocketId) => {
       const isActive = !activeTargetSocketId || peerSocketId === activeTargetSocketId
+      // Outbound: proctor's audio/video to this peer
       if (conn.localVideoClone) conn.localVideoClone.enabled = isActive
       if (conn.localAudioClone) conn.localAudioClone.enabled = isActive
+      // Inbound: mute incoming audio from non-active candidates so the
+      // proctor only hears the candidate they are currently verifying.
+      const remoteAudio = conn.cameraStream?.getAudioTracks()?.[0]
+      if (remoteAudio) remoteAudio.enabled = isActive
     })
   }, [activeTargetSocketId, role])
 

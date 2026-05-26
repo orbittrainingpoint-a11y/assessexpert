@@ -276,8 +276,18 @@ function SessionContent() {
     )
     if (scanned?.socketId && scanned.socketId !== activeCandidateSocketId) {
       setActiveCandidateSocketId(scanned.socketId)
+      // Re-emit activation to backend now that we have the real socketId.
+      // The initial handleCandidateSelect likely fired with undefined
+      // socketId, so the server never set up the audio routing.
+      if (phase === 'checklist' && wsSocket?.connected) {
+        wsSocket.emit('proctor.enterVerification', {
+          sessionId,
+          candidateId: activeCandidateId,
+          candidateSocketId: scanned.socketId,
+        })
+      }
     }
-  }, [activeCandidateId, lkPeers, activeCandidateSocketId])
+  }, [activeCandidateId, lkPeers, activeCandidateSocketId, phase, sessionId, wsSocket])
 
   const pauseMutation = useMutation({
     mutationFn: () => sessionsApi.pause(sessionId),
