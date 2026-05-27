@@ -41,7 +41,7 @@ export function ContactForm() {
     }
   }
 
-  const labelStyle: React.CSSProperties = { display: 'block', fontSize: '11px', color: '#64748B', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: '11px', color: 'var(--web-text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }
   const inputStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', minHeight: 44 }
 
   if (submitted) {
@@ -50,10 +50,10 @@ export function ContactForm() {
         <div style={{ width: 72, height: 72, background: 'rgba(5,150,105,0.15)', border: '1px solid rgba(5,150,105,0.3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
           <CheckCircle2 size={36} color="#059669" />
         </div>
-        <h3 style={{ margin: '0 0 12px', fontSize: '24px', fontWeight: 800, color: '#F1F5F9', letterSpacing: '-0.02em' }}>Message Received!</h3>
-        <p style={{ color: '#64748B', fontSize: '15px', lineHeight: 1.7, marginBottom: '8px' }}>Our sales team will contact you at</p>
-        <p style={{ color: '#60A5FA', fontSize: '16px', fontWeight: 600, marginBottom: '32px' }}>{form.email}</p>
-        <p style={{ color: '#475569', fontSize: '14px' }}>Expected response: within 1 business day</p>
+        <h3 style={{ margin: '0 0 12px', fontSize: '24px', fontWeight: 800, color: 'var(--web-text)', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Message Received!</h3>
+        <p style={{ color: 'var(--web-text-secondary)', fontSize: '15px', lineHeight: 1.7, marginBottom: '8px' }}>Our sales team will contact you at</p>
+        <p style={{ color: 'var(--web-gold)', fontSize: '16px', fontWeight: 600, marginBottom: '32px' }}>{form.email}</p>
+        <p style={{ color: 'var(--web-text-muted)', fontSize: '14px' }}>Expected response: within 1 business day</p>
       </div>
     )
   }
@@ -61,8 +61,8 @@ export function ContactForm() {
   return (
     <>
       <div style={{ marginBottom: '32px' }}>
-        <h2 style={{ margin: '0 0 6px', fontSize: '22px', fontWeight: 800, color: '#F1F5F9', letterSpacing: '-0.02em' }}>Request a Demo</h2>
-        <p style={{ margin: 0, fontSize: '14px', color: '#64748B' }}>All fields marked * are required</p>
+        <h2 style={{ margin: '0 0 6px', fontSize: '22px', fontWeight: 800, color: 'var(--web-text)', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Request a Demo</h2>
+        <p style={{ margin: 0, fontSize: '14px', color: 'var(--web-text-secondary)' }}>All fields marked * are required</p>
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -111,9 +111,9 @@ export function ContactForm() {
                 <button key={t} type="button" onClick={() => toggle(t)} aria-pressed={on} style={{
                   padding: '8px 16px', borderRadius: '9999px', fontSize: '13px', cursor: 'pointer',
                   border: '1px solid', transition: 'all 150ms', fontWeight: 500, minHeight: 36,
-                  background: on ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.03)',
-                  borderColor: on ? '#3B82F6' : 'rgba(255,255,255,0.08)',
-                  color: on ? '#60A5FA' : '#64748B',
+                  background: on ? 'var(--web-gold-dim)' : 'rgba(255,255,255,0.03)',
+                  borderColor: on ? 'var(--web-gold)' : 'rgba(255,255,255,0.08)',
+                  color: on ? 'var(--web-gold-light)' : 'var(--web-text-muted)',
                 }}>
                   {t}
                 </button>
@@ -135,7 +135,7 @@ export function ContactForm() {
           {loading ? 'Sending...' : <>Send Request <ArrowRight size={18} /></>}
         </button>
 
-        <p style={{ margin: 0, fontSize: '12px', color: '#334155', textAlign: 'center' }}>
+        <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)', textAlign: 'center' }}>
           By submitting, you agree to be contacted by our sales team. No spam, ever.
         </p>
       </form>

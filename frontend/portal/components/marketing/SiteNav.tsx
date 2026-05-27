@@ -8,8 +8,8 @@ import { NAV_LINKS, SITE } from '@/lib/marketing-content'
 function Logo({ size = 32 }: { size?: number }) {
   return (
     <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-      <span style={{ width: size, height: size, background: 'linear-gradient(135deg, #3B82F6, #1D4ED8)', borderRadius: size / 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size / 2, fontWeight: 800, color: '#fff', boxShadow: '0 0 20px rgba(59,130,246,0.35)' }}>A</span>
-      <span style={{ color: '#F1F5F9', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em' }}>{SITE.brand}</span>
+      <span style={{ width: size, height: size, background: 'linear-gradient(135deg, #C8A44E, #A3863A)', borderRadius: size / 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size / 2, fontWeight: 800, color: '#0A0A0F', fontFamily: 'var(--web-serif)', boxShadow: '0 0 20px rgba(200,164,78,0.25)' }}>A</span>
+      <span style={{ color: 'var(--web-text)', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>{SITE.brand}</span>
     </span>
   )
 }
@@ -32,7 +32,7 @@ export function SiteNav() {
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
 
   return (
-    <nav className="web-nav" style={{ boxShadow: scrolled ? '0 8px 30px rgba(0,0,0,0.5)' : 'none', borderBottomColor: scrolled ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.15)' }}>
+    <nav className="web-nav" style={{ boxShadow: scrolled ? '0 8px 30px rgba(0,0,0,0.5)' : 'none', borderBottomColor: scrolled ? 'rgba(200,164,78,0.15)' : 'rgba(255,255,255,0.04)' }}>
       {/* Inner container caps + centers nav content so it lines up with
           the page sections (also max-width 1280, margin auto). */}
       <div className="web-nav-inner">
@@ -58,7 +58,7 @@ export function SiteNav() {
           onClick={() => setOpen((o) => !o)}
           aria-label={open ? 'Close menu' : 'Open menu'}
           aria-expanded={open}
-          style={{ background: 'none', border: 'none', color: '#F1F5F9', cursor: 'pointer', padding: 8 }}
+          style={{ background: 'none', border: 'none', color: 'var(--web-text)', cursor: 'pointer', padding: 8 }}
         >
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>

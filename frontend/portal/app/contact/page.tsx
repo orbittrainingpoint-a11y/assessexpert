@@ -33,17 +33,17 @@ const PROCESS_STEPS = [
 
 export default function ContactPage() {
   return (
-    <div style={{ minHeight: '100vh', background: '#040814', fontFamily: 'var(--font-ui)', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
       <SiteNav />
 
       <header style={{ position: 'relative', padding: '100px 24px 80px', textAlign: 'center', overflow: 'hidden' }} className="web-grid-bg">
-        <div className="web-glow-orb animate" style={{ width: '400px', height: '400px', background: 'rgba(29,78,216,0.12)', top: '-100px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
+        <div className="web-glow-orb animate" style={{ width: '400px', height: '400px', background: 'rgba(200,164,78,0.08)', top: '-100px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
         <Reveal style={{ position: 'relative', maxWidth: '700px', margin: '0 auto' }}>
           <div className="web-label" style={{ marginBottom: '20px' }}>Start the Conversation</div>
-          <h1 style={{ fontSize: 'clamp(38px,6vw,60px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 20px', letterSpacing: '-0.03em', lineHeight: 1.05 }}>
+          <h1 style={{ fontSize: 'clamp(38px,6vw,60px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 20px', letterSpacing: '-0.03em', lineHeight: 1.05, fontFamily: 'var(--web-serif)' }}>
             Let&rsquo;s <span className="web-gradient-text">Talk</span>
           </h1>
-          <p style={{ fontSize: '17px', color: '#94A3B8', lineHeight: 1.75, margin: 0 }}>
+          <p style={{ fontSize: '17px', color: 'var(--web-text-secondary)', lineHeight: 1.75, margin: 0 }}>
             assessexpert is a sales-led platform. There&rsquo;s no self-signup or checkout. Every client relationship starts with a conversation with our team.
           </p>
         </Reveal>
@@ -52,12 +52,12 @@ export default function ContactPage() {
       {/* PROCESS */}
       <section style={{ padding: '0 24px 80px', maxWidth: '1100px', margin: '0 auto' }}>
         <Reveal>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '2px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.12)', borderRadius: '16px', overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '2px', background: 'rgba(200,164,78,0.06)', border: '1px solid rgba(200,164,78,0.1)', borderRadius: '16px', overflow: 'hidden' }}>
             {PROCESS_STEPS.map((s) => (
-              <div key={s.n} style={{ padding: '28px 24px', textAlign: 'center', background: '#040814' }}>
-                <div style={{ width: 36, height: 36, background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 700, color: '#60A5FA', margin: '0 auto 12px' }}>{s.n}</div>
-                <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: 700, color: '#E2E8F0' }}>{s.title}</p>
-                <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: 1.5 }}>{s.desc}</p>
+              <div key={s.n} style={{ padding: '28px 24px', textAlign: 'center', background: 'var(--web-bg)' }}>
+                <div style={{ width: 36, height: 36, background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.25)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 700, color: 'var(--web-gold)', margin: '0 auto 12px' }}>{s.n}</div>
+                <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: 700, color: 'var(--web-text)' }}>{s.title}</p>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)', lineHeight: 1.5 }}>{s.desc}</p>
               </div>
             ))}
           </div>
@@ -68,35 +68,35 @@ export default function ContactPage() {
       <section style={{ padding: '0 24px 100px', maxWidth: '1280px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '60px', alignItems: 'start' }}>
         <Reveal>
           <div className="web-label" style={{ marginBottom: '20px' }}>Contact Details</div>
-          <h2 style={{ fontSize: '32px', fontWeight: 800, color: '#F1F5F9', margin: '0 0 12px', letterSpacing: '-0.02em' }}>Get in Touch</h2>
+          <h2 style={{ fontSize: '32px', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 12px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Get in Touch</h2>
           <div className="web-divider" />
-          <p style={{ fontSize: '15px', color: '#64748B', lineHeight: 1.8, marginBottom: '40px' }}>
+          <p style={{ fontSize: '15px', color: 'var(--web-text-secondary)', lineHeight: 1.8, marginBottom: '40px' }}>
             Our sales team is ready to walk you through the platform, answer your questions, and build a custom assessment plan for your hiring needs.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '40px' }}>
             {CONTACT_INFO.map((c) => (
-              <div key={c.label} style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', padding: '20px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
-                <div style={{ width: 40, height: 40, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <c.Icon size={18} color="#60A5FA" />
+              <div key={c.label} style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', padding: '20px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--web-border)', borderRadius: '12px' }}>
+                <div style={{ width: 40, height: 40, background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.2)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <c.Icon size={18} color="#C8A44E" />
                 </div>
                 <div>
-                  <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{c.label}</p>
-                  <p style={{ margin: '0 0 2px', fontSize: '15px', color: '#E2E8F0', fontWeight: 600 }}>{c.value}</p>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#475569' }}>{c.sub}</p>
+                  <p style={{ margin: '0 0 2px', fontSize: '11px', color: 'var(--web-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{c.label}</p>
+                  <p style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--web-text)', fontWeight: 600 }}>{c.value}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)' }}>{c.sub}</p>
                 </div>
               </div>
             ))}
           </div>
-          <div style={{ padding: '24px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '14px' }}>
-            <p style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 700, color: '#60A5FA' }}>How it works</p>
-            <p style={{ margin: 0, fontSize: '13px', color: '#64748B', lineHeight: 1.7 }}>
+          <div style={{ padding: '24px', background: 'rgba(200,164,78,0.04)', border: '1px solid rgba(200,164,78,0.12)', borderRadius: '14px' }}>
+            <p style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 700, color: 'var(--web-gold)' }}>How it works</p>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--web-text-secondary)', lineHeight: 1.7 }}>
               Submit this form → Sales team contacts you within 1 business day → Live demo scheduled → Commercial agreement → Company onboarded on assessexpert.
             </p>
           </div>
         </Reveal>
 
         <Reveal delay={80}>
-          <div style={{ padding: '48px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '20px' }}>
+          <div style={{ padding: '48px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--web-border)', borderRadius: '20px' }}>
             <ContactForm />
           </div>
         </Reveal>

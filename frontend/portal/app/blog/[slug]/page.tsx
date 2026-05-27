@@ -55,31 +55,31 @@ export default async function BlogPostPage({ params }: Props) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#040814', fontFamily: 'var(--font-ui)', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <SiteNav />
 
       <article style={{ maxWidth: '760px', margin: '0 auto', padding: '80px 24px 100px' }}>
-        <Link href="/blog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#60A5FA', textDecoration: 'none', fontSize: 14, fontWeight: 600, marginBottom: 28 }}>
+        <Link href="/blog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--web-gold)', textDecoration: 'none', fontSize: 14, fontWeight: 600, marginBottom: 28 }}>
           <ArrowLeft size={16} /> All articles
         </Link>
 
         {post.tags?.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
             {post.tags.map((t) => (
-              <span key={t} className="web-chip" style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', color: '#60A5FA' }}>{t}</span>
+              <span key={t} className="web-chip" style={{ background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.2)', color: 'var(--web-gold)' }}>{t}</span>
             ))}
           </div>
         )}
 
-        <h1 style={{ fontSize: 'clamp(30px,5vw,44px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 16px', lineHeight: 1.15, letterSpacing: '-0.02em' }}>{post.title}</h1>
-        <p style={{ margin: '0 0 32px', fontSize: 14, color: '#475569' }}>
+        <h1 style={{ fontSize: 'clamp(30px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', lineHeight: 1.15, letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>{post.title}</h1>
+        <p style={{ margin: '0 0 32px', fontSize: 14, color: 'var(--web-text-muted)' }}>
           {post.authorName ? `${post.authorName} · ` : ''}{fmtDate(post.publishedAt)}
         </p>
 
         {post.coverImage && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={post.coverImage} alt={post.title} style={{ width: '100%', borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', marginBottom: 40 }} />
+          <img src={post.coverImage} alt={post.title} style={{ width: '100%', borderRadius: 16, border: '1px solid var(--web-border)', marginBottom: 40 }} />
         )}
 
         <div className="web-prose" dangerouslySetInnerHTML={{ __html: safeHtml }} />

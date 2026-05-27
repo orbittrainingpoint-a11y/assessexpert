@@ -54,23 +54,23 @@ export default async function HomePage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#040814', fontFamily: 'var(--font-ui)', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <SiteNav />
 
       {/* HERO */}
       <header style={{ position: 'relative', padding: '140px 24px 120px', textAlign: 'center', overflow: 'hidden' }} className="web-grid-bg">
-        <div className="web-glow-orb animate" style={{ width: '600px', height: '600px', background: 'rgba(29,78,216,0.15)', top: '-200px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
-        <div className="web-glow-orb animate" style={{ width: '300px', height: '300px', background: 'rgba(59,130,246,0.1)', top: '100px', left: '8%' }} />
-        <div className="web-glow-orb animate" style={{ width: '300px', height: '300px', background: 'rgba(109,40,217,0.08)', top: '120px', right: '8%' }} />
+        <div className="web-glow-orb animate" style={{ width: '600px', height: '600px', background: 'rgba(200,164,78,0.1)', top: '-200px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
+        <div className="web-glow-orb animate" style={{ width: '300px', height: '300px', background: 'rgba(200,164,78,0.06)', top: '100px', left: '8%' }} />
+        <div className="web-glow-orb animate" style={{ width: '300px', height: '300px', background: 'rgba(99,102,241,0.06)', top: '120px', right: '8%' }} />
 
         <div style={{ position: 'relative', maxWidth: '900px', margin: '0 auto' }}>
           <Reveal><div className="web-label" style={{ marginBottom: '28px' }}>{c.heroBadge}</div></Reveal>
-          <Reveal delay={60} as="h1" style={{ fontSize: 'clamp(40px, 7vw, 68px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 28px', lineHeight: 1.05, letterSpacing: '-0.03em' }}>
+          <Reveal delay={60} as="h1" style={{ fontSize: 'clamp(40px, 7vw, 68px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 28px', lineHeight: 1.05, letterSpacing: '-0.03em', fontFamily: 'var(--web-serif)' }}>
             {c.heroTitle}<br />
             <span className="web-gradient-text">{c.heroHighlight}</span>
           </Reveal>
-          <Reveal delay={120} as="p" style={{ fontSize: '19px', color: '#94A3B8', maxWidth: '660px', margin: '0 auto 48px', lineHeight: 1.75 }}>
+          <Reveal delay={120} as="p" style={{ fontSize: '19px', color: 'var(--web-text-secondary)', maxWidth: '660px', margin: '0 auto 48px', lineHeight: 1.75 }}>
             {c.heroSubtitle}
           </Reveal>
           <Reveal delay={180}>
@@ -82,8 +82,8 @@ export default async function HomePage() {
           <Reveal delay={240}>
             <div style={{ display: 'flex', justifyContent: 'center', gap: '28px', flexWrap: 'wrap' }}>
               {c.heroBadges.map((b) => (
-                <span key={b} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#64748B' }}>
-                  <Icon name="check" size={15} color="#3B82F6" /> {b}
+                <span key={b} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--web-text-muted)' }}>
+                  <Icon name="check" size={15} color="#C8A44E" /> {b}
                 </span>
               ))}
             </div>
@@ -92,13 +92,13 @@ export default async function HomePage() {
       </header>
 
       {/* STATS */}
-      <section aria-label="Key statistics" style={{ background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(59,130,246,0.1)', borderBottom: '1px solid rgba(59,130,246,0.1)', padding: '56px 24px' }}>
+      <section aria-label="Key statistics" style={{ background: 'rgba(200,164,78,0.02)', borderTop: '1px solid rgba(200,164,78,0.08)', borderBottom: '1px solid rgba(200,164,78,0.08)', padding: '56px 24px' }}>
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '40px' }}>
           {c.stats.map((s, i) => (
             <Reveal key={s.label} delay={i * 40} style={{ textAlign: 'center' }}>
               <div className="web-stat-value" style={{ fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
-              <p style={{ margin: '8px 0 4px', fontSize: '15px', fontWeight: 600, color: '#E2E8F0' }}>{s.label}</p>
-              <p style={{ margin: 0, fontSize: '12px', color: '#475569' }}>{s.sub}</p>
+              <p style={{ margin: '8px 0 4px', fontSize: '15px', fontWeight: 600, color: 'var(--web-text)' }}>{s.label}</p>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)' }}>{s.sub}</p>
             </Reveal>
           ))}
         </div>
@@ -108,8 +108,8 @@ export default async function HomePage() {
       <section style={{ padding: '120px 24px', maxWidth: '1280px', margin: '0 auto' }}>
         <Reveal style={{ textAlign: 'center', marginBottom: '72px' }}>
           <div className="web-label" style={{ marginBottom: '16px' }}>Platform Capabilities</div>
-          <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 16px', letterSpacing: '-0.02em' }}>Why assessexpert?</h2>
-          <p style={{ fontSize: '17px', color: '#64748B', maxWidth: '560px', margin: '0 auto', lineHeight: 1.7 }}>
+          <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Why assessexpert?</h2>
+          <p style={{ fontSize: '17px', color: 'var(--web-text-secondary)', maxWidth: '560px', margin: '0 auto', lineHeight: 1.7 }}>
             Built for companies that need verified, structured evidence — not gut feel — before every hire.
           </p>
         </Reveal>
@@ -121,8 +121,8 @@ export default async function HomePage() {
                 <div className="web-icon-tile" style={{ width: 48, height: 48, background: `${f.accent}18`, border: `1px solid ${f.accent}30`, marginBottom: 20 }}>
                   <Icon name={f.icon} size={22} color={f.accent} />
                 </div>
-                <h3 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: '#F1F5F9', letterSpacing: '-0.01em' }}>{f.title}</h3>
-                <p style={{ margin: 0, fontSize: '14px', color: '#64748B', lineHeight: 1.75 }}>{f.desc}</p>
+                <h3 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: 'var(--web-text)', letterSpacing: '-0.01em' }}>{f.title}</h3>
+                <p style={{ margin: 0, fontSize: '14px', color: 'var(--web-text-secondary)', lineHeight: 1.75 }}>{f.desc}</p>
               </article>
             </Reveal>
           ))}
@@ -134,19 +134,19 @@ export default async function HomePage() {
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
           <Reveal style={{ textAlign: 'center', marginBottom: '72px' }}>
             <div className="web-label" style={{ marginBottom: '16px' }}>The Assessment Lifecycle</div>
-            <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 16px', letterSpacing: '-0.02em' }}>How It Works</h2>
-            <p style={{ fontSize: '17px', color: '#64748B', maxWidth: '520px', margin: '0 auto', lineHeight: 1.7 }}>
+            <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>How It Works</h2>
+            <p style={{ fontSize: '17px', color: 'var(--web-text-secondary)', maxWidth: '520px', margin: '0 auto', lineHeight: 1.7 }}>
               Every assessment follows a precise, repeatable 6-step protocol — from scheduling to published report.
             </p>
           </Reveal>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2px', background: 'rgba(59,130,246,0.08)', borderRadius: '20px', overflow: 'hidden', border: '1px solid rgba(59,130,246,0.12)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2px', background: 'rgba(200,164,78,0.06)', borderRadius: '20px', overflow: 'hidden', border: '1px solid rgba(200,164,78,0.1)' }}>
             {c.process.map((p, i) => (
-              <Reveal key={p.step} delay={(i % 3) * 50} style={{ background: '#040814' }}>
+              <Reveal key={p.step} delay={(i % 3) * 50} style={{ background: 'var(--web-bg)' }}>
                 <div style={{ padding: '40px 36px', position: 'relative', height: '100%' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6', letterSpacing: '0.1em', marginBottom: '16px' }}>STEP {p.step}</div>
-                  <h3 style={{ margin: '0 0 12px', fontSize: '18px', fontWeight: 700, color: '#F1F5F9' }}>{p.title}</h3>
-                  <p style={{ margin: 0, fontSize: '14px', color: '#64748B', lineHeight: 1.7 }}>{p.desc}</p>
-                  <span style={{ position: 'absolute', top: '36px', right: '36px', width: '32px', height: '32px', background: 'rgba(59,130,246,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>{p.step}</span>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--web-gold)', letterSpacing: '0.1em', marginBottom: '16px' }}>STEP {p.step}</div>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '18px', fontWeight: 700, color: 'var(--web-text)' }}>{p.title}</h3>
+                  <p style={{ margin: 0, fontSize: '14px', color: 'var(--web-text-secondary)', lineHeight: 1.7 }}>{p.desc}</p>
+                  <span style={{ position: 'absolute', top: '36px', right: '36px', width: '32px', height: '32px', background: 'var(--web-gold-dim)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: 'var(--web-gold)' }}>{p.step}</span>
                 </div>
               </Reveal>
             ))}
@@ -159,9 +159,9 @@ export default async function HomePage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '60px', alignItems: 'center' }}>
           <Reveal>
             <div className="web-label" style={{ marginBottom: '16px' }}>Industry Coverage</div>
-            <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 20px', letterSpacing: '-0.02em', lineHeight: 1.1 }}>Any Industry.<br />Any Job Role.</h2>
+            <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 20px', letterSpacing: '-0.02em', lineHeight: 1.1, fontFamily: 'var(--web-serif)' }}>Any Industry.<br />Any Job Role.</h2>
             <div className="web-divider" />
-            <p style={{ fontSize: '16px', color: '#64748B', lineHeight: 1.8, marginBottom: '32px' }}>
+            <p style={{ fontSize: '16px', color: 'var(--web-text-secondary)', lineHeight: 1.8, marginBottom: '32px' }}>
               assessexpert is not limited to one sector. Our Exam Setup team builds and maintains question banks and practical tasks for any job role — from AutoCAD Draftsman to Python Developer to HR Generalist.
             </p>
             <Link href="/services" className="web-btn-primary" style={{ padding: '12px 28px', fontSize: '14px', gap: 8 }}>View All Assessment Types <ArrowRight size={16} /></Link>
@@ -170,8 +170,8 @@ export default async function HomePage() {
             {c.industries.map((ind, i) => (
               <Reveal key={ind.name} delay={(i % 2) * 40}>
                 <div className="web-card" style={{ padding: '20px' }}>
-                  <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: 600, color: '#E2E8F0' }}>{ind.name}</p>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: 1.5 }}>{ind.roles}</p>
+                  <p style={{ margin: '0 0 6px', fontSize: '13px', fontWeight: 600, color: 'var(--web-text)' }}>{ind.name}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)', lineHeight: 1.5 }}>{ind.roles}</p>
                 </div>
               </Reveal>
             ))}
@@ -180,11 +180,11 @@ export default async function HomePage() {
       </section>
 
       {/* TRUST */}
-      <section style={{ background: 'linear-gradient(180deg, rgba(29,78,216,0.06) 0%, rgba(4,8,20,0) 100%)', borderTop: '1px solid rgba(59,130,246,0.1)', padding: '100px 24px' }}>
+      <section style={{ background: 'linear-gradient(180deg, rgba(200,164,78,0.04) 0%, rgba(10,10,15,0) 100%)', borderTop: '1px solid rgba(200,164,78,0.08)', padding: '100px 24px' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
           <Reveal style={{ textAlign: 'center', marginBottom: '64px' }}>
             <div className="web-label" style={{ marginBottom: '16px' }}>Built for Trust</div>
-            <h2 style={{ fontSize: 'clamp(28px,4vw,40px)', fontWeight: 800, color: '#F1F5F9', margin: 0, letterSpacing: '-0.02em' }}>Every Result. Verified.</h2>
+            <h2 style={{ fontSize: 'clamp(28px,4vw,40px)', fontWeight: 800, color: 'var(--web-text)', margin: 0, letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Every Result. Verified.</h2>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px' }}>
             {c.trust.map((t, i) => (
@@ -193,8 +193,8 @@ export default async function HomePage() {
                   <div className="web-icon-tile" style={{ width: 56, height: 56, margin: '0 auto 16px', background: `${t.accent}15`, border: `1px solid ${t.accent}30` }}>
                     <Icon name={t.icon} size={26} color={t.accent} />
                   </div>
-                  <h3 style={{ margin: '0 0 10px', fontSize: '15px', fontWeight: 700, color: '#E2E8F0' }}>{t.title}</h3>
-                  <p style={{ margin: 0, fontSize: '13px', color: '#475569', lineHeight: 1.7 }}>{t.desc}</p>
+                  <h3 style={{ margin: '0 0 10px', fontSize: '15px', fontWeight: 700, color: 'var(--web-text)' }}>{t.title}</h3>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--web-text-muted)', lineHeight: 1.7 }}>{t.desc}</p>
                 </div>
               </Reveal>
             ))}
@@ -204,11 +204,11 @@ export default async function HomePage() {
 
       {/* CTA */}
       <section style={{ padding: '120px 24px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(29,78,216,0.12)', top: '50%', left: '50%', ['--ox' as any]: '-50%', transform: 'translate(-50%, -50%)' }} />
+        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(200,164,78,0.08)', top: '50%', left: '50%', ['--ox' as any]: '-50%', transform: 'translate(-50%, -50%)' }} />
         <Reveal style={{ position: 'relative', maxWidth: '700px', margin: '0 auto' }}>
           <div className="web-label" style={{ marginBottom: '24px' }}>Get Started</div>
-          <h2 style={{ fontSize: 'clamp(34px,5vw,48px)', fontWeight: 800, color: '#F1F5F9', margin: '0 0 20px', letterSpacing: '-0.02em', lineHeight: 1.1 }}>Ready to transform<br />your hiring process?</h2>
-          <p style={{ color: '#64748B', fontSize: '17px', marginBottom: '40px', lineHeight: 1.7 }}>
+          <h2 style={{ fontSize: 'clamp(34px,5vw,48px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 20px', letterSpacing: '-0.02em', lineHeight: 1.1, fontFamily: 'var(--web-serif)' }}>Ready to transform<br />your hiring process?</h2>
+          <p style={{ color: 'var(--web-text-secondary)', fontSize: '17px', marginBottom: '40px', lineHeight: 1.7 }}>
             No self-signup. No payment page. Every client relationship starts with a conversation with our team.
           </p>
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
