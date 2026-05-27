@@ -67,7 +67,7 @@ export default async function BlogPostPage({ params }: Props) {
         {post.tags?.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
             {post.tags.map((t) => (
-              <span key={t} className="web-chip" style={{ background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.2)', color: 'var(--web-gold)' }}>{t}</span>
+              <span key={t} className="web-chip" style={{ background: 'var(--web-gold-dim)', border: '1px solid rgba(59,141,255,0.28)', color: 'var(--web-gold)' }}>{t}</span>
             ))}
           </div>
         )}

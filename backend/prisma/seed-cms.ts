@@ -50,19 +50,20 @@ async function main() {
     },
   });
 
-  // SEO-only rows for the other pages so editors can tune their meta.
+  // Content and SEO rows for every other public route.
   for (const [slug, m] of Object.entries({
-    about: { title: 'About', metaTitle: 'About AssessExpert — Proctor-First Assessment, Built in Dubai', metaDescription: 'AssessExpert is a global B2B SaaS pre-employment assessment platform by Orbit Training, Dubai. Proctor-first, AI-assisted, and built for verified hiring decisions.' },
-    services: { title: 'Services', metaTitle: 'Services — MCQ, Practical, AI Proctoring & Reports | AssessExpert', metaDescription: 'A complete managed assessment service: 500-question MCQ banks, role-specific practical tasks, real-time AI proctoring with facial recognition, and human-reviewed reports.' },
-    contact: { title: 'Contact', metaTitle: 'Contact Sales — Request a Demo | AssessExpert', metaDescription: 'Start the conversation. AssessExpert is a sales-led platform with no self-signup. Request a demo and our team will build a custom assessment plan for your hiring needs.' },
+    about: { title: 'About', metaTitle: 'About AssessExpert - Proctor-First Assessment, Built in Dubai', metaDescription: 'AssessExpert is a global B2B SaaS pre-employment assessment platform by Orbit Training, Dubai. Proctor-first, AI-assisted, and built for verified hiring decisions.', content: { heroBadge: 'Our Story', heroTitle: 'About', heroHighlight: 'assessexpert', heroSubtitle: 'A global B2B SaaS pre-employment assessment platform built by Orbit Training, Dubai. We enable companies to conduct structured, AI-proctored technical assessments.', ctaTitle: 'Want to work with us?', ctaSubtitle: 'All client relationships start with a conversation - no self-signup, no payment page.' } },
+    services: { title: 'Services', metaTitle: 'Services - MCQ, Practical, AI Proctoring & Reports | AssessExpert', metaDescription: 'A complete managed assessment service: 500-question MCQ banks, role-specific practical tasks, real-time AI proctoring with facial recognition, and human-reviewed reports.', content: { heroBadge: 'What We Offer', heroTitle: 'Our', heroHighlight: 'Services', heroSubtitle: 'A complete managed assessment service - from candidate scheduling to published report. Every session is proctored and every report is human-reviewed.', ctaTitle: 'Need a custom assessment type?', ctaSubtitle: 'Our Exam Setup team builds assessments to your exact job specification - question bank, practical task, and evaluation rubric.' } },
+    contact: { title: 'Contact', metaTitle: 'Contact Sales - Request a Demo | AssessExpert', metaDescription: 'Start the conversation. AssessExpert is a sales-led platform with no self-signup. Request a demo and our team will build a custom assessment plan for your hiring needs.', content: { heroBadge: 'Start the Conversation', heroTitle: "Let's", heroHighlight: 'Talk', heroSubtitle: 'assessexpert is a sales-led platform. Every client relationship starts with a conversation with our team.', introTitle: 'Get in Touch', introSubtitle: 'Our sales team is ready to walk you through the platform and build a custom assessment plan for your hiring needs.', processNote: 'Submit this form, our sales team contacts you within 1 business day, a live demo is scheduled, and your company is onboarded after agreement.' } },
+    blog: { title: 'Blog', metaTitle: 'Blog - Hiring, Assessment & Proctoring Insights | AssessExpert', metaDescription: 'Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline from the AssessExpert team.', content: { heroBadge: 'Insights', heroTitle: 'The', heroHighlight: 'Blog', heroSubtitle: 'Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline.' } },
   })) {
     await prisma.cmsPage.upsert({
       where: { slug },
       update: {},
-      create: { slug, title: m.title, status: 'PUBLISHED', metaTitle: m.metaTitle, metaDescription: m.metaDescription, content: {} },
+      create: { slug, title: m.title, status: 'PUBLISHED', metaTitle: m.metaTitle, metaDescription: m.metaDescription, content: m.content },
     });
   }
-  console.log('  ✓ CMS pages: home, about, services, contact');
+  console.log('  CMS pages: home, about, services, contact, blog');
 
   const posts = [
     {

@@ -45,15 +45,15 @@ export default function CmsLoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#040814', fontFamily: 'var(--font-ui)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} className="web-grid-bg">
-      <div className="web-glow-orb" style={{ width: 420, height: 420, background: 'rgba(29,78,216,0.14)', top: '10%', left: '50%', transform: 'translateX(-50%)' }} />
+    <div className="cms-login web-grid-bg">
+      <div className="web-glow-orb" style={{ width: 520, height: 520, background: 'rgba(33,115,255,0.2)', top: '4%', left: '50%', transform: 'translateX(-50%)' }} />
       <div style={{ position: 'relative', width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'linear-gradient(135deg, #3B82F6, #1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 28px rgba(59,130,246,0.4)' }}>
+          <div className="cms-login-mark">
             <ShieldCheck size={28} color="#fff" />
           </div>
-          <h1 style={{ color: '#F1F5F9', fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 6px' }}>CMS Sign In</h1>
-          <p style={{ color: '#64748B', fontSize: 14, margin: 0 }}>Content management — separate from the staff portal.</p>
+          <h1 style={{ color: 'var(--web-text)', fontFamily: 'var(--web-serif)', fontSize: 27, fontWeight: 700, letterSpacing: '-0.04em', margin: '0 0 8px' }}>Content Studio</h1>
+          <p style={{ color: 'var(--web-text-secondary)', fontSize: 14, margin: 0 }}>Manage the public AssessExpert experience.</p>
         </div>
 
         <form onSubmit={submit} className="cms-card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -63,7 +63,7 @@ export default function CmsLoginPage() {
           </div>
           <div>
             <label htmlFor="cms-pass" className="cms-label">Password</label>
-            <input id="cms-pass" className="cms-input" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+            <input id="cms-pass" className="cms-input" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" />
           </div>
           {error && <div role="alert" style={{ padding: '11px 14px', background: 'rgba(225,29,72,0.08)', border: '1px solid rgba(225,29,72,0.25)', borderRadius: 8, fontSize: 13, color: '#FB7185' }}>{error}</div>}
           <button className="cms-btn" type="submit" disabled={loading} style={{ justifyContent: 'center' }}>
@@ -72,7 +72,7 @@ export default function CmsLoginPage() {
         </form>
 
         <p style={{ textAlign: 'center', color: '#334155', fontSize: 13, marginTop: 20 }}>
-          Staff portal? <a href="/login" style={{ color: '#60A5FA', textDecoration: 'none' }}>Sign in here</a>
+          Staff portal? <a href="/login" style={{ color: 'var(--web-gold-light)', textDecoration: 'none' }}>Sign in here</a>
         </p>
       </div>
     </div>

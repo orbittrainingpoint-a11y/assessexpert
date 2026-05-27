@@ -4,6 +4,38 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Loader2, Check } from 'lucide-react'
 import { CmsShell } from '@/components/cms/CmsShell'
 import { cmsApi, type CmsPageRow } from '@/lib/cms-admin-api'
+import { HOME, PAGE_CONTENT } from '@/lib/marketing-content'
+
+type Field = { key: string; label: string; multiline?: boolean; hint?: string }
+
+const COMMON_FIELDS: Field[] = [
+  { key: 'heroBadge', label: 'Hero eyebrow' },
+  { key: 'heroTitle', label: 'Hero title' },
+  { key: 'heroHighlight', label: 'Highlighted title' },
+  { key: 'heroSubtitle', label: 'Hero description', multiline: true },
+]
+
+const CONTENT_FIELDS: Record<string, Field[]> = {
+  home: [...COMMON_FIELDS, { key: 'ctaTitle', label: 'Closing CTA title' }, { key: 'ctaSubtitle', label: 'Closing CTA description', multiline: true }],
+  about: [...COMMON_FIELDS, { key: 'ctaTitle', label: 'Closing CTA title' }, { key: 'ctaSubtitle', label: 'Closing CTA description', multiline: true }],
+  services: [...COMMON_FIELDS, { key: 'ctaTitle', label: 'Closing CTA title' }, { key: 'ctaSubtitle', label: 'Closing CTA description', multiline: true }],
+  contact: [...COMMON_FIELDS, { key: 'introTitle', label: 'Contact panel title' }, { key: 'introSubtitle', label: 'Contact panel description', multiline: true }, { key: 'processNote', label: 'Process note', multiline: true }],
+  blog: COMMON_FIELDS,
+}
+
+function fallbackContent(slug: string): Record<string, string> {
+  if (slug === 'home') {
+    return {
+      heroBadge: HOME.heroBadge,
+      heroTitle: HOME.heroTitle,
+      heroHighlight: HOME.heroHighlight,
+      heroSubtitle: HOME.heroSubtitle,
+      ctaTitle: HOME.ctaTitle,
+      ctaSubtitle: HOME.ctaSubtitle,
+    }
+  }
+  return (PAGE_CONTENT[slug as keyof typeof PAGE_CONTENT] ?? {}) as unknown as Record<string, string>
+}
 
 export default function CmsPageEditor({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
@@ -23,6 +55,10 @@ export default function CmsPageEditor({ params }: { params: Promise<{ slug: stri
 
   const set = (patch: Partial<CmsPageRow>) => setPage((p) => (p ? { ...p, ...patch } : p))
   const setContent = (k: string, v: string) => setPage((p) => (p ? { ...p, content: { ...p.content, [k]: v } } : p))
+  const contentValue = (key: string) => {
+    const value = page?.content?.[key]
+    return typeof value === 'string' ? value : fallbackContent(slug)[key] || ''
+  }
 
   const save = async () => {
     if (!page) return
@@ -55,35 +91,42 @@ export default function CmsPageEditor({ params }: { params: Promise<{ slug: stri
       <button onClick={() => router.push('/cms/pages')} className="cms-btn-ghost" style={{ marginBottom: 24 }}><ArrowLeft size={16} /> All pages</button>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 720 }}>
-        {slug === 'home' && (
+        {CONTENT_FIELDS[slug] && (
           <div className="cms-card">
-            <h2 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 700, color: '#F1F5F9' }}>Hero Content</h2>
+            <h2 className="cms-card-title">Public Page Copy</h2>
+            <p className="cms-card-copy">This content appears on the redesigned public <strong>/{slug === 'home' ? '' : slug}</strong> page after publishing.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div><label className="cms-label">Hero badge</label><input className="cms-input" value={page.content?.heroBadge || ''} onChange={(e) => setContent('heroBadge', e.target.value)} /></div>
-              <div><label className="cms-label">Hero title (line 1)</label><input className="cms-input" value={page.content?.heroTitle || ''} onChange={(e) => setContent('heroTitle', e.target.value)} /></div>
-              <div><label className="cms-label">Hero highlight (gradient line)</label><input className="cms-input" value={page.content?.heroHighlight || ''} onChange={(e) => setContent('heroHighlight', e.target.value)} /></div>
-              <div><label className="cms-label">Hero subtitle</label><textarea className="cms-textarea" rows={3} value={page.content?.heroSubtitle || ''} onChange={(e) => setContent('heroSubtitle', e.target.value)} /></div>
+              {CONTENT_FIELDS[slug].map((field) => (
+                <div key={field.key}>
+                  <label htmlFor={`page-content-${field.key}`} className="cms-label">{field.label}</label>
+                  {field.multiline ? (
+                    <textarea id={`page-content-${field.key}`} className="cms-textarea" rows={3} value={contentValue(field.key)} onChange={(e) => setContent(field.key, e.target.value)} />
+                  ) : (
+                    <input id={`page-content-${field.key}`} className="cms-input" value={contentValue(field.key)} onChange={(e) => setContent(field.key, e.target.value)} />
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         <div className="cms-card">
-          <h2 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 700, color: '#F1F5F9' }}>SEO &amp; Status</h2>
+          <h2 className="cms-card-title">SEO &amp; Publishing</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div><label className="cms-label">Page title</label><input className="cms-input" value={page.title} onChange={(e) => set({ title: e.target.value })} /></div>
+            <div><label htmlFor="page-title" className="cms-label">Page title</label><input id="page-title" className="cms-input" value={page.title} onChange={(e) => set({ title: e.target.value })} /></div>
             <div>
-              <label className="cms-label">Status</label>
-              <select className="cms-select" value={page.status} onChange={(e) => set({ status: e.target.value as CmsPageRow['status'] })}>
+              <label htmlFor="page-status" className="cms-label">Status</label>
+              <select id="page-status" className="cms-select" value={page.status} onChange={(e) => set({ status: e.target.value as CmsPageRow['status'] })}>
                 <option value="PUBLISHED">Published</option>
                 <option value="DRAFT">Draft</option>
               </select>
             </div>
-            <div><label className="cms-label">Meta title</label><input className="cms-input" value={page.metaTitle || ''} onChange={(e) => set({ metaTitle: e.target.value })} maxLength={70} />
+            <div><label htmlFor="page-meta-title" className="cms-label">Meta title</label><input id="page-meta-title" className="cms-input" value={page.metaTitle || ''} onChange={(e) => set({ metaTitle: e.target.value })} maxLength={70} />
               <p style={{ margin: '6px 0 0', fontSize: 11, color: '#475569' }}>{(page.metaTitle || '').length}/70 — ideal under 60</p></div>
-            <div><label className="cms-label">Meta description</label><textarea className="cms-textarea" rows={3} value={page.metaDescription || ''} onChange={(e) => set({ metaDescription: e.target.value })} maxLength={170} />
+            <div><label htmlFor="page-meta-description" className="cms-label">Meta description</label><textarea id="page-meta-description" className="cms-textarea" rows={3} value={page.metaDescription || ''} onChange={(e) => set({ metaDescription: e.target.value })} maxLength={170} />
               <p style={{ margin: '6px 0 0', fontSize: 11, color: '#475569' }}>{(page.metaDescription || '').length}/170 — ideal 150-160</p></div>
-            <div><label className="cms-label">Keywords (comma separated)</label><input className="cms-input" value={(page.keywords || []).join(', ')} onChange={(e) => set({ keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} /></div>
-            <div><label className="cms-label">OG image URL</label><input className="cms-input" value={page.ogImage || ''} onChange={(e) => set({ ogImage: e.target.value })} placeholder="/uploads/cms-media/..." /></div>
+            <div><label htmlFor="page-keywords" className="cms-label">Keywords (comma separated)</label><input id="page-keywords" className="cms-input" value={(page.keywords || []).join(', ')} onChange={(e) => set({ keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} /></div>
+            <div><label htmlFor="page-og-image" className="cms-label">OG image URL</label><input id="page-og-image" className="cms-input" value={page.ogImage || ''} onChange={(e) => set({ ogImage: e.target.value })} placeholder="/uploads/cms-media/..." /></div>
           </div>
         </div>
 

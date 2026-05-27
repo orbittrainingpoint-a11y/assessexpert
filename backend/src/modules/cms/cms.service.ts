@@ -3,8 +3,64 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 // Slugs that map to real marketing routes. The CMS only manages these
 // pages — an editor can't invent a slug that has no rendering route.
-const PAGE_SLUGS = ['home', 'about', 'services', 'contact'] as const;
+const PAGE_SLUGS = ['home', 'about', 'services', 'contact', 'blog'] as const;
 type PageSlug = (typeof PAGE_SLUGS)[number];
+const PAGE_DEFAULTS: Record<PageSlug, { title: string; content: Record<string, string> }> = {
+  home: {
+    title: 'Home',
+    content: {
+      heroBadge: 'B2B Pre-Employment Assessment Platform',
+      heroTitle: 'Hire with Confidence.',
+      heroHighlight: 'Assess with Precision.',
+      heroSubtitle: 'assessexpert delivers AI-proctored, proctor-controlled technical assessments that produce verified, human-reviewed reports.',
+      ctaTitle: 'Ready to transform your hiring process?',
+      ctaSubtitle: 'No self-signup. No payment page. Every client relationship starts with a conversation with our team.',
+    },
+  },
+  about: {
+    title: 'About',
+    content: {
+      heroBadge: 'Our Story',
+      heroTitle: 'About',
+      heroHighlight: 'assessexpert',
+      heroSubtitle: 'A global B2B SaaS pre-employment assessment platform built by Orbit Training, Dubai.',
+      ctaTitle: 'Want to work with us?',
+      ctaSubtitle: 'All client relationships start with a conversation - no self-signup, no payment page.',
+    },
+  },
+  services: {
+    title: 'Services',
+    content: {
+      heroBadge: 'What We Offer',
+      heroTitle: 'Our',
+      heroHighlight: 'Services',
+      heroSubtitle: 'A complete managed assessment service - from candidate scheduling to published report.',
+      ctaTitle: 'Need a custom assessment type?',
+      ctaSubtitle: 'Our Exam Setup team builds assessments to your exact job specification.',
+    },
+  },
+  contact: {
+    title: 'Contact',
+    content: {
+      heroBadge: 'Start the Conversation',
+      heroTitle: "Let's",
+      heroHighlight: 'Talk',
+      heroSubtitle: 'Every client relationship starts with a conversation with our team.',
+      introTitle: 'Get in Touch',
+      introSubtitle: 'Our sales team is ready to build a custom assessment plan for your hiring needs.',
+      processNote: 'Submit this form, schedule a demo, and onboard your company after agreement.',
+    },
+  },
+  blog: {
+    title: 'Blog',
+    content: {
+      heroBadge: 'Insights',
+      heroTitle: 'The',
+      heroHighlight: 'Blog',
+      heroSubtitle: 'Insights on assessment, proctoring, integrity, and verified hiring pipelines.',
+    },
+  },
+};
 
 @Injectable()
 export class CmsService {
@@ -21,12 +77,27 @@ export class CmsService {
     return page;
   }
 
-  /** Admin read — every page regardless of status. */
-  listPages() {
+  private async ensureManagedPages() {
+    await Promise.all(PAGE_SLUGS.map((slug) => this.prisma.cmsPage.upsert({
+      where: { slug },
+      update: {},
+      create: {
+        slug,
+        title: PAGE_DEFAULTS[slug].title,
+        status: 'PUBLISHED',
+        content: PAGE_DEFAULTS[slug].content,
+      },
+    })));
+  }
+
+  /** Admin read — every managed page regardless of status. */
+  async listPages() {
+    await this.ensureManagedPages();
     return this.prisma.cmsPage.findMany({ orderBy: { slug: 'asc' } });
   }
 
   async getPage(slug: string) {
+    if (PAGE_SLUGS.includes(slug as PageSlug)) await this.ensureManagedPages();
     const page = await this.prisma.cmsPage.findUnique({ where: { slug } });
     if (!page) throw new NotFoundException(`Page "${slug}" not found`);
     return page;

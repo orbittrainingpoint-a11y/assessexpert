@@ -6,7 +6,7 @@ export interface CmsPageRow {
   slug: string
   title: string
   status: 'DRAFT' | 'PUBLISHED'
-  content: Record<string, any>
+  content: Record<string, unknown>
   metaTitle?: string | null
   metaDescription?: string | null
   ogImage?: string | null
@@ -66,3 +66,8 @@ export const cmsApi = {
 }
 
 export const CMS_ROLES = ['CMS_ADMIN', 'CMS_EDITOR', 'SUPER_ADMIN']
+
+export function cmsErrorMessage(error: unknown, fallback: string) {
+  const message = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message
+  return typeof message === 'string' ? message : fallback
+}

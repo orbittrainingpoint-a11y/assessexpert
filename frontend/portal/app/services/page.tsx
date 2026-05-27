@@ -1,11 +1,12 @@
 import type { Metadata } from 'next'
+import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Check, X } from 'lucide-react'
 import { SiteNav } from '@/components/marketing/SiteNav'
 import { SiteFooter } from '@/components/marketing/SiteFooter'
 import { Reveal } from '@/components/marketing/Reveal'
 import { Icon } from '@/components/marketing/icons'
-import { getPageMeta } from '@/lib/cms'
+import { getMarketingPageContent, getPageMeta } from '@/lib/cms'
 import { SITE, type IconKey } from '@/lib/marketing-content'
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,12 +19,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const SERVICES: { icon: IconKey; title: string; duration: string; desc: string; tags: string[]; accent: string }[] = [
-  { icon: 'flask', title: 'MCQ Theory Assessment', duration: '30 minutes · 25 questions', desc: 'Candidates answer 25 randomly selected questions from a 500-question bank. Fisher-Yates shuffle ensures no two candidates receive the same paper. One question at a time, server-side delivery — no bulk download possible.', tags: ['500-question bank', 'Fisher-Yates shuffle', 'Server-side delivery', 'Anti-cheat'], accent: '#C8A44E' },
+  { icon: 'flask', title: 'MCQ Theory Assessment', duration: '30 minutes · 25 questions', desc: 'Candidates answer 25 randomly selected questions from a 500-question bank. Fisher-Yates shuffle ensures no two candidates receive the same paper. One question at a time, server-side delivery — no bulk download possible.', tags: ['500-question bank', 'Fisher-Yates shuffle', 'Server-side delivery', 'Anti-cheat'], accent: '#3B8DFF' },
   { icon: 'wrench', title: 'Practical Assessment', duration: '60 minutes · Role-specific task', desc: 'Candidates complete a hands-on task matched to the job role — CAD drawings, coding challenges, lab simulations, or file-based submissions. Evaluated against a structured rubric by a certified proctor.', tags: ['CAD / BIM', 'Coding', 'Lab simulation', 'File submission'], accent: '#059669' },
-  { icon: 'eye', title: 'AI Proctoring & Facial Recognition', duration: 'Full session · Real-time', desc: 'Continuous face detection, gaze tracking, audio anomaly detection, tab-switch monitoring, and screen recording. AI flags events; a human proctor reviews every flag before it affects the report.', tags: ['Face detection', 'Gaze tracking', 'Screen recording', 'Human review'], accent: '#6366F1' },
-  { icon: 'file-text', title: 'AI-Generated Assessment Reports', duration: 'Post-session · Proctor-reviewed', desc: 'After every session, AI drafts a full report including MCQ score breakdown, question-by-question answer review, practical quality rating, integrity score, and a hiring recommendation. A proctor reviews and publishes — reports never auto-publish.', tags: ['Full answer breakdown', 'Integrity score', 'AI narrative', 'Proctor sign-off'], accent: '#D97706' },
-  { icon: 'building', title: 'Multi-Tenant HR Portal', duration: 'Always-on · Per company', desc: 'Each client company gets a fully isolated HR portal. Upload candidates, schedule assessments, track live sessions, and access published reports — all within your own tenant. No cross-company data leakage, ever.', tags: ['Tenant isolation', 'Candidate upload', 'Live tracking', 'Report access'], accent: '#C8A44E' },
-  { icon: 'globe', title: 'Global Delivery · Any Industry', duration: 'Any country · Any job role', desc: 'assessexpert is not limited to one industry. Engineering, IT, Finance, HR, Operations — any job role can be assessed. Available globally with IP-based localization and Arabic/English support.', tags: ['Any industry', 'Arabic + English', 'Global IP access', 'Custom types'], accent: '#E11D48' },
+  { icon: 'eye', title: 'AI Proctoring & Facial Recognition', duration: 'Full session · Real-time', desc: 'Continuous face detection, gaze tracking, audio anomaly detection, tab-switch monitoring, and screen recording. AI flags events; a human proctor reviews every flag before it affects the report.', tags: ['Face detection', 'Gaze tracking', 'Screen recording', 'Human review'], accent: '#38BDF8' },
+  { icon: 'file-text', title: 'AI-Generated Assessment Reports', duration: 'Post-session · Proctor-reviewed', desc: 'After every session, AI drafts a full report including MCQ score breakdown, question-by-question answer review, practical quality rating, integrity score, and a hiring recommendation. A proctor reviews and publishes — reports never auto-publish.', tags: ['Full answer breakdown', 'Integrity score', 'AI narrative', 'Proctor sign-off'], accent: '#60A5FA' },
+  { icon: 'building', title: 'Multi-Tenant HR Portal', duration: 'Always-on · Per company', desc: 'Each client company gets a fully isolated HR portal. Upload candidates, schedule assessments, track live sessions, and access published reports — all within your own tenant. No cross-company data leakage, ever.', tags: ['Tenant isolation', 'Candidate upload', 'Live tracking', 'Report access'], accent: '#2563EB' },
+  { icon: 'globe', title: 'Global Delivery · Any Industry', duration: 'Any country · Any job role', desc: 'assessexpert is not limited to one industry. Engineering, IT, Finance, HR, Operations — any job role can be assessed. Available globally with IP-based localization and Arabic/English support.', tags: ['Any industry', 'Arabic + English', 'Global IP access', 'Custom types'], accent: '#22D3EE' },
 ]
 
 const ASSESSMENT_TYPES = [
@@ -55,20 +56,24 @@ function Mark({ on }: { on: boolean }) {
     : <X size={18} color="#E11D48" aria-label="No" />
 }
 
-export default function ServicesPage() {
+const CENTERED_ORB_STYLE = { '--ox': '-50%' } as CSSProperties
+
+export default async function ServicesPage() {
+  const content = await getMarketingPageContent('services')
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
       <SiteNav />
 
       <header style={{ position: 'relative', padding: '120px 24px 100px', textAlign: 'center', overflow: 'hidden' }} className="web-grid-bg">
-        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(200,164,78,0.08)', top: '-150px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
+        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(33,115,255,0.18)', top: '-150px', left: '50%', transform: 'translateX(-50%)', ...CENTERED_ORB_STYLE }} />
         <Reveal style={{ position: 'relative', maxWidth: '800px', margin: '0 auto' }}>
-          <div className="web-label" style={{ marginBottom: '20px' }}>What We Offer</div>
+          <div className="web-label" style={{ marginBottom: '20px' }}>{content.heroBadge}</div>
           <h1 style={{ fontSize: 'clamp(38px,6vw,60px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 24px', letterSpacing: '-0.03em', lineHeight: 1.05, fontFamily: 'var(--web-serif)' }}>
-            Our <span className="web-gradient-text">Services</span>
+            {content.heroTitle} <span className="web-gradient-text">{content.heroHighlight}</span>
           </h1>
           <p style={{ fontSize: '18px', color: 'var(--web-text-secondary)', lineHeight: 1.75, margin: '0 auto', maxWidth: '600px' }}>
-            A complete managed assessment service — from candidate scheduling to published report. Every step is structured, every session is proctored, every report is human-reviewed.
+            {content.heroSubtitle}
           </p>
         </Reveal>
       </header>
@@ -133,7 +138,7 @@ export default function ServicesPage() {
         </Reveal>
         <Reveal>
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--web-border)', borderRadius: '16px', overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px', background: 'rgba(200,164,78,0.06)', padding: '16px 24px', borderBottom: '1px solid var(--web-border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px', background: 'rgba(33,115,255,0.11)', padding: '16px 24px', borderBottom: '1px solid var(--web-border)' }}>
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--web-text-secondary)' }}>Feature</span>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--web-gold-light)', textAlign: 'center' }}>assessexpert</span>
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--web-text-muted)', textAlign: 'center' }}>Others</span>
@@ -150,10 +155,10 @@ export default function ServicesPage() {
       </section>
 
       {/* CTA */}
-      <section style={{ padding: '100px 24px', textAlign: 'center', background: 'rgba(255,255,255,0.015)', borderTop: '1px solid rgba(200,164,78,0.08)' }}>
+      <section style={{ padding: '100px 24px', textAlign: 'center', background: 'rgba(33,115,255,0.035)', borderTop: '1px solid rgba(59,141,255,0.16)' }}>
         <Reveal style={{ maxWidth: '600px', margin: '0 auto' }}>
-          <h2 style={{ fontSize: 'clamp(28px,4vw,40px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Need a custom assessment type?</h2>
-          <p style={{ color: 'var(--web-text-secondary)', fontSize: '16px', marginBottom: '36px', lineHeight: 1.7 }}>Our Exam Setup team builds assessments to your exact job specification — question bank, practical task, and evaluation rubric.</p>
+          <h2 style={{ fontSize: 'clamp(28px,4vw,40px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>{content.ctaTitle}</h2>
+          <p style={{ color: 'var(--web-text-secondary)', fontSize: '16px', marginBottom: '36px', lineHeight: 1.7 }}>{content.ctaSubtitle}</p>
           <Link href="/contact" className="web-btn-primary" style={{ padding: '14px 40px', fontSize: '16px', gap: 8 }}>Talk to Our Team <ArrowRight size={18} /></Link>
         </Reveal>
       </section>

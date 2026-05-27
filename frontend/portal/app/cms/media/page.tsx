@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { UploadCloud, Loader2, Trash2, Copy, Check } from 'lucide-react'
 import { CmsShell } from '@/components/cms/CmsShell'
-import { cmsApi, type CmsMediaRow } from '@/lib/cms-admin-api'
+import { cmsApi, cmsErrorMessage, type CmsMediaRow } from '@/lib/cms-admin-api'
 
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api').replace(/\/api\/?$/, '')
 
@@ -18,7 +18,7 @@ export default function CmsMediaLibrary() {
   const [copied, setCopied] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { cmsApi.listMedia().then(setMedia).finally(() => setLoading(false)) }, [])
+  useEffect(() => { cmsApi.listMedia().then(setMedia).catch(() => setError('Could not load media files.')).finally(() => setLoading(false)) }, [])
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -27,8 +27,8 @@ export default function CmsMediaLibrary() {
     try {
       const row = await cmsApi.uploadMedia(file)
       setMedia((m) => [row, ...m])
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'Upload failed (images only: JPG, PNG, GIF, WEBP).')
+    } catch (err: unknown) {
+      setError(cmsErrorMessage(err, 'Upload failed (images only: JPG, PNG, GIF, WEBP).'))
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -37,8 +37,13 @@ export default function CmsMediaLibrary() {
 
   const remove = async (id: string) => {
     if (!confirm('Delete this image? Pages referencing it will lose it.')) return
-    await cmsApi.deleteMedia(id)
-    setMedia((m) => m.filter((x) => x.id !== id))
+    setError('')
+    try {
+      await cmsApi.deleteMedia(id)
+      setMedia((m) => m.filter((x) => x.id !== id))
+    } catch (err: unknown) {
+      setError(cmsErrorMessage(err, 'Could not delete this image.'))
+    }
   }
 
   const copy = (url: string) => {
@@ -49,14 +54,14 @@ export default function CmsMediaLibrary() {
   return (
     <CmsShell title="Media Library">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-16px 0 28px', gap: 16, flexWrap: 'wrap' }}>
-        <p style={{ color: '#94A3B8', margin: 0, fontSize: 15 }}>Upload images for page heroes and post covers. Copy a URL to paste into an editor field.</p>
+        <p className="cms-copy" style={{ margin: 0 }}>Upload images for page heroes and post covers. Copy a URL to paste into an editor field.</p>
         <button className="cms-btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
           {uploading ? <><Loader2 size={18} className="cms-spin" /> Uploading…</> : <><UploadCloud size={18} /> Upload image</>}
         </button>
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={onFile} style={{ display: 'none' }} />
       </div>
 
-      {error && <p style={{ color: '#FB7185', fontSize: 14, marginBottom: 16 }}>{error}</p>}
+      {error && <div className="cms-alert">{error}</div>}
 
       {loading ? <Loader2 size={24} className="cms-spin" color="#60A5FA" /> : media.length === 0 ? (
         <div className="cms-card" style={{ textAlign: 'center', padding: 48, color: '#64748B' }}>No images yet. Upload your first one above.</div>

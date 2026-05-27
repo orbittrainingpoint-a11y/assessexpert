@@ -1,10 +1,11 @@
 import type { Metadata } from 'next'
+import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { ArrowRight, FileText } from 'lucide-react'
 import { SiteNav } from '@/components/marketing/SiteNav'
 import { SiteFooter } from '@/components/marketing/SiteFooter'
 import { Reveal } from '@/components/marketing/Reveal'
-import { getPosts, getPageMeta } from '@/lib/cms'
+import { getMarketingPageContent, getPosts, getPageMeta } from '@/lib/cms'
 import { SITE, PAGE_META } from '@/lib/marketing-content'
 
 export const revalidate = 60
@@ -23,22 +24,24 @@ function fmtDate(d?: string | null) {
   return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+const CENTERED_ORB_STYLE = { '--ox': '-50%' } as CSSProperties
+
 export default async function BlogPage() {
-  const posts = await getPosts()
+  const [posts, content] = await Promise.all([getPosts(), getMarketingPageContent('blog')])
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
       <SiteNav />
 
       <header style={{ position: 'relative', padding: '120px 24px 80px', textAlign: 'center', overflow: 'hidden' }} className="web-grid-bg">
-        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(200,164,78,0.08)', top: '-150px', left: '50%', ['--ox' as any]: '-50%', transform: 'translateX(-50%)' }} />
+        <div className="web-glow-orb animate" style={{ width: '500px', height: '500px', background: 'rgba(33,115,255,0.18)', top: '-150px', left: '50%', transform: 'translateX(-50%)', ...CENTERED_ORB_STYLE }} />
         <Reveal style={{ position: 'relative', maxWidth: '760px', margin: '0 auto' }}>
-          <div className="web-label" style={{ marginBottom: '20px' }}>Insights</div>
+          <div className="web-label" style={{ marginBottom: '20px' }}>{content.heroBadge}</div>
           <h1 style={{ fontSize: 'clamp(38px,6vw,60px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 20px', letterSpacing: '-0.03em', lineHeight: 1.05, fontFamily: 'var(--web-serif)' }}>
-            The <span className="web-gradient-text">Blog</span>
+            {content.heroTitle} <span className="web-gradient-text">{content.heroHighlight}</span>
           </h1>
           <p style={{ fontSize: '17px', color: 'var(--web-text-secondary)', lineHeight: 1.75, margin: 0 }}>
-            Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline.
+            {content.heroSubtitle}
           </p>
         </Reveal>
       </header>
@@ -47,8 +50,8 @@ export default async function BlogPage() {
         {posts.length === 0 ? (
           <Reveal>
             <div style={{ textAlign: 'center', padding: '80px 24px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--web-border)', borderRadius: '20px' }}>
-              <div style={{ width: 64, height: 64, margin: '0 auto 20px', borderRadius: '16px', background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <FileText size={28} color="#C8A44E" />
+              <div style={{ width: 64, height: 64, margin: '0 auto 20px', borderRadius: '18px', background: 'var(--web-gold-dim)', border: '1px solid rgba(59,141,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FileText size={28} color="#38BDF8" />
               </div>
               <h2 style={{ margin: '0 0 10px', fontSize: '20px', fontWeight: 700, color: 'var(--web-text)' }}>No articles yet</h2>
               <p style={{ margin: 0, fontSize: '15px', color: 'var(--web-text-secondary)' }}>New insights are on the way — check back soon.</p>
@@ -60,12 +63,12 @@ export default async function BlogPage() {
               <Reveal key={p.id} delay={(i % 3) * 60}>
                 <Link href={`/blog/${p.slug}`} style={{ textDecoration: 'none', display: 'block', height: '100%' }}>
                   <article className="web-card" style={{ padding: 0, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ aspectRatio: '16 / 9', background: p.coverImage ? `center/cover no-repeat url(${p.coverImage})` : 'linear-gradient(135deg, rgba(200,164,78,0.15), rgba(99,102,241,0.12))', borderBottom: '1px solid var(--web-border)' }} />
+                    <div style={{ aspectRatio: '16 / 9', background: p.coverImage ? `center/cover no-repeat url(${p.coverImage})` : 'linear-gradient(135deg, rgba(33,115,255,0.25), rgba(56,189,248,0.12))', borderBottom: '1px solid var(--web-border)' }} />
                     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
                       {p.tags?.length > 0 && (
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                           {p.tags.slice(0, 3).map((t) => (
-                            <span key={t} className="web-chip" style={{ background: 'var(--web-gold-dim)', border: '1px solid rgba(200,164,78,0.2)', color: 'var(--web-gold)' }}>{t}</span>
+                            <span key={t} className="web-chip" style={{ background: 'var(--web-gold-dim)', border: '1px solid rgba(59,141,255,0.28)', color: 'var(--web-gold)' }}>{t}</span>
                           ))}
                         </div>
                       )}

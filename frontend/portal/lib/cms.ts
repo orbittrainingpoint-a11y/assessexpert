@@ -4,7 +4,7 @@
 // unreachable backend never blanks the page. Used only in Server
 // Components (SSR/ISR) for SEO.
 
-import { HOME, PAGE_META, type HomeContent, type PageMeta } from './marketing-content'
+import { HOME, PAGE_CONTENT, PAGE_META, type HomeContent, type MarketingPageContent, type PageMeta } from './marketing-content'
 
 // Server-to-server base URL. In production behind the Apache reverse
 // proxy this can stay localhost; client code uses NEXT_PUBLIC_API_URL.
@@ -27,7 +27,7 @@ async function cmsFetch<T>(path: string): Promise<T | null> {
 interface CmsPageRow {
   slug: string
   title?: string
-  content?: Partial<HomeContent> & Record<string, unknown>
+  content?: Partial<HomeContent & MarketingPageContent> & Record<string, unknown>
   metaTitle?: string | null
   metaDescription?: string | null
   ogImage?: string | null
@@ -80,7 +80,20 @@ export async function getHomeContent(): Promise<HomeContent> {
     process: c.process?.length ? c.process : HOME.process,
     industries: c.industries?.length ? c.industries : HOME.industries,
     trust: c.trust?.length ? c.trust : HOME.trust,
+    ctaTitle: (c.ctaTitle as string) || HOME.ctaTitle,
+    ctaSubtitle: (c.ctaSubtitle as string) || HOME.ctaSubtitle,
   }
+}
+
+/** Copy for non-home marketing routes: published CMS values over bundled defaults. */
+export async function getMarketingPageContent(slug: keyof typeof PAGE_CONTENT): Promise<MarketingPageContent> {
+  const fallback = PAGE_CONTENT[slug]
+  const row = await cmsFetch<CmsPageRow>(`/cms/public/pages/${slug}`)
+  if (!row?.content) return fallback
+  const content = row.content
+  return Object.fromEntries(
+    Object.entries(fallback).map(([key, value]) => [key, typeof content[key] === 'string' && content[key] ? content[key] : value]),
+  ) as unknown as MarketingPageContent
 }
 
 export async function getPosts(): Promise<BlogPost[]> {

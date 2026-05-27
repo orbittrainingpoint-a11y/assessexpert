@@ -29,6 +29,20 @@ export interface HomeContent {
   process: ProcessStep[]
   industries: Industry[]
   trust: Feature[]
+  ctaTitle: string
+  ctaSubtitle: string
+}
+
+export interface MarketingPageContent {
+  heroBadge: string
+  heroTitle: string
+  heroHighlight: string
+  heroSubtitle: string
+  ctaTitle?: string
+  ctaSubtitle?: string
+  introTitle?: string
+  introSubtitle?: string
+  processNote?: string
 }
 
 export interface PageMeta {
@@ -72,11 +86,11 @@ export const HOME: HomeContent = {
   ],
   features: [
     { icon: 'shield', title: 'Proctor-Controlled Sessions', desc: 'Every session begins only after a certified proctor completes a formal pre-exam checklist. No shortcuts, no exceptions.', accent: '#3B82F6' },
-    { icon: 'cpu', title: 'AI Proctoring & Facial Recognition', desc: 'Real-time face detection, gaze tracking, tab-switch alerts, and full session screen recording — all reviewed by a human proctor.', accent: '#6D28D9' },
+    { icon: 'cpu', title: 'AI Proctoring & Facial Recognition', desc: 'Real-time face detection, gaze tracking, tab-switch alerts, and full session screen recording — all reviewed by a human proctor.', accent: '#38BDF8' },
     { icon: 'clipboard', title: 'Two-Phase Exam Engine', desc: '30-minute MCQ screening always precedes a 60-minute practical task. The sequence is enforced by the platform — no skipping.', accent: '#059669' },
-    { icon: 'shuffle', title: '500-Question Shuffle', desc: 'Each assessment type holds 500 questions. Every candidate receives 25 randomly shuffled — no two papers are ever alike.', accent: '#D97706' },
+    { icon: 'shuffle', title: '500-Question Shuffle', desc: 'Each assessment type holds 500 questions. Every candidate receives 25 randomly shuffled — no two papers are ever alike.', accent: '#60A5FA' },
     { icon: 'bar-chart', title: 'Full Answer Breakdown Reports', desc: 'Reports show every question asked, the answer given, and whether it was correct — not just a final score.', accent: '#3B82F6' },
-    { icon: 'building', title: 'Multi-Tenant & Isolated', desc: 'Each company sees only their own candidates, sessions, and reports. Strict tenant isolation is enforced at every layer.', accent: '#E11D48' },
+    { icon: 'building', title: 'Multi-Tenant & Isolated', desc: 'Each company sees only their own candidates, sessions, and reports. Strict tenant isolation is enforced at every layer.', accent: '#22D3EE' },
   ],
   process: [
     { step: '01', title: 'HR Schedules', desc: 'HR uploads candidate list and selects assessment type. Magic link sent automatically.' },
@@ -98,10 +112,46 @@ export const HOME: HomeContent = {
   ],
   trust: [
     { icon: 'shield', title: 'Zero Auto-Publish', desc: 'Every report is reviewed and manually published by a certified proctor.', accent: '#3B82F6' },
-    { icon: 'lock', title: 'Tenant Isolation', desc: 'Your data is never visible to other companies. Enforced at database level.', accent: '#6D28D9' },
+    { icon: 'lock', title: 'Tenant Isolation', desc: 'Your data is never visible to other companies. Enforced at database level.', accent: '#38BDF8' },
     { icon: 'eye', title: 'Full Session Recording', desc: 'Screen + webcam recorded for every session. Available to HR for 7 days.', accent: '#059669' },
-    { icon: 'check', title: 'Verified Results', desc: 'QR-verified reports. Every published report links to a verification page.', accent: '#D97706' },
+    { icon: 'check', title: 'Verified Results', desc: 'QR-verified reports. Every published report links to a verification page.', accent: '#60A5FA' },
   ],
+  ctaTitle: 'Ready to transform your hiring process?',
+  ctaSubtitle: 'No self-signup. No payment page. Every client relationship starts with a conversation with our team.',
+}
+
+export const PAGE_CONTENT: Record<'about' | 'services' | 'contact' | 'blog', MarketingPageContent> = {
+  about: {
+    heroBadge: 'Our Story',
+    heroTitle: 'About',
+    heroHighlight: 'assessexpert',
+    heroSubtitle: `A global B2B SaaS pre-employment assessment platform built by ${SITE.org}, Dubai. We enable companies in any industry to conduct structured, AI-proctored technical assessments - producing verified, human-reviewed reports.`,
+    ctaTitle: 'Want to work with us?',
+    ctaSubtitle: 'All client relationships start with a conversation - no self-signup, no payment page.',
+  },
+  services: {
+    heroBadge: 'What We Offer',
+    heroTitle: 'Our',
+    heroHighlight: 'Services',
+    heroSubtitle: 'A complete managed assessment service - from candidate scheduling to published report. Every step is structured, every session is proctored, every report is human-reviewed.',
+    ctaTitle: 'Need a custom assessment type?',
+    ctaSubtitle: 'Our Exam Setup team builds assessments to your exact job specification - question bank, practical task, and evaluation rubric.',
+  },
+  contact: {
+    heroBadge: 'Start the Conversation',
+    heroTitle: "Let's",
+    heroHighlight: 'Talk',
+    heroSubtitle: "assessexpert is a sales-led platform. There is no self-signup or checkout. Every client relationship starts with a conversation with our team.",
+    introTitle: 'Get in Touch',
+    introSubtitle: 'Our sales team is ready to walk you through the platform, answer your questions, and build a custom assessment plan for your hiring needs.',
+    processNote: 'Submit this form, our sales team contacts you within 1 business day, a live demo is scheduled, and your company is onboarded after agreement.',
+  },
+  blog: {
+    heroBadge: 'Insights',
+    heroTitle: 'The',
+    heroHighlight: 'Blog',
+    heroSubtitle: 'Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline.',
+  },
 }
 
 export const PAGE_META: Record<string, PageMeta> = {

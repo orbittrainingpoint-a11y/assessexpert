@@ -1,14 +1,32 @@
 import type { Metadata } from 'next'
-import { Inter, Outfit, Playfair_Display } from 'next/font/google'
+import { Inter, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 
+// Inter stays for the authenticated portal so internal tooling keeps its
+// existing rhythm. The PUBLIC site (and any future engineering-flavoured
+// surface) runs on IBM Plex — a single technical sans family used at body
+// weights for paragraphs and semibold/bold at headlines, plus its mono
+// sibling for stat values, eyebrow chips and code. One family across both
+// display and body is what makes the public pages read "engineering
+// blueprint" instead of "design agency".
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const outfit = Outfit({ subsets: ['latin'], variable: '--font-body' })
-const playfair = Playfair_Display({
+const plexSans = IBM_Plex_Sans({
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  // Keep the legacy variable names so existing globals.css cascades pick
+  // this up without a sweeping rewrite of every component.
+  variable: '--font-body',
+})
+const plexDisplay = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
   variable: '--font-display',
-  weight: ['400', '500', '600', '700', '800', '900'],
+})
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-mono-plex',
 })
 
 export const metadata: Metadata = {
@@ -59,7 +77,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: CHUNK_RELOAD_GUARD }} />
       </head>
-      <body className={`${inter.variable} ${outfit.variable} ${playfair.variable} ${inter.className}`} suppressHydrationWarning>
+      <body className={`${inter.variable} ${plexSans.variable} ${plexDisplay.variable} ${plexMono.variable} ${inter.className}`} suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>
