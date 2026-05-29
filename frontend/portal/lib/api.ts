@@ -388,6 +388,13 @@ export const interviewsApi = {
   schedule: (data: any) => api.post('/interviews/schedule', data),
   getAll: (filters?: any) => api.get('/interviews', { params: filters }),
   getOne: (id: string) => api.get(`/interviews/${id}`),
-  join: (id: string) => api.post(`/interviews/${id}/join`),
-  end: (id: string, notes: any) => api.post(`/interviews/${id}/end`, notes),
+  start: (id: string) => api.post(`/interviews/${id}/start`),
+  end: (id: string, body: any) => api.post(`/interviews/${id}/end`, body),
+  cancel: (id: string) => api.post(`/interviews/${id}/cancel`),
+  verifyFrame: (id: string, capturedImage: string) =>
+    api.post(`/interviews/${id}/verify-frame`, { capturedImage }),
+  manualVerify: (id: string, verified: boolean, note?: string) =>
+    api.post(`/interviews/${id}/manual-verify`, { verified, note }),
+  // Candidate-side magic-link lookup — public, no JWT required.
+  getByToken: (token: string) => api.get(`/interviews/public/by-token/${encodeURIComponent(token)}`),
 }

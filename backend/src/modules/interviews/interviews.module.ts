@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
-import { InterviewsController } from './interviews.controller';
+import { InterviewsController, InterviewsPublicController } from './interviews.controller';
 import { InterviewsService } from './interviews.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { FacialRecognitionModule } from '../facial-recognition/facial-recognition.module';
 
 @Module({
-  controllers: [InterviewsController],
+  imports: [NotificationsModule, FacialRecognitionModule],
+  controllers: [InterviewsController, InterviewsPublicController],
   providers: [InterviewsService],
   exports: [InterviewsService],
 })

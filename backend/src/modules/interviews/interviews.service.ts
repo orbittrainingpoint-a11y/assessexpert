@@ -1,79 +1,165 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { FacialRecognitionService } from '../facial-recognition/facial-recognition.service';
 
 @Injectable()
 export class InterviewsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(InterviewsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private fr: FacialRecognitionService,
+  ) {}
+
+  // ── Schedule / list / fetch ───────────────────────────────────────────
 
   async schedule(data: {
-    reportId?: string;
     candidateId: string;
+    sessionId?: string;
     organizationId: string;
     scheduledAt: Date;
-    format: string;
+    format?: string;
     notes?: string;
+    interviewers?: string[];
     scheduledBy: string;
   }) {
-    // Store as a session event / notification since Interview model may not exist in schema
-    // Gracefully handle if Interview table doesn't exist
-    try {
-      return (this.prisma as any).interview.create({
-        data: {
-          candidateId: data.candidateId,
-          organizationId: data.organizationId,
-          scheduledAt: new Date(data.scheduledAt),
-          format: data.format,
-          notes: data.notes,
-          status: 'SCHEDULED',
-          scheduledBy: data.scheduledBy,
-        },
-      });
-    } catch {
-      // Fallback: return a mock response if Interview table doesn't exist yet
-      return {
-        id: `interview-${Date.now()}`,
-        candidateId: data.candidateId,
-        scheduledAt: data.scheduledAt,
-        format: data.format,
-        status: 'SCHEDULED',
-      };
+    if (!data.candidateId) throw new BadRequestException('candidateId is required');
+    // Tenant safety: a candidate from a different org shouldn't be
+    // schedulable from this caller's tenant.
+    const candidate = await this.prisma.candidateRecord.findUnique({
+      where: { id: data.candidateId },
+      select: { id: true, organizationId: true },
+    });
+    if (!candidate) throw new NotFoundException('Candidate not found');
+    if (candidate.organizationId !== data.organizationId) {
+      throw new BadRequestException('Candidate does not belong to this organization');
     }
+
+    const magicToken = randomBytes(32).toString('hex');
+    // Link valid from now until 24h AFTER the scheduled time — gives the
+    // candidate room to join late and lets HR reschedule a short slot
+    // without burning the link.
+    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 24 * 60 * 60 * 1000);
+
+    return this.prisma.interview.create({
+      data: {
+        candidateId: data.candidateId,
+        sessionId: data.sessionId ?? null,
+        organizationId: data.organizationId,
+        scheduledAt: data.scheduledAt,
+        format: data.format || 'VIDEO',
+        notes: data.notes ?? null,
+        interviewers: data.interviewers || [],
+        status: 'SCHEDULED',
+        scheduledBy: data.scheduledBy,
+        magicToken,
+        tokenExpiresAt,
+      },
+    });
   }
 
-  async getAll(filters?: any) {
-    try {
-      return (this.prisma as any).interview.findMany({
-        where: filters?.organizationId ? { organizationId: filters.organizationId } : {},
-        orderBy: { scheduledAt: 'desc' },
-        take: filters?.limit || 50,
-      });
-    } catch {
-      return [];
-    }
+  getAll(filters: { organizationId?: string; status?: string; candidateId?: string; limit?: number }) {
+    const where: any = {};
+    if (filters.organizationId) where.organizationId = filters.organizationId;
+    if (filters.status) where.status = filters.status;
+    if (filters.candidateId) where.candidateId = filters.candidateId;
+    return this.prisma.interview.findMany({
+      where,
+      orderBy: { scheduledAt: 'desc' },
+      take: Math.min(Number(filters.limit) || 50, 200),
+    });
   }
 
   async getOne(id: string) {
-    try {
-      return (this.prisma as any).interview.findUnique({ where: { id } });
-    } catch {
-      return null;
-    }
+    const interview = await this.prisma.interview.findUnique({ where: { id } });
+    if (!interview) throw new NotFoundException('Interview not found');
+    return interview;
   }
 
-  async end(id: string, data: { impression: string; recommendation: string; notes?: string }) {
-    try {
-      return (this.prisma as any).interview.update({
-        where: { id },
-        data: {
-          status: 'COMPLETED',
-          impression: data.impression,
-          recommendation: data.recommendation,
-          notes: data.notes,
-          endedAt: new Date(),
-        },
-      });
-    } catch {
-      return { id, status: 'COMPLETED', ...data };
-    }
+  // ── Lifecycle transitions ─────────────────────────────────────────────
+
+  async start(id: string) {
+    await this.getOne(id);
+    return this.prisma.interview.update({
+      where: { id },
+      data: { status: 'IN_PROGRESS', startedAt: new Date() },
+    });
+  }
+
+  async end(id: string, body: { impression?: string; recommendation?: string; notes?: string; verdict?: string }) {
+    await this.getOne(id);
+    return this.prisma.interview.update({
+      where: { id },
+      data: {
+        status: 'COMPLETED',
+        endedAt: new Date(),
+        impression: body?.impression ?? null,
+        recommendation: body?.recommendation ?? null,
+        verdict: body?.verdict ?? null,
+        notes: body?.notes ?? undefined,
+      },
+    });
+  }
+
+  async cancel(id: string) {
+    await this.getOne(id);
+    return this.prisma.interview.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
+  }
+
+  // ── Identity verification during the interview ────────────────────────
+
+  /**
+   * Compares a live frame captured on HR's browser against the candidate's
+   * stored reference photo (the one captured during exam verification).
+   * Persists the latest verdict on the interview row so HR sees the most
+   * recent check at a glance. Best-effort — a missing reference photo
+   * surfaces a clear PENDING_REVIEW outcome instead of a 500.
+   */
+  async verifyFrame(id: string, capturedImageBase64?: string) {
+    if (!capturedImageBase64) throw new BadRequestException('capturedImage is required');
+    const interview = await this.getOne(id);
+    const result = await this.fr.compareAgainstReference(interview.candidateId, capturedImageBase64);
+    await this.prisma.interview.update({
+      where: { id },
+      data: {
+        frSimilarity: result.similarity,
+        frVerdict: result.outcome,
+        frCheckedAt: new Date(),
+      },
+    });
+    return { similarity: result.similarity, outcome: result.outcome, reason: result.reason };
+  }
+
+  async manualVerify(id: string, verified: boolean, note?: string) {
+    await this.getOne(id);
+    return this.prisma.interview.update({
+      where: { id },
+      data: {
+        manualVerified: verified,
+        manualVerifyNote: note ?? null,
+      },
+    });
+  }
+
+  // ── Candidate-side join (token-gated, no JWT) ─────────────────────────
+
+  async getByToken(token: string) {
+    if (!token) throw new BadRequestException('token is required');
+    const interview = await this.prisma.interview.findUnique({
+      where: { magicToken: token },
+      // Don't leak the magic token back out to the client.
+      select: {
+        id: true, scheduledAt: true, format: true, status: true,
+        candidateId: true, organizationId: true, sessionId: true,
+        tokenExpiresAt: true,
+      },
+    });
+    if (!interview) throw new NotFoundException('Invalid interview link');
+    if (interview.tokenExpiresAt < new Date()) throw new BadRequestException('Interview link has expired');
+    return interview;
   }
 }

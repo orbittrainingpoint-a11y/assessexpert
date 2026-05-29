@@ -816,16 +816,43 @@ model Interview {
   id            String   @id @default(cuid())
   organizationId String
   candidateId   String
+  // The exam session this interview is anchored to. The reference photo
+  // captured during that session's verification is what an interview-time
+  // FR check would compare a live frame against.
   sessionId     String?
   scheduledAt   DateTime
   format        String   @default("VIDEO")
+  // SCHEDULED -> IN_PROGRESS -> COMPLETED / CANCELLED
   status        String   @default("SCHEDULED")
   interviewers  String[]
   notes         String?
   verdict       String?
+  scheduledBy   String?
+  hrUserId      String?
+  // Magic-link join (same pattern exam sessions use). NOT NULL was safe
+  // because the Interview table is empty scaffolding today; if you wire
+  // up the full schedule flow, populate these in the service before any
+  // .create call.
+  magicToken    String   @unique
+  tokenExpiresAt DateTime
+  startedAt     DateTime?
+  endedAt       DateTime?
+  impression    String?
+  recommendation String?
   recordingPath String?
+  // Reserved for a future auto-FR-during-interview check against the
+  // candidate's stored reference photo. Wired in DB but not yet used
+  // by the service.
+  frVerdict     String?
+  frSimilarity  Float?
+  frCheckedAt   DateTime?
+  manualVerified Boolean?
+  manualVerifyNote String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([organizationId, status, scheduledAt])
+  @@index([candidateId])
 }
 
 model UserInvitation {

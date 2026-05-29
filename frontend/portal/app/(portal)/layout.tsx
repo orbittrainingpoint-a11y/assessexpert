@@ -53,6 +53,7 @@ const NAV_CONFIG: Record<string, { label: string; icon: any; href: string }[]> =
     { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
     { label: 'Candidates', icon: Users, href: '/hr/candidates' },
     { label: 'Assessments', icon: FileText, href: '/hr/assessments' },
+    { label: 'Interviews', icon: Video, href: '/hr/interviews' },
     { label: 'Top Performers', icon: BarChart3, href: '/hr/performers' },
     { label: 'Settings', icon: Settings, href: '/hr/settings' },
   ],
@@ -60,12 +61,14 @@ const NAV_CONFIG: Record<string, { label: string; icon: any; href: string }[]> =
     { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
     { label: 'Candidates', icon: Users, href: '/hr/candidates' },
     { label: 'Assessments', icon: FileText, href: '/hr/assessments' },
+    { label: 'Interviews', icon: Video, href: '/hr/interviews' },
     { label: 'Top Performers', icon: BarChart3, href: '/hr/performers' },
     { label: 'Settings', icon: Settings, href: '/hr/settings' },
   ],
   HIRING_MANAGER: [
     { label: 'Overview', icon: LayoutDashboard, href: '/hr' },
     { label: 'Reports', icon: FileText, href: '/hr/assessments' },
+    { label: 'Interviews', icon: Video, href: '/hr/interviews' },
   ],
   SALES_AGENT: [
     { label: 'Overview', icon: LayoutDashboard, href: '/sales' },
