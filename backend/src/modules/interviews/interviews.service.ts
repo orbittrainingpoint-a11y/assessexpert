@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FacialRecognitionService } from '../facial-recognition/facial-recognition.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InterviewsService {
@@ -10,6 +11,7 @@ export class InterviewsService {
   constructor(
     private prisma: PrismaService,
     private fr: FacialRecognitionService,
+    private notifications: NotificationsService,
   ) {}
 
   // ── Schedule / list / fetch ───────────────────────────────────────────
@@ -26,10 +28,11 @@ export class InterviewsService {
   }) {
     if (!data.candidateId) throw new BadRequestException('candidateId is required');
     // Tenant safety: a candidate from a different org shouldn't be
-    // schedulable from this caller's tenant.
+    // schedulable from this caller's tenant. Pull the fields we need for
+    // the invitation email at the same time so we don't double-query.
     const candidate = await this.prisma.candidateRecord.findUnique({
       where: { id: data.candidateId },
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, email: true, firstName: true, lastName: true },
     });
     if (!candidate) throw new NotFoundException('Candidate not found');
     if (candidate.organizationId !== data.organizationId) {
@@ -42,7 +45,7 @@ export class InterviewsService {
     // without burning the link.
     const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 24 * 60 * 60 * 1000);
 
-    return this.prisma.interview.create({
+    const interview = await this.prisma.interview.create({
       data: {
         candidateId: data.candidateId,
         sessionId: data.sessionId ?? null,
@@ -57,6 +60,35 @@ export class InterviewsService {
         tokenExpiresAt,
       },
     });
+
+    // Best-effort candidate invitation. Email failures shouldn't bubble
+    // up — the magic link is still copyable from the HR list, and the
+    // NotificationsService logs+counts failures for the admin health view.
+    try {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: data.organizationId },
+        select: { name: true, timezone: true },
+      });
+      const baseUrl = process.env.FRONTEND_URL
+        || (process.env.FRONTEND_URLS || '').split(',')[0]
+        || 'http://localhost:3000';
+      const magicLink = `${baseUrl.replace(/\/$/, '')}/interview/${magicToken}`;
+      await this.notifications.sendInterviewInvitation(
+        candidate.email,
+        `${candidate.firstName} ${candidate.lastName}`.trim() || candidate.email,
+        {
+          companyName: org?.name || 'Your assessor',
+          scheduledAt: data.scheduledAt,
+          timezone: org?.timezone || 'Asia/Dubai',
+          magicLink,
+          notes: data.notes,
+        },
+      );
+    } catch (err: any) {
+      this.logger.error(`Interview invite email failed for ${candidate.email}: ${err?.message || err}`);
+    }
+
+    return interview;
   }
 
   getAll(filters: { organizationId?: string; status?: string; candidateId?: string; limit?: number }) {

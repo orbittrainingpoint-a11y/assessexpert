@@ -120,6 +120,53 @@ export class NotificationsService {
     return this.sendEmail(candidateEmail, `Your Assessment is Scheduled — ${data.companyName} × assessexpert`, html);
   }
 
+  // Sent to the candidate when HR schedules an interview. The magic link is
+  // valid until 24h after the slot (see InterviewsService.schedule).
+  async sendInterviewInvitation(candidateEmail: string, candidateName: string, data: {
+    companyName: string;
+    scheduledAt: Date;
+    timezone: string;
+    magicLink: string;
+    notes?: string | null;
+  }) {
+    const dateOptions: Intl.DateTimeFormatOptions = {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      timeZone: data.timezone || 'Asia/Dubai',
+    };
+    const timeOptions: Intl.DateTimeFormatOptions = {
+      hour: '2-digit', minute: '2-digit', hour12: true,
+      timeZone: data.timezone || 'Asia/Dubai',
+    };
+    const formattedDate = data.scheduledAt.toLocaleDateString('en-US', dateOptions);
+    const formattedTime = data.scheduledAt.toLocaleTimeString('en-US', timeOptions);
+    const formattedDateTime = `${formattedDate} at ${formattedTime} (${data.timezone || 'Asia/Dubai'})`;
+
+    const html = `
+      <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 600px; margin: 0 auto;">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="color: #00D4FF; font-size: 24px; margin: 0;">assessexpert</h1>
+        </div>
+        <h2 style="color: #F1F5F9;">You're Invited to an Interview</h2>
+        <p>Hi ${candidateName},</p>
+        <p><strong>${data.companyName}</strong> has scheduled a video interview with you following your assessment.</p>
+        <table style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 20px; width: 100%; margin: 20px 0;">
+          <tr><td style="color: #94A3B8; padding: 8px 0;">Date &amp; Time:</td><td style="color: #F1F5F9;"><strong>${formattedDateTime}</strong></td></tr>
+          <tr><td style="color: #94A3B8; padding: 8px 0;">Format:</td><td style="color: #F1F5F9;"><strong>Live video call</strong></td></tr>
+        </table>
+        ${data.notes ? `<p style="color: #94A3B8;"><strong style="color:#F1F5F9;">Note from your interviewer:</strong> ${data.notes}</p>` : ''}
+        <p style="color: #94A3B8;">Please ensure you have a working webcam, microphone, and a stable internet connection. Identity is re-verified against your assessment photo during the call.</p>
+        <p style="color: #F59E0B; font-weight: 600;">⏰ The link below opens your interview room.</p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${data.magicLink}" style="background: #00D4FF; color: #060B18; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Join Interview</a>
+        </div>
+        <p style="color: #475569; font-size: 12px;">This link is personal. Do not share it. If the button does not work, paste this URL into your browser: <br/>${data.magicLink}</p>
+        <hr style="border-color: rgba(255,255,255,0.08); margin: 24px 0;">
+        <p style="color: #475569; font-size: 12px; text-align: center;">assessexpert | Powered by Orbit Training · Dubai, UAE</p>
+      </div>`;
+
+    return this.sendEmail(candidateEmail, `Interview Invitation — ${data.companyName}`, html);
+  }
+
   async sendReportPublishedNotification(hrEmail: string, hrName: string, data: {
     candidateName: string;
     assessmentType: string;
