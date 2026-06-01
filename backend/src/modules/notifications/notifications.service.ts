@@ -36,6 +36,10 @@ export class NotificationsService {
         to,
         subject,
         html,
+        // Plain-text alternative. Inbox providers (Gmail, Outlook) penalise
+        // HTML-only mail with a higher Spam Confidence Level — adding a
+        // text/plain part lowers SCL meaningfully across every template.
+        text: htmlToPlainText(html),
       });
       this.logger.log(`Email sent → ${to} | ${subject} | id=${info.messageId}`);
       return { sent: true, messageId: info.messageId };
@@ -297,4 +301,34 @@ export class NotificationsService {
     const count = await this.prisma.notification.count({ where: { userId, read: false } });
     return { count };
   }
+}
+
+// Strip HTML → plain-text fallback for the multipart/alternative MIME part.
+// Preserves anchor URLs (so candidates on text-only clients can still copy
+// the magic link), drops <style>/<script>, collapses whitespace, and decodes
+// the handful of HTML entities our templates actually use. No new dep — the
+// templates are simple enough that a focused regex pass is more reliable
+// than pulling in html-to-text.
+function htmlToPlainText(html: string): string {
+  return html
+    // kill script + style blocks entirely (content + tags)
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    // surface href on anchors so links survive: "Join Interview (https://…)"
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, '$2 ($1)')
+    // line breaks for block-level boundaries
+    .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // strip everything else
+    .replace(/<[^>]+>/g, '')
+    // decode the entities our templates produce
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // collapse runs of whitespace, keep paragraph breaks
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
