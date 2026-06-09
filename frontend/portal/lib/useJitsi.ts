@@ -20,14 +20,16 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 // Use a TURN server for VPS/production where direct P2P UDP is blocked.
 // Falls back to STUN-only if TURN credentials are not set.
 const TURN_SECRET = process.env.NEXT_PUBLIC_TURN_SECRET || ''
+const TURN_SERVER = process.env.NEXT_PUBLIC_TURN_SERVER ||
+  (process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  ...(TURN_SECRET ? [{
+  ...(TURN_SECRET && TURN_SERVER ? [{
     urls: [
-      `turn:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:3478?transport=udp`,
-      `turn:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:3478?transport=tcp`,
-      `turns:${(process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')}:5349?transport=tcp`,
+      `turn:${TURN_SERVER}:3478?transport=udp`,
+      `turn:${TURN_SERVER}:3478?transport=tcp`,
+      `turns:${TURN_SERVER}:5349?transport=tcp`,
     ],
     username: 'assessexpert',
     credential: TURN_SECRET,
