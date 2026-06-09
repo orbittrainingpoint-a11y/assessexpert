@@ -619,6 +619,19 @@ export function useJitsi({
         }
         if (cancelled) return
 
+        // Re-announce AFTER camera is ready so any peer.joined that already
+        // fired (before tracks were available) gets re-triggered. This fixes
+        // the race where the candidate receives peer.joined, calls
+        // initiateOffer, createPeerConn finds localStreamRef.current=null and
+        // adds no tracks → offer has no video → remote sees black/nothing.
+        const sock = externalSocket || ownSocketRef.current
+        if (sock?.connected && sessionId) {
+          sock.emit('peer.announce', {
+            sessionId, role, socketId: sock.id,
+            candidateId: candidateIdRef.current,
+          })
+        }
+
         // 3) If no external socket, create our own
         if (!externalSocket) {
           const ioFn = await getIo()
