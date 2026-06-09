@@ -539,11 +539,27 @@ export function useJitsi({
   // ── Attach signalling handlers to external socket when it becomes available
   useEffect(() => {
     if (!externalSocket || !enabled) return
+    // Re-attach every time the socket instance changes (null → real socket).
+    // Also re-announce on every attach so the proctor/candidate peer map is
+    // always up-to-date even if this effect re-runs after a reconnect.
     externalSocket.on('peer.joined', handlePeerJoined)
     externalSocket.on('webrtc.offer', handleOffer)
     externalSocket.on('webrtc.answer', handleAnswer)
     externalSocket.on('webrtc.ice', handleIce)
     externalSocket.on('peer.left', handlePeerLeft)
+
+    // If socket is already connected (common when this effect runs after
+    // the socket was set up), announce immediately so the remote peer
+    // receives peer.joined and initiates the WebRTC offer.
+    if (externalSocket.connected && sessionId) {
+      mySocketIdRef.current = externalSocket.id
+      externalSocket.emit('peer.announce', {
+        sessionId, role, socketId: externalSocket.id,
+        candidateId: candidateIdRef.current,
+      })
+      setConnectionState(ConnectionState.Connected)
+    }
+
     return () => {
       externalSocket.off('peer.joined', handlePeerJoined)
       externalSocket.off('webrtc.offer', handleOffer)
@@ -551,7 +567,7 @@ export function useJitsi({
       externalSocket.off('webrtc.ice', handleIce)
       externalSocket.off('peer.left', handlePeerLeft)
     }
-  }, [externalSocket, enabled, handlePeerJoined, handleOffer, handleAnswer, handleIce, handlePeerLeft])
+  }, [externalSocket, enabled, handlePeerJoined, handleOffer, handleAnswer, handleIce, handlePeerLeft, sessionId, role])
 
   // ── Main effect: get camera, announce presence ────────────────────────────
   useEffect(() => {
@@ -638,6 +654,12 @@ export function useJitsi({
           const announceOnSocket = () => {
             if (cancelled) return
             mySocketIdRef.current = externalSocket.id
+            // join_session puts the socket into the session room so
+            // peer.left broadcasts on disconnect reach the right clients.
+            externalSocket.emit('join_session', {
+              sessionId, role, userId: myIdentityRef.current,
+              candidateId: candidateIdRef.current,
+            })
             externalSocket.emit('peer.announce', {
               sessionId, role, socketId: externalSocket.id,
               candidateId: candidateIdRef.current,
