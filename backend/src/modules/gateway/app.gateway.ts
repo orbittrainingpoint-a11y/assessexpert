@@ -252,6 +252,13 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { sessionId: string; role: string; socketId: string; candidateId?: string },
     @ConnectedSocket() client: Socket,
   ) {
+    // Ensure the personal signalling room exists — join_session may not
+    // have fired yet when the external socket path is used (useJitsi
+    // reuses the useWebSocket socket and emits peer.announce immediately
+    // on connect, which can race ahead of join_session's room join).
+    client.join(`session:${data.sessionId}`);
+    client.join(`peer:${client.id}`);
+
     // Update our client tracking with latest info
     const existing = this.clients.get(client.id) || {};
     this.clients.set(client.id, {
