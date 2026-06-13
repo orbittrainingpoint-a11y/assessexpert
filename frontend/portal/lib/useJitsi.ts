@@ -19,6 +19,17 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 
 // Use a TURN server for VPS/production where direct P2P UDP is blocked.
 // Falls back to STUN-only if TURN credentials are not set.
+//
+// TURN host derivation:
+// - Default: derived from NEXT_PUBLIC_WS_URL (e.g. assessexpert.com).
+// - NEXT_PUBLIC_TURN_HOST overrides — used so the firewall-friendly
+//   TURN-over-TLS-on-443 endpoint can live on a dedicated subdomain
+//   (e.g. turn.assessexpert.com) without changing the API/WS host.
+// - Etisalat / corporate / hospital networks block 3478 and 5349 — only
+//   80/443 are universally allowed. The `turns:…:443?transport=tcp`
+//   entry rides on the standard HTTPS port via nginx SNI multiplexing
+//   in front of coturn, so candidates on locked-down networks still
+//   reach the relay.
 const TURN_SECRET = process.env.NEXT_PUBLIC_TURN_SECRET || ''
 const TURN_SERVER = process.env.NEXT_PUBLIC_TURN_SERVER ||
   (process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')
@@ -30,6 +41,14 @@ const ICE_SERVERS: RTCIceServer[] = [
       `turn:${TURN_SERVER}:3478?transport=udp`,
       `turn:${TURN_SERVER}:3478?transport=tcp`,
       `turns:${TURN_SERVER}:5349?transport=tcp`,
+      // Firewall-bypass: TURN-over-TLS on 443 (looks like normal HTTPS).
+      // UAE/Etisalat / corporate / hospital networks block 3478 and 5349
+      // — only 80/443 are universally allowed. Requires the nginx SNI
+      // multiplex on the VPS to route traffic for the TURN host's SNI
+      // through to coturn:5349, leaving the main website's TLS traffic
+      // on the same 443 untouched. See ops docs for the nginx stream
+      // config + Let's Encrypt cert.
+      `turns:${TURN_SERVER}:443?transport=tcp`,
     ],
     username: 'assessexpert',
     credential: TURN_SECRET,
