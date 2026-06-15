@@ -267,12 +267,36 @@ export function useJitsi({
       if (videoSrc) {
         const v = videoSrc.clone()
         conn.localVideoClone = v
-        try { pc.addTrack(v, localStreamRef.current) } catch {}
+        try {
+          const sender = pc.addTrack(v, localStreamRef.current)
+          // Bump the outbound video bitrate so the 1080p capture isn't
+          // throttled to the default ~700kbps. 2.5 Mbps is the sweet spot
+          // for clean 1080p30 talking-head video — the browser scales down
+          // automatically on congested links so this is a ceiling, not a
+          // floor. Networks that can't sustain it fall back gracefully.
+          const params = sender.getParameters()
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}]
+          }
+          params.encodings[0].maxBitrate = 2_500_000
+          params.encodings[0].maxFramerate = 30
+          sender.setParameters(params).catch(() => {})
+        } catch {}
       }
       if (audioSrc) {
         const a = audioSrc.clone()
         conn.localAudioClone = a
-        try { pc.addTrack(a, localStreamRef.current) } catch {}
+        try {
+          const sender = pc.addTrack(a, localStreamRef.current)
+          // 64 kbps stereo-quality Opus — clear voice without burning
+          // bandwidth. Default Opus negotiation often settles at ~32 kbps.
+          const params = sender.getParameters()
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}]
+          }
+          params.encodings[0].maxBitrate = 64_000
+          sender.setParameters(params).catch(() => {})
+        } catch {}
       }
 
       // Apply initial routing: if PROCTOR has selected an active candidate and
@@ -650,18 +674,39 @@ export function useJitsi({
         if (cancelled) return
         myIdentityRef.current = myIdentity
 
-        // 2) Get camera/mic FIRST
+        // 2) Get camera/mic FIRST.
+        //
+        // Video: request 1080p ideal with 720p min — browser/driver picks the
+        // closest available; on a 720p webcam it negotiates down gracefully.
+        // 30fps gives smooth motion for both interview talking-head and exam
+        // monitoring without being heavy on CPU.
+        //
+        // Audio: echo cancellation + noise suppression + auto gain are the
+        // three flags every WebRTC voice call wants on. 48kHz mono sample
+        // rate matches Opus's preferred config — better speech clarity than
+        // the default 44.1kHz fallback.
         if (publishCamera || publishMic) {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: publishCamera ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } : false,
-              audio: publishMic ? { echoCancellation: true, noiseSuppression: true } : false,
+              video: publishCamera ? {
+                width:  { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
+                frameRate: { ideal: 30, min: 15 },
+                facingMode: 'user',
+              } : false,
+              audio: publishMic ? {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: { ideal: 48000 },
+                channelCount: { ideal: 1 },
+              } : false,
             })
             if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
             localStreamRef.current = stream
             setLocalCameraStream(stream)
           } catch (e: any) {
-            // Fallback: video only
+            // Fallback: try plain video-only at default constraints
             try {
               const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
               if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
