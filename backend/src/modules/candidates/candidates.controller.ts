@@ -22,7 +22,7 @@ export class CandidatesController {
   }
 
   @Get(':id')
-  @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
+  @Roles('HR_MANAGER', 'HIRING_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
   async getCandidate(@Param('id') id: string, @Req() req: any) {
     return this.candidatesService.getCandidate(id, req.user.organizationId);
   }
