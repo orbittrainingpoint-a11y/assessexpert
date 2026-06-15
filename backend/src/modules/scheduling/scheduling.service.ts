@@ -387,8 +387,12 @@ export class SchedulingService {
     if (!session || session.organizationId !== organizationId) {
       throw new NotFoundException('Session not found');
     }
-    // Only sessions that haven't been taken yet can be moved
-    const ALLOWED = ['SCHEDULED', 'INVITED', 'NO_SHOW'];
+    // Only sessions that haven't actually been taken yet can be moved.
+    // CHECKLIST = candidate opened the magic link and entered the pre-exam
+    // verification phase but never reached the MCQ — typical when hardware
+    // (camera, mic) failed verification. HR legitimately wants to reschedule
+    // these. EXPIRED / NO_SHOW are also pre-MCQ states, also rescheduleable.
+    const ALLOWED = ['SCHEDULED', 'INVITED', 'CHECKLIST', 'NO_SHOW', 'EXPIRED'];
     if (!ALLOWED.includes(session.status)) {
       throw new BadRequestException(
         `Cannot reschedule a session with status ${session.status} — the exam has already started or finished.`,
