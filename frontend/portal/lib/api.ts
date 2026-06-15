@@ -383,6 +383,12 @@ export const salesApi = {
   getCompanies: () => api.get('/sales/companies'),
 }
 
+// TURN — Cloudflare-minted short-lived ICE servers. Public endpoint (works
+// for both authenticated proctors and magic-token-only candidates).
+export const turnApi = {
+  getCredentials: () => api.get('/turn/credentials'),
+}
+
 // Interviews
 export const interviewsApi = {
   schedule: (data: any) => api.post('/interviews/schedule', data),

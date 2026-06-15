@@ -27,6 +27,7 @@ import { SalesModule } from './modules/sales/sales.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JitsiModule } from './modules/jitsi/jitsi.module';
+import { TurnModule } from './modules/turn/turn.module';
 import { PracticalSetsModule } from './modules/practical-sets/practical-sets.module';
 import { LegalModule } from './modules/legal/legal.module';
 import { CmsModule } from './modules/cms/cms.module';
@@ -73,6 +74,7 @@ import { AppController } from './app.controller';
     GatewayModule,
     InterviewsModule,
     JitsiModule,
+    TurnModule,
     PracticalSetsModule,
     LegalModule,
     CmsModule,

@@ -33,7 +33,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 const TURN_SECRET = process.env.NEXT_PUBLIC_TURN_SECRET || ''
 const TURN_SERVER = process.env.NEXT_PUBLIC_TURN_SERVER ||
   (process.env.NEXT_PUBLIC_WS_URL || '').replace(/^https?:\/\//, '').replace(/:\d+$/, '')
-const ICE_SERVERS: RTCIceServer[] = [
+
+// Baseline ICE servers — STUN + self-hosted coturn. Always present so the
+// connection still works for candidates on permissive networks even if the
+// Cloudflare fetch hasn't returned yet.
+const BASE_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   ...(TURN_SECRET && TURN_SERVER ? [{
@@ -41,19 +45,37 @@ const ICE_SERVERS: RTCIceServer[] = [
       `turn:${TURN_SERVER}:3478?transport=udp`,
       `turn:${TURN_SERVER}:3478?transport=tcp`,
       `turns:${TURN_SERVER}:5349?transport=tcp`,
-      // Firewall-bypass: TURN-over-TLS on 443 (looks like normal HTTPS).
-      // UAE/Etisalat / corporate / hospital networks block 3478 and 5349
-      // — only 80/443 are universally allowed. Requires the nginx SNI
-      // multiplex on the VPS to route traffic for the TURN host's SNI
-      // through to coturn:5349, leaving the main website's TLS traffic
-      // on the same 443 untouched. See ops docs for the nginx stream
-      // config + Let's Encrypt cert.
-      `turns:${TURN_SERVER}:443?transport=tcp`,
     ],
     username: 'assessexpert',
     credential: TURN_SECRET,
   }] : []),
 ]
+
+// Cloudflare TURN — fetched at runtime from /api/turn/credentials, which
+// mints short-lived credentials via Cloudflare's API. This is the
+// firewall-bypass path: Cloudflare TURN runs on 443 over TLS from every
+// PoP, so candidates on Etisalat / corporate / hospital networks (which
+// block 3478/5349 but always allow 443) can still reach a relay.
+//
+// One module-level promise so we mint credentials exactly once per page
+// load no matter how many hooks/peers ask. Refreshed implicitly when the
+// page reloads (well before the 24h Cloudflare TTL).
+let cloudflareIcePromise: Promise<RTCIceServer[]> | null = null
+async function fetchCloudflareIce(): Promise<RTCIceServer[]> {
+  if (!cloudflareIcePromise) {
+    cloudflareIcePromise = (async () => {
+      try {
+        const res = await fetch(`${API_URL}/turn/credentials`)
+        if (!res.ok) return []
+        const data = await res.json()
+        return Array.isArray(data?.iceServers) ? data.iceServers : []
+      } catch {
+        return []
+      }
+    })()
+  }
+  return cloudflareIcePromise
+}
 
 export interface RemotePeer {
   identity: string
@@ -162,6 +184,10 @@ export function useJitsi({
   // stale prop captured in a useEffect closure at mount time.
   const candidateIdRef = useRef<string | undefined>(candidateId)
   candidateIdRef.current = candidateId
+  // Resolved ICE servers = BASE_ICE_SERVERS + (Cloudflare TURN once fetched).
+  // Initialised with the base list so a PeerConnection created before the
+  // Cloudflare fetch returns still has working STUN + self-hosted TURN.
+  const iceServersRef = useRef<RTCIceServer[]>(BASE_ICE_SERVERS)
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.Disconnected)
   const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null)
@@ -225,7 +251,7 @@ export function useJitsi({
     const existing = peerConnsRef.current.get(remoteSocketId)
     if (existing) { try { existing.pc.close() } catch {} }
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current })
     const conn: PeerConn = {
       pc, socketId: remoteSocketId, identity: remoteIdentity,
       cameraStream: null, screenStream: null,
@@ -596,6 +622,16 @@ export function useJitsi({
 
     let cancelled = false
     setConnectionState(ConnectionState.Connecting)
+
+    // Kick off the Cloudflare TURN fetch in parallel with the identity +
+    // camera acquisition below. By the time the first peer announces and
+    // we create a PeerConnection, the merged ICE list is usually ready;
+    // if it isn't, we still have the BASE_ICE_SERVERS list to fall back
+    // on so nothing waits.
+    fetchCloudflareIce().then((cf) => {
+      if (cancelled || cf.length === 0) return
+      iceServersRef.current = [...BASE_ICE_SERVERS, ...cf]
+    })
 
     ;(async () => {
       try {
