@@ -5,7 +5,12 @@ const CHECKLIST_ITEMS = [
   { key: 'camera_verified', label: 'Camera confirmed active', required: true },
   { key: 'identity_name', label: 'Candidate identity verified — name', required: true },
   { key: 'identity_email', label: 'Candidate identity verified — email', required: true },
-  { key: 'government_id', label: 'Government ID verified', required: true },
+  // `government_id` key preserved for DB compatibility with historical
+  // checklist rows. User-facing label is now document-agnostic — covers
+  // passport, Emirates ID, driver's licence, national ID, employee badge,
+  // etc. — since real-world candidates rarely have a US-style "government
+  // ID card" specifically.
+  { key: 'government_id', label: 'Identity verified per document', required: true },
   { key: 'background_scan', label: 'Background scan completed', required: true },
   { key: 'no_materials', label: 'No unauthorized materials visible', required: true },
   { key: 'facial_recognition', label: 'Facial recognition check passed', required: true },

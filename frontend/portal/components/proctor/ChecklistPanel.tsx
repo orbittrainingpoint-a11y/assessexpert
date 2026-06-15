@@ -47,7 +47,7 @@ const ITEMS: { key: ChecklistItemKey; title: string; description: string }[] = [
   { key: 'camera_verified',    title: 'Camera Verification',        description: 'Confirm candidate face is clearly visible and camera is active.' },
   { key: 'identity_name',      title: 'Verbal Identity (Name)',     description: 'Ask candidate to state their full legal name.' },
   { key: 'identity_email',     title: 'Verbal Identity (Email)',    description: 'Ask candidate to state their email address.' },
-  { key: 'government_id',      title: 'Government ID Check',        description: 'Capture a real photo of the candidate holding their ID and visually confirm it matches.' },
+  { key: 'government_id',      title: 'Identity Check',             description: 'Ask the candidate to hold any photo ID (passport, Emirates ID, driver\'s licence, national ID, employee badge) in view. Capture the frame and visually confirm the photo + name match the candidate.' },
   { key: 'background_scan',    title: 'Environment Scan',           description: 'Ask candidate to rotate camera 360° to show the full room.' },
   { key: 'no_materials',       title: 'No Unauthorized Materials',  description: 'Confirm no reference materials, secondary monitors, or other people visible.' },
   { key: 'facial_recognition', title: 'Facial Recognition',         description: 'Run facial recognition against government ID.' },
@@ -150,11 +150,22 @@ function ItemGovernmentId({ candidateStream, saving, onComplete }: { sessionId: 
     }
   }, [candidateStream])
 
-  const captureId = () => {
+  const captureId = async () => {
     setErrorMsg(null)
     if (!candidateStream) { setErrorMsg('Candidate camera not available yet.'); setState('error'); return }
     const v = videoRef.current
-    if (!v || !v.videoWidth) { setErrorMsg('Video feed is not ready — try again in a few seconds.'); setState('error'); return }
+    if (!v) { setErrorMsg('Video element not mounted yet — retry.'); setState('error'); return }
+    // Wait up to 10s for the WebRTC video to produce a real frame.
+    const start = Date.now()
+    while (Date.now() - start < 10_000) {
+      if (v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2) break
+      await new Promise(r => setTimeout(r, 150))
+    }
+    if (!v.videoWidth) {
+      setErrorMsg('Candidate video did not produce a frame after 10s. Ask the candidate to refresh, then retry.')
+      setState('error')
+      return
+    }
     try {
       const MAX_WIDTH = 800
       const scale = v.videoWidth > MAX_WIDTH ? MAX_WIDTH / v.videoWidth : 1
@@ -175,7 +186,7 @@ function ItemGovernmentId({ candidateStream, saving, onComplete }: { sessionId: 
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-base)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-        Ask the candidate to hold their government-issued ID clearly in front of the camera, then capture the frame. Visually confirm the photo and details match the candidate before ticking. (Automatic face matching against the reference photo runs in the next step.)
+        Ask the candidate to hold any photo identity document (passport, Emirates ID, driver's licence, national ID, employee badge) clearly in front of the camera, then capture the frame. Visually confirm the photo and details match the candidate before ticking. Automatic face matching against the reference photo runs in the next step.
       </div>
 
       {/* Hidden video element fed by the candidate's live stream */}
@@ -255,18 +266,36 @@ function ItemFacialRecognition({
     }
   }, [candidateStream])
 
-  // Auto-run the capture as soon as we have a stream and we're still idle.
-  // Avoids the "click manually every time" friction the user reported. We
-  // wait a beat for the video to produce a frame, then trigger capture.
+  // Auto-run capture as soon as the candidate stream arrives. Avoids the
+  // "click manually every time" friction the user reported. The capture
+  // function itself now waits for the video to produce a frame before
+  // grabbing pixels, so we just kick it off here.
   useEffect(() => {
     if (state !== 'idle') return
     if (!candidateStream) return
+    // Schedule one tick so React has time to bind the stream to the video
+    // element. capture() handles the rest of the wait.
     const t = setTimeout(() => {
       if (state === 'idle' && candidateStream) capture()
-    }, 800)
+    }, 200)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateStream, state])
+
+  // Block until the hidden video element actually has a frame to read. The
+  // previous version errored out instantly with "Video feed is not ready"
+  // when the WebRTC stream had been bound but the first frame hadn't
+  // landed yet — a sub-second race in practice but very visible to the
+  // proctor. Now we poll every 150ms for up to 10s and only error if the
+  // stream genuinely never delivers a frame.
+  const waitForVideoFrame = async (v: HTMLVideoElement, timeoutMs = 10_000): Promise<boolean> => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      if (v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2) return true
+      await new Promise(r => setTimeout(r, 150))
+    }
+    return false
+  }
 
   const capture = async () => {
     if (!candidateStream) {
@@ -275,13 +304,20 @@ function ItemFacialRecognition({
       return
     }
     const v = videoRef.current
-    if (!v || !v.videoWidth) {
-      setErrorMsg('Video feed is not ready yet. Try again in a few seconds.')
+    if (!v) {
+      setErrorMsg('Video element not mounted yet — retry.')
       setState('error')
       return
     }
     setState('capturing')
     setErrorMsg(null)
+
+    const ready = await waitForVideoFrame(v)
+    if (!ready) {
+      setErrorMsg('Candidate video did not produce a frame after 10s. Ask the candidate to refresh, then retry.')
+      setState('error')
+      return
+    }
     try {
       // Downscale to a 640px-wide frame before encoding. MediaPipe FR
       // works fine on 640×480 input and we keep the base64 payload
