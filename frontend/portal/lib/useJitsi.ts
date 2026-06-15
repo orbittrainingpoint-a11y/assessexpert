@@ -270,17 +270,20 @@ export function useJitsi({
         try {
           const sender = pc.addTrack(v, localStreamRef.current)
           // Bump the outbound video bitrate so the 1080p capture isn't
-          // throttled to the default ~700kbps. 2.5 Mbps is the sweet spot
-          // for clean 1080p30 talking-head video — the browser scales down
-          // automatically on congested links so this is a ceiling, not a
-          // floor. Networks that can't sustain it fall back gracefully.
-          const params = sender.getParameters()
-          if (!params.encodings || params.encodings.length === 0) {
-            params.encodings = [{}]
-          }
-          params.encodings[0].maxBitrate = 2_500_000
-          params.encodings[0].maxFramerate = 30
-          sender.setParameters(params).catch(() => {})
+          // throttled to the default ~700kbps. The browser scales down on
+          // congested links so this is a ceiling, not a floor. Done with
+          // a deferred microtask so the addTrack always succeeds first
+          // even if setParameters rejects on a stricter browser.
+          queueMicrotask(() => {
+            try {
+              const params = sender.getParameters()
+              if (!params.encodings || params.encodings.length === 0) {
+                params.encodings = [{}]
+              }
+              params.encodings[0].maxBitrate = 2_000_000
+              sender.setParameters(params).catch(() => {})
+            } catch {}
+          })
         } catch {}
       }
       if (audioSrc) {
@@ -288,14 +291,17 @@ export function useJitsi({
         conn.localAudioClone = a
         try {
           const sender = pc.addTrack(a, localStreamRef.current)
-          // 64 kbps stereo-quality Opus — clear voice without burning
-          // bandwidth. Default Opus negotiation often settles at ~32 kbps.
-          const params = sender.getParameters()
-          if (!params.encodings || params.encodings.length === 0) {
-            params.encodings = [{}]
-          }
-          params.encodings[0].maxBitrate = 64_000
-          sender.setParameters(params).catch(() => {})
+          // Bump Opus past its default ~32kbps for clearer voice.
+          queueMicrotask(() => {
+            try {
+              const params = sender.getParameters()
+              if (!params.encodings || params.encodings.length === 0) {
+                params.encodings = [{}]
+              }
+              params.encodings[0].maxBitrate = 64_000
+              sender.setParameters(params).catch(() => {})
+            } catch {}
+          })
         } catch {}
       }
 
@@ -686,29 +692,41 @@ export function useJitsi({
         // rate matches Opus's preferred config — better speech clarity than
         // the default 44.1kHz fallback.
         if (publishCamera || publishMic) {
+          // IDEAL hints only — no `min` constraints. min-constraints throw
+          // OverconstrainedError on cameras that can't deliver them (older
+          // webcams, integrated laptop cams, many phones), which falls
+          // through to a video-only fallback that loses audio. Result:
+          // candidate connects but the proctor sees no video / no audio
+          // because the candidate's offer ends up with no local tracks at
+          // all. With `ideal` only, the browser picks the closest mode it
+          // can deliver and getUserMedia returns successfully on every
+          // sane device.
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
               video: publishCamera ? {
-                width:  { ideal: 1920, min: 1280 },
-                height: { ideal: 1080, min: 720 },
-                frameRate: { ideal: 30, min: 15 },
+                width:  { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30 },
                 facingMode: 'user',
               } : false,
               audio: publishMic ? {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
-                sampleRate: { ideal: 48000 },
-                channelCount: { ideal: 1 },
               } : false,
             })
             if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
             localStreamRef.current = stream
             setLocalCameraStream(stream)
           } catch (e: any) {
-            // Fallback: try plain video-only at default constraints
+            // Fallback: try plain video + audio at default constraints so
+            // we never silently drop audio. Only if THIS also fails (truly
+            // no camera or permission denied), surface the error.
             try {
-              const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: publishCamera || false,
+                audio: publishMic ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+              })
               if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
               localStreamRef.current = stream
               setLocalCameraStream(stream)
