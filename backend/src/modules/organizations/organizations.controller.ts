@@ -51,4 +51,48 @@ export class OrganizationsController {
   async suspendOrganization(@Param('id') id: string, @Body() body: { reason: string }) {
     return this.orgsService.suspendOrganization(id, body.reason);
   }
+
+  // ── Branding ────────────────────────────────────────────────────────────
+  // HR / ORG_ADMIN read + update their OWN org's logo + brand display.
+  // Super admin can read + update any org.
+  @Get(':id/branding')
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER')
+  async getBranding(@Param('id') id: string, @Req() req: any) {
+    if (req.user.role !== 'SUPER_ADMIN' && req.user.organizationId !== id) {
+      throw new ForbiddenException();
+    }
+    return this.orgsService.getBranding(id);
+  }
+
+  @Put(':id/branding')
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER')
+  async updateBranding(
+    @Param('id') id: string,
+    @Body() body: { logoUrl?: string | null; brandColor?: string | null; displayName?: string | null },
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'SUPER_ADMIN' && req.user.organizationId !== id) {
+      throw new ForbiddenException();
+    }
+    return this.orgsService.updateBranding(id, body);
+  }
+}
+
+// ── Public branding lookup ───────────────────────────────────────────────
+// Candidates landing on /interview/<token> or /exam?token=... need the org
+// logo BEFORE they're authenticated. This separate controller is mounted
+// without guards so the public exam / interview pages can fetch the
+// branding payload via the org id returned alongside their magic-link
+// validation. Only the public-safe fields are exposed.
+import { Controller as PublicController, Get as PublicGet, Param as PublicParam } from '@nestjs/common';
+
+@ApiTags('organizations-public')
+@PublicController('organizations/public')
+export class OrganizationsPublicController {
+  constructor(private orgsService: OrganizationsService) {}
+
+  @PublicGet(':id/branding')
+  async getPublicBranding(@PublicParam('id') id: string) {
+    return this.orgsService.getBranding(id);
+  }
 }

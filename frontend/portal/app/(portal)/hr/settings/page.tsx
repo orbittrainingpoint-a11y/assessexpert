@@ -1,8 +1,8 @@
 'use client'
 import { useAuthStore } from '@/store/auth.store'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { authApi, usersApi, orgsApi } from '@/lib/api'
+import { authApi, usersApi, orgsApi, brandingApi } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { Plus, X } from 'lucide-react'
 
@@ -178,6 +178,10 @@ export default function HRSettingsPage() {
         </div>
       )}
 
+      {activeTab === 'company' && user?.organizationId && (
+        <BrandingSection organizationId={user.organizationId} />
+      )}
+
       {/* USERS */}
       {activeTab === 'users' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -290,4 +294,186 @@ export default function HRSettingsPage() {
       )}
     </div>
   )
+}
+
+// ── Branding section ────────────────────────────────────────────────────────
+//
+// HR uploads a logo (PNG/JPG, ≤200KB after client-side resize), picks a
+// brand colour, and optionally overrides the display name shown to
+// candidates. The logo is stored as a base64 data URL on
+// Organization.logo — avoids the entire file-upload pipeline for what is
+// realistically a one-row-per-org write that happens once per quarter.
+
+function BrandingSection({ organizationId }: { organizationId: string }) {
+  const qc = useQueryClient()
+  const { data: branding, isLoading } = useQuery({
+    queryKey: ['hr-branding', organizationId],
+    queryFn: () => brandingApi.get(organizationId).then(r => r.data),
+  })
+
+  const [displayName, setDisplayName] = useState('')
+  const [brandColor, setBrandColor] = useState('#00D4FF')
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoChanged, setLogoChanged] = useState(false)
+  const [resizing, setResizing] = useState(false)
+
+  // Hydrate inputs once the GET arrives. Re-runs if the operator saves
+  // and we re-fetch, so the form stays in sync with the server.
+  useEffect(() => {
+    if (!branding) return
+    setDisplayName(branding.displayName || '')
+    setBrandColor(branding.brandColor || '#00D4FF')
+    setLogoPreview(branding.logoUrl || null)
+  }, [branding])
+
+  const onPickFile = async (file: File) => {
+    if (!file) return
+    if (!/^image\/(png|jpe?g|svg\+xml|webp)$/.test(file.type)) {
+      toast.error('Logo must be PNG, JPG, SVG or WEBP')
+      return
+    }
+    setResizing(true)
+    try {
+      // Client-side resize: max 320px on the long edge, JPEG q=0.85. Keeps
+      // the data URL under ~80KB even for full-bleed photographic logos.
+      // SVG passes through untouched (vector — no resize needed).
+      const dataUrl = file.type === 'image/svg+xml'
+        ? await readAsDataUrl(file)
+        : await resizeImage(file, 320, 0.85)
+      setLogoPreview(dataUrl)
+      setLogoChanged(true)
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not read logo')
+    } finally {
+      setResizing(false)
+    }
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => brandingApi.update(organizationId, {
+      displayName: displayName || null,
+      brandColor: brandColor || null,
+      ...(logoChanged ? { logoUrl: logoPreview } : {}),
+    }),
+    onSuccess: () => {
+      toast.success('Branding saved')
+      qc.invalidateQueries({ queryKey: ['hr-branding', organizationId] })
+      // Also refresh the layout's branding query so the sidebar updates
+      // without a page refresh.
+      qc.invalidateQueries({ queryKey: ['branding', organizationId] })
+      setLogoChanged(false)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Save failed'),
+  })
+
+  return (
+    <div className="glass-card" style={{ padding: '24px', marginTop: 16 }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Brand & Logo</h3>
+      <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+        Your logo appears in the HR portal sidebar, on the candidate's interview / exam page, and in invitation emails sent on your behalf.
+      </p>
+
+      {isLoading ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading…</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Logo upload */}
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Logo</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{
+                width: 96, height: 96, borderRadius: 10, background: 'var(--bg-base)',
+                border: '1px solid var(--border)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+              }}>
+                {logoPreview ? (
+                  <img src={logoPreview} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                ) : (
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No logo</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  onChange={e => e.target.files?.[0] && onPickFile(e.target.files[0])}
+                  style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+                />
+                {logoPreview && (
+                  <button type="button" className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px', width: 'fit-content' }}
+                    onClick={() => { setLogoPreview(null); setLogoChanged(true) }}>
+                    Remove logo
+                  </button>
+                )}
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>
+                  PNG, JPG, SVG, or WEBP. Resized to 320px on the long edge.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Display name */}
+          <div>
+            <label htmlFor="bn-name" style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Display name (optional)</label>
+            <input id="bn-name" className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)}
+              placeholder="Defaults to the company's legal name"
+              style={{ fontSize: 13 }} />
+          </div>
+
+          {/* Brand color */}
+          <div>
+            <label htmlFor="bn-color" style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Accent colour</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input id="bn-color" type="color" value={brandColor} onChange={e => setBrandColor(e.target.value)}
+                style={{ width: 44, height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: 2, background: 'transparent' }} />
+              <input className="form-input" value={brandColor} onChange={e => setBrandColor(e.target.value)}
+                placeholder="#00D4FF" style={{ fontSize: 13, flex: 1, fontFamily: 'monospace' }} />
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+              Used to colour the brand name + interactive accents. Must be a hex value like <code>#00D4FF</code>.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button type="button" className="btn-primary" disabled={saveMutation.isPending || resizing}
+              onClick={() => saveMutation.mutate()}
+              style={{ padding: '10px 18px', fontWeight: 600 }}>
+              {saveMutation.isPending ? 'Saving…' : resizing ? 'Resizing logo…' : 'Save branding'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result as string)
+    r.onerror = () => reject(new Error('Read failed'))
+    r.readAsDataURL(file)
+  })
+}
+
+async function resizeImage(file: File, maxEdge: number, quality: number): Promise<string> {
+  const dataUrl = await readAsDataUrl(file)
+  const img = new Image()
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve()
+    img.onerror = () => reject(new Error('Image decode failed'))
+    img.src = dataUrl
+  })
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height))
+  const w = Math.round(img.width * scale)
+  const h = Math.round(img.height * scale)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas unavailable')
+  ctx.drawImage(img, 0, 0, w, h)
+  return canvas.toDataURL('image/jpeg', quality)
 }

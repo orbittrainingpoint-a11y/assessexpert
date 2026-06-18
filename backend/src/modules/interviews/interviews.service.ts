@@ -75,7 +75,7 @@ export class InterviewsService {
     try {
       const org = await this.prisma.organization.findUnique({
         where: { id: data.organizationId },
-        select: { name: true, timezone: true },
+        select: { name: true, tradingName: true, logo: true, timezone: true, brandingConfig: true },
       });
       const baseUrl = process.env.FRONTEND_URL
         || (process.env.FRONTEND_URLS || '').split(',')[0]
@@ -90,6 +90,11 @@ export class InterviewsService {
           timezone: org?.timezone || 'Asia/Dubai',
           magicLink,
           notes: data.notes,
+          branding: org ? {
+            displayName: org.tradingName || org.name,
+            logoUrl: org.logo,
+            brandColor: (org.brandingConfig as any)?.brandColor || null,
+          } : null,
         },
       );
     } catch (err: any) {
@@ -182,7 +187,7 @@ export class InterviewsService {
       if (candidate) {
         const org = await this.prisma.organization.findUnique({
           where: { id: candidate.organizationId },
-          select: { name: true, timezone: true },
+          select: { name: true, tradingName: true, logo: true, timezone: true, brandingConfig: true },
         });
         const baseUrl = process.env.FRONTEND_URL
           || (process.env.FRONTEND_URLS || '').split(',')[0]
@@ -197,6 +202,11 @@ export class InterviewsService {
             timezone: org?.timezone || 'Asia/Dubai',
             magicLink,
             notes: existing.notes ?? null,
+            branding: org ? {
+              displayName: org.tradingName || org.name,
+              logoUrl: org.logo,
+              brandColor: (org.brandingConfig as any)?.brandColor || null,
+            } : null,
           },
         );
       }

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth.store'
-import { authApi, notificationsApi } from '@/lib/api'
+import { authApi, brandingApi, notificationsApi } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, Users, Building2, Calendar, FileText,
@@ -92,6 +92,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     enabled: isAuthenticated,
   })
 
+  // Per-org branding — pulls the org's logo + display name + brand color so
+  // the sidebar shows the customer's brand instead of the platform default.
+  // Super admin sees the assessexpert default (no orgId in their JWT).
+  const { data: branding } = useQuery({
+    queryKey: ['branding', user?.organizationId],
+    queryFn: () => brandingApi.get(user!.organizationId!).then(r => r.data),
+    enabled: isAuthenticated && !!user?.organizationId,
+    staleTime: 5 * 60 * 1000,
+  })
+
   useEffect(() => {
     if (hydrated && !isAuthenticated) router.push('/login')
   }, [hydrated, isAuthenticated, router])
@@ -115,9 +125,32 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
         position: 'fixed', top: 0, left: 0, zIndex: 50,
       }}>
-        {/* Logo */}
+        {/* Logo — uses the org's uploaded logo + display name when available,
+            falls back to the assessexpert default for super-admin or
+            pre-branding orgs. */}
         <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border)' }}>
-          <h1 style={{ color: 'var(--cyan)', fontSize: '18px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
+          {branding?.logoUrl ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img
+                src={branding.logoUrl}
+                alt={branding.displayName || 'Organization logo'}
+                style={{ height: 28, width: 'auto', objectFit: 'contain' }}
+              />
+              <h1 style={{
+                color: branding?.brandColor || 'var(--cyan)',
+                fontSize: '15px', fontWeight: '700', margin: 0,
+              }}>
+                {branding.displayName || 'assessexpert'}
+              </h1>
+            </div>
+          ) : (
+            <h1 style={{
+              color: branding?.brandColor || 'var(--cyan)',
+              fontSize: '18px', fontWeight: '700', margin: 0,
+            }}>
+              {branding?.displayName || 'assessexpert'}
+            </h1>
+          )}
           <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: '4px 0 0' }}>
             {user.role.replace(/_/g, ' ')}
           </p>

@@ -132,6 +132,11 @@ export class NotificationsService {
     timezone: string;
     magicLink: string;
     notes?: string | null;
+    // Optional org branding — when present, the email header swaps the
+    // platform's name+colour for the customer's, so the candidate sees the
+    // hiring company's brand throughout. Logo can be a data URL (the same
+    // shape the HR settings UI saves) or an http(s) URL.
+    branding?: { logoUrl?: string | null; displayName?: string | null; brandColor?: string | null } | null;
   }) {
     const dateOptions: Intl.DateTimeFormatOptions = {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -145,10 +150,14 @@ export class NotificationsService {
     const formattedTime = data.scheduledAt.toLocaleTimeString('en-US', timeOptions);
     const formattedDateTime = `${formattedDate} at ${formattedTime} (${data.timezone || 'Asia/Dubai'})`;
 
+    const brandColor = data.branding?.brandColor || '#00D4FF';
+    const brandName = data.branding?.displayName || data.companyName || 'assessexpert';
+    const brandLogo = data.branding?.logoUrl || '';
     const html = `
       <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 600px; margin: 0 auto;">
         <div style="text-align: center; margin-bottom: 32px;">
-          <h1 style="color: #00D4FF; font-size: 24px; margin: 0;">assessexpert</h1>
+          ${brandLogo ? `<img src="${brandLogo}" alt="${brandName}" style="max-height: 48px; max-width: 240px; margin-bottom: 12px; object-fit: contain;" /><br/>` : ''}
+          <h1 style="color: ${brandColor}; font-size: 24px; margin: 0;">${brandName}</h1>
         </div>
         <h2 style="color: #F1F5F9;">You're Invited to an Interview</h2>
         <p>Hi ${candidateName},</p>
@@ -161,11 +170,11 @@ export class NotificationsService {
         <p style="color: #94A3B8;">Please ensure you have a working webcam, microphone, and a stable internet connection. Identity is re-verified against your assessment photo during the call.</p>
         <p style="color: #F59E0B; font-weight: 600;">⏰ The link below opens your interview room.</p>
         <div style="text-align: center; margin: 32px 0;">
-          <a href="${data.magicLink}" style="background: #00D4FF; color: #060B18; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Join Interview</a>
+          <a href="${data.magicLink}" style="background: ${brandColor}; color: #060B18; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Join Interview</a>
         </div>
         <p style="color: #475569; font-size: 12px;">This link is personal. Do not share it. If the button does not work, paste this URL into your browser: <br/>${data.magicLink}</p>
         <hr style="border-color: rgba(255,255,255,0.08); margin: 24px 0;">
-        <p style="color: #475569; font-size: 12px; text-align: center;">assessexpert | Powered by Orbit Training · Dubai, UAE</p>
+        <p style="color: #475569; font-size: 12px; text-align: center;">${brandName} · Powered by assessexpert</p>
       </div>`;
 
     return this.sendEmail(candidateEmail, `Interview Invitation — ${data.companyName}`, html);

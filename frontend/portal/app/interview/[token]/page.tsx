@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, use } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Camera, Mic, MicOff, Video, VideoOff, ShieldCheck, AlertTriangle, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { interviewsApi } from '@/lib/api'
+import { interviewsApi, brandingApi } from '@/lib/api'
 import { useJitsi } from '@/lib/useJitsi'
 
 type Phase = 'loading' | 'invalid' | 'expired' | 'consent' | 'permission' | 'waiting' | 'live' | 'ended'
@@ -20,6 +20,17 @@ export default function CandidateInterviewPage({ params }: { params: Promise<{ t
     queryFn: () => interviewsApi.getByToken(token).then(r => r.data),
     refetchInterval: 8_000,
     retry: false,
+  })
+
+  // Co-branding: pull the hiring org's logo + display name so the candidate
+  // sees the customer's brand throughout the interview, not the platform
+  // default. Public endpoint — no auth needed; the org id was already
+  // returned from the magic-link lookup so we're not leaking anything new.
+  const { data: branding } = useQuery({
+    queryKey: ['branding-public', interview?.organizationId],
+    queryFn: () => brandingApi.getPublic(interview!.organizationId).then(r => r.data),
+    enabled: !!interview?.organizationId,
+    staleTime: 10 * 60 * 1000,
   })
 
   useEffect(() => {
@@ -44,7 +55,7 @@ export default function CandidateInterviewPage({ params }: { params: Promise<{ t
 
   if (phase === 'consent') {
     return (
-      <CenteredCard title="Join your interview" subtitle={interview?.scheduledAt ? new Date(interview.scheduledAt).toLocaleString() : ''}>
+      <CenteredCard title="Join your interview" subtitle={interview?.scheduledAt ? new Date(interview.scheduledAt).toLocaleString() : ''} branding={branding}>
         <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', lineHeight: 1.55, fontSize: 14 }}>
           You're about to join a live video interview. By continuing you confirm that:
         </p>
@@ -80,12 +91,12 @@ export default function CandidateInterviewPage({ params }: { params: Promise<{ t
   }
 
   if (phase === 'permission') {
-    return <PermissionGate onReady={() => setPhase(interview?.status === 'IN_PROGRESS' ? 'live' : 'waiting')} />
+    return <PermissionGate branding={branding} onReady={() => setPhase(interview?.status === 'IN_PROGRESS' ? 'live' : 'waiting')} />
   }
 
   if (phase === 'waiting') {
     return (
-      <CenteredCard title="Waiting for the interviewer" subtitle="Your camera is ready. The interviewer will join shortly.">
+      <CenteredCard title="Waiting for the interviewer" subtitle="Your camera is ready. The interviewer will join shortly." branding={branding}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 16, background: 'var(--bg-base)', borderRadius: 8, marginTop: 8 }}>
           <Loader2 size={18} className="animate-spin" />
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Connecting…</span>
@@ -94,10 +105,10 @@ export default function CandidateInterviewPage({ params }: { params: Promise<{ t
     )
   }
 
-  return <CandidateLive interview={interview} token={token} />
+  return <CandidateLive interview={interview} token={token} branding={branding} />
 }
 
-function CandidateLive({ interview, token }: { interview: any; token: string }) {
+function CandidateLive({ interview, token, branding }: { interview: any; token: string; branding?: { logoUrl?: string | null; displayName?: string | null; brandColor?: string | null } }) {
   const selfRef = useRef<HTMLVideoElement>(null)
   const hrRef = useRef<HTMLVideoElement>(null)
   const [camOn, setCamOn] = useState(true)
@@ -146,11 +157,21 @@ function CandidateLive({ interview, token }: { interview: any; token: string }) 
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', display: 'flex', flexDirection: 'column' }}>
-      {/* Top status bar */}
+      {/* Top status bar — co-branded with the hiring org */}
       <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.6)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'rgba(255,255,255,0.9)', fontSize: 13 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: isConnected ? '#10b981' : '#f59e0b' }} />
-          {isConnected ? 'Connected' : 'Connecting…'} · Interview in progress
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {branding?.logoUrl && (
+            <img src={branding.logoUrl} alt={branding.displayName || ''} style={{ height: 20, width: 'auto', objectFit: 'contain' }} />
+          )}
+          {branding?.displayName && (
+            <span style={{ color: branding.brandColor || 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 600 }}>
+              {branding.displayName}
+            </span>
+          )}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'rgba(255,255,255,0.9)', fontSize: 13 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: isConnected ? '#10b981' : '#f59e0b' }} />
+            {isConnected ? 'Connected' : 'Connecting…'} · Interview in progress
+          </span>
         </div>
         <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{new Date(interview.scheduledAt).toLocaleString()}</span>
       </div>
@@ -206,7 +227,7 @@ function ctrlBtn(on: boolean): React.CSSProperties {
   }
 }
 
-function PermissionGate({ onReady }: { onReady: () => void }) {
+function PermissionGate({ onReady, branding }: { onReady: () => void; branding?: { logoUrl?: string | null; displayName?: string | null; brandColor?: string | null } }) {
   const [status, setStatus] = useState<'idle' | 'requesting' | 'granted' | 'denied'>('idle')
   const [errMsg, setErrMsg] = useState('')
 
@@ -226,7 +247,7 @@ function PermissionGate({ onReady }: { onReady: () => void }) {
   }
 
   return (
-    <CenteredCard title="Camera & microphone" subtitle="We need access to your camera and mic for the interview.">
+    <CenteredCard title="Camera & microphone" subtitle="We need access to your camera and mic for the interview." branding={branding}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '8px 0 16px' }}>
         <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(0,212,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cyan)' }}>
           <Camera size={28} />
@@ -245,10 +266,23 @@ function PermissionGate({ onReady }: { onReady: () => void }) {
   )
 }
 
-function CenteredCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function CenteredCard({ title, subtitle, branding, children }: { title: string; subtitle?: string; branding?: { logoUrl?: string | null; displayName?: string | null; brandColor?: string | null }; children: React.ReactNode }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', padding: 20 }}>
       <div style={{ width: '100%', maxWidth: 460, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 28, boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+        {/* Hiring company branding */}
+        {branding && (branding.logoUrl || branding.displayName) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+            {branding.logoUrl && (
+              <img src={branding.logoUrl} alt={branding.displayName || 'Logo'} style={{ height: 28, width: 'auto', objectFit: 'contain' }} />
+            )}
+            {branding.displayName && (
+              <span style={{ fontSize: 14, fontWeight: 600, color: branding.brandColor || 'var(--cyan)' }}>
+                {branding.displayName}
+              </span>
+            )}
+          </div>
+        )}
         <h1 style={{ margin: 0, fontSize: 20, color: 'var(--text-primary)', fontWeight: 600 }}>{title}</h1>
         {subtitle && <p style={{ margin: '6px 0 18px', color: 'var(--text-muted)', fontSize: 13 }}>{subtitle}</p>}
         {children}

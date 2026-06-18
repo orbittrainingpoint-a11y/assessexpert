@@ -389,6 +389,17 @@ export const turnApi = {
   getCredentials: () => api.get('/turn/credentials'),
 }
 
+// Org branding — co-branded HR portal + candidate experience. Authenticated
+// HR can read+update their own org's branding; the public endpoint lets
+// candidate pages fetch by org id (the org id is returned alongside the
+// magic-link lookup so we don't expose any guessable identifier).
+export const brandingApi = {
+  get: (orgId: string) => api.get(`/organizations/${orgId}/branding`),
+  getPublic: (orgId: string) => api.get(`/organizations/public/${orgId}/branding`),
+  update: (orgId: string, body: { logoUrl?: string | null; brandColor?: string | null; displayName?: string | null }) =>
+    api.put(`/organizations/${orgId}/branding`, body),
+}
+
 // Interviews
 export const interviewsApi = {
   schedule: (data: any) => api.post('/interviews/schedule', data),
