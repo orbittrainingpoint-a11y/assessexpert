@@ -30,6 +30,18 @@ async function bootstrap() {
     );
     process.exit(1);
   }
+  if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
+    // Same secret defeats the whole point of a refresh token: a stolen access
+    // token could be used to forge a refresh token (and vice-versa) since the
+    // signing key is identical. Refuse to boot.
+    // eslint-disable-next-line no-console
+    console.error(
+      '\n[FATAL] JWT_SECRET and JWT_REFRESH_SECRET must be DIFFERENT values.\n' +
+      'Generate two distinct random secrets — refresh tokens lose their\n' +
+      'security guarantee when the access-token signing key matches.\n',
+    );
+    process.exit(1);
+  }
 
   // Disable the default body parser (100KB JSON limit) so we can install
   // our own with a roomier ceiling. Several endpoints accept base64-

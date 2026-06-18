@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -63,7 +63,18 @@ export class CandidatesService {
       },
     });
     if (!candidate) throw new NotFoundException('Candidate not found');
-    if (candidate.organizationId !== organizationId) throw new NotFoundException('Candidate not found');
+    // Cross-org reference (rare — typically an interview/session created
+    // before our tenant-safety checks landed, or a candidate moved orgs).
+    // Throwing 404 here makes HR see a generic console error and the UI
+    // silently lacks the reference photo. Surface a 403 with a clear
+    // reason so the calling component can render a helpful banner
+    // instead of looking broken.
+    if (candidate.organizationId !== organizationId) {
+      throw new ForbiddenException({
+        message: 'Candidate belongs to a different organization',
+        code: 'CANDIDATE_ORG_MISMATCH',
+      });
+    }
     return candidate;
   }
 

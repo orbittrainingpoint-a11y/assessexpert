@@ -174,7 +174,12 @@ export class SessionsService {
     return { allSubmitted, total: candidates.length, submitted: candidates.filter(c => c.mcqSubmittedAt).length };
   }
 
-  async getSession(id: string, organizationId?: string) {
+  // Tenant safety: organizationId is REQUIRED for external/HR callers. The
+  // explicit `null` overload exists for internal-server flows (a service
+  // looking up a session from a socket event where the user's org isn't in
+  // scope — startMcq, recording uploads, etc.). Make the bypass explicit so
+  // a controller can't accidentally omit the org and leak cross-tenant data.
+  async getSession(id: string, organizationId: string | null) {
     const session = await this.prisma.examSession.findUnique({
       where: { id },
       include: {
@@ -187,7 +192,7 @@ export class SessionsService {
       },
     });
     if (!session) throw new NotFoundException('Session not found');
-    if (organizationId && session.organizationId !== organizationId) {
+    if (organizationId !== null && session.organizationId !== organizationId) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -294,7 +299,9 @@ export class SessionsService {
   }
 
   async startMcq(sessionId: string, proctorId: string) {
-    const session = await this.getSession(sessionId);
+    // Internal flow — proctor-token already validated upstream; org check
+    // happens at the controller layer before reaching here.
+    const session = await this.getSession(sessionId, null);
     const alreadyStarted = ['MCQ_IN_PROGRESS', 'MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL', 'PRACTICAL_IN_PROGRESS', 'SUBMITTED'];
     if (alreadyStarted.includes(session.status)) {
       // Idempotent — already started, return current session
@@ -471,7 +478,9 @@ export class SessionsService {
   // (legacy behaviour). Flips the slot into PRACTICAL_IN_PROGRESS the
   // first time anyone gets assigned.
   async assignPracticalTask(sessionId: string, practicalTaskId: string, proctorId: string, candidateId?: string) {
-    const session = await this.getSession(sessionId) as any;
+    // Internal flow — proctor already authenticated upstream; tenant check
+    // happens at the controller layer.
+    const session = await this.getSession(sessionId, null) as any;
     const allowedStatuses = ['MCQ_COMPLETE', 'MCQ_SUBMITTED', 'AWAITING_PRACTICAL'];
     if (!allowedStatuses.includes(session.status)) {
       throw new BadRequestException('MCQ must be completed before assigning practical task');
