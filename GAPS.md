@@ -82,12 +82,12 @@ Generated 2026-06-18 alongside BUGS.md after fixing the four critical items.
   renders pass/fail.
 - **Effort:** ~1 hour.
 
-### G9. Bulk candidate import / CSV upload
-- HR can only add candidates one at a time. Realistic onboarding (50
-  candidates per cohort) is painful.
-- **Suggested:** `POST /candidates/import` accepting CSV; reuse existing
-  `createCandidate` per row with chunked progress reporting.
-- **Effort:** ~3 hours.
+### G9. Bulk candidate import / CSV upload ✅
+- **Status:** DONE. `POST /candidates/import` accepts CSV
+  (rfc-4180 parser, BOM-tolerant, 5000-row limit). Tolerant column-
+  name matching ("Email Address" → email, "first_name" → firstName,
+  etc.). Returns structured `{ success, failed, summary, created,
+  duplicates, errors }` so HR sees per-row outcomes.
 
 ### G10. No timezone display on the HR scheduling view
 - Slot is shown in HR's local browser time but the candidate sees their own

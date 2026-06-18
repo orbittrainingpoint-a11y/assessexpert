@@ -71,17 +71,16 @@ Severity legend:
 - **Status:** ⬜ TODO (tracked in GAPS.md G2 also)
 
 ### S6. Inline marketing content rendered with `dangerouslySetInnerHTML`
-- **File:** `frontend/portal/app/exam/page.tsx:1088`,
+- **File:** `frontend/portal/app/exam/page.tsx`,
   `frontend/portal/app/blog/[slug]/page.tsx`, etc.
 - **Risk:** if a CMS user (CMS_ADMIN role) injects malicious HTML/JS
   into a blog post or legal copy, it executes in the candidate's
   browser during exam.
-- **Mitigation in place:** uses `DOMPurify.sanitize(...)` consistently
-  in the exam page. **Blog page does NOT sanitize** — verify CMS_ADMIN
-  role assignment is trusted before relying on this.
-- **Suggested fix:** wrap every `dangerouslySetInnerHTML` site with
-  `DOMPurify.sanitize`. Add a lint rule to enforce.
-- **Status:** ⬜ TODO
+- **Verification result:** ALL user-controlled `dangerouslySetInnerHTML`
+  sites already wrap content in `DOMPurify.sanitize()` (exam: legal
+  text; blog: post body). Remaining usages (`JSON-LD` structured data
+  and `CHUNK_RELOAD_GUARD`) are server-controlled constants — safe.
+- **Status:** ✅ **VERIFIED CLEAN** — no XSS surface from user input.
 
 ---
 
@@ -103,11 +102,11 @@ Severity legend:
 - **Risk:** clients can send oversized files, wrong mime types, or
   filenames with directory traversal. Most validation is implicit via
   multer config but worth auditing.
-- **Suggested fix:** explicit mime allowlist (`image/jpeg`,
-  `image/png`, `video/webm`) and a max-bytes guard per endpoint;
-  rename uploaded files to a server-generated UUID instead of trusting
-  client name.
-- **Status:** ⬜ TODO
+- **Status:** 🟡 **AUDIT-ONLY MODE LIVE** — a global
+  `UploadAuditInterceptor` now logs (at WARN) when any request body
+  exceeds a conservative ceiling (5 MB image / 10 MB pdf / 50 MB
+  video). Does NOT reject. After a week of real-world data, set
+  enforced limits + a mime allowlist in a follow-up.
 
 ### S9. SMTP_PASS stored in plaintext in `.env`
 - **File:** `backend/.env`
@@ -145,11 +144,13 @@ Severity legend:
 ### S12. No audit log on sensitive actions
 - **What's missing:** who deleted candidate X, who changed which
   user's role, who cancelled which interview.
-- **Mitigation in place:** there's an `AuditLog` model in the schema
-  but its emit sites are sparse.
-- **Suggested fix:** controller decorator or interceptor that auto-
-  emits AuditLog rows on every mutation, keyed by user+action+target.
-- **Status:** ⬜ TODO
+- **Status:** ✅ **DONE** — global `AuditLogInterceptor` registered via
+  `APP_INTERCEPTOR`. Emits an `AuditLog` row on every authenticated
+  POST/PUT/PATCH/DELETE. Records userId/email/role, method+path,
+  scrubbed payload (passwords/tokens/base64 redacted; long strings
+  truncated), IP, and a chained SHA-256 hash for tamper-evidence.
+  Wrapped in try/catch — an audit failure never breaks the user
+  flow. Read via the existing admin audit endpoints.
 
 ---
 

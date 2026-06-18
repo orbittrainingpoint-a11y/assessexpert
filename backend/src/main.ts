@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { UploadAuditInterceptor } from './common/interceptors/upload-audit.interceptor';
 import * as cookieParser from 'cookie-parser';
 import * as path from 'path';
 import helmet from 'helmet';
@@ -147,6 +148,12 @@ async function bootstrap() {
 
   // Global exception filter
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // Audit-only upload-size logger. Logs (at WARN) when a request body
+  // exceeds the conservative ceilings — does not reject. Lets us see
+  // real-world upload sizes for a week before deciding actual limits.
+  // S8 in SECURITY.md.
+  app.useGlobalInterceptors(new UploadAuditInterceptor());
 
   // Validation
   app.useGlobalPipes(new ValidationPipe({

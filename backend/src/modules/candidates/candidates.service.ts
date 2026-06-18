@@ -267,35 +267,66 @@ export class CandidatesService {
   }
 
   async bulkImport(rows: any[], organizationId: string) {
-    const results = { success: 0, errors: [] as any[], duplicates: 0 };
+    const results = { success: 0, failed: 0, errors: [] as any[], duplicates: 0 };
     for (const [idx, row] of rows.entries()) {
+      const rowNum = idx + 2; // +2: header row + 1-indexed
+      // Tolerant column-name matching — operators paste CSVs from
+      // anywhere; accept the manual-import format AND the obvious
+      // human-readable variants ("Email Address", "first_name", etc.)
+      const email = (pick(row, 'email', 'Email', 'Email Address', 'email_address') || '').toString().trim().toLowerCase();
+      const firstName = (pick(row, 'firstName', 'first_name', 'First Name', 'firstname') || '').toString().trim();
+      const lastName = (pick(row, 'lastName', 'last_name', 'Last Name', 'lastname') || '').toString().trim();
+      const jobPosition = (pick(row, 'jobPosition', 'job_position', 'Job Position', 'Job Role', 'position') || '').toString().trim();
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        results.failed++;
+        results.errors.push({ row: rowNum, error: 'Invalid or missing email' });
+        continue;
+      }
+      if (!firstName) { results.failed++; results.errors.push({ row: rowNum, error: 'Missing first name' }); continue; }
+      if (!lastName)  { results.failed++; results.errors.push({ row: rowNum, error: 'Missing last name' });  continue; }
+
       try {
         const existing = await this.prisma.candidateRecord.findUnique({
-          where: { email_organizationId: { email: row.email, organizationId } },
+          where: { email_organizationId: { email, organizationId } },
+          select: { id: true },
         });
         if (existing) {
           results.duplicates++;
-          results.errors.push({ row: idx + 2, error: `Duplicate email: ${row.email}` });
+          results.failed++;
+          results.errors.push({ row: rowNum, error: `Duplicate email: ${email}` });
           continue;
         }
         await this.prisma.candidateRecord.create({
           data: {
             organizationId,
-            email: row.email,
-            firstName: row.firstName || row['First Name'],
-            lastName: row.lastName || row['Last Name'],
-            phone: row.phone || row['Phone'],
-            jobPosition: row.jobPosition || row['Job Role'] || '',
-            yearsExperience: row.yearsExperience || row['Experience (years)'],
-            notes: row.notes || row['Notes'],
+            email,
+            firstName,
+            lastName,
+            phone: (pick(row, 'phone', 'Phone', 'mobile', 'Mobile') || '').toString().trim() || null,
+            jobPosition: jobPosition || '',
+            yearsExperience: (pick(row, 'yearsExperience', 'Experience (years)', 'years_experience', 'experience') || '').toString().trim() || null,
+            department: (pick(row, 'department', 'Department') || '').toString().trim() || null,
+            notes: (pick(row, 'notes', 'Notes') || '').toString().trim() || null,
             source: 'UPLOAD',
           },
         });
         results.success++;
-      } catch (e) {
-        results.errors.push({ row: idx + 2, error: e.message });
+      } catch (e: any) {
+        results.failed++;
+        results.errors.push({ row: rowNum, error: e?.message || 'Insert failed' });
       }
     }
     return results;
   }
+}
+
+// Tolerant column-name lookup for CSV imports. Returns the first value
+// whose key matches any of the supplied variants (case-sensitive — match
+// what was found in the CSV header). Used by bulkImport.
+function pick(row: Record<string, any>, ...keys: string[]): any {
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && row[k] !== '') return row[k];
+  }
+  return undefined;
 }

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -80,5 +82,10 @@ import { AppController } from './app.controller';
     CmsModule,
   ],
   controllers: [AppController],
+  providers: [
+    // Audit log interceptor — emits an AuditLog row per authenticated
+    // mutation. Registered via APP_INTERCEPTOR so it can DI PrismaService.
+    { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+  ],
 })
 export class AppModule {}
