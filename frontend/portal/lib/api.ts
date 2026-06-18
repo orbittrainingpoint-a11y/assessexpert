@@ -397,6 +397,9 @@ export const interviewsApi = {
   start: (id: string) => api.post(`/interviews/${id}/start`),
   end: (id: string, body: any) => api.post(`/interviews/${id}/end`, body),
   cancel: (id: string) => api.post(`/interviews/${id}/cancel`),
+  reschedule: (id: string, scheduledAt: string) =>
+    api.post(`/interviews/${id}/reschedule`, { scheduledAt }),
+  presence: () => api.get('/interviews/presence'),
   verifyFrame: (id: string, capturedImage: string) =>
     api.post(`/interviews/${id}/verify-frame`, { capturedImage }),
   manualVerify: (id: string, verified: boolean, note?: string) =>

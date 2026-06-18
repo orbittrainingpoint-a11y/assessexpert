@@ -60,6 +60,21 @@ export default function CandidateInterviewPage({ params }: { params: Promise<{ t
         <button onClick={() => setPhase('permission')} disabled={!agreed} className="btn-primary" style={{ width: '100%', padding: '12px 16px', fontWeight: 600, opacity: agreed ? 1 : 0.5, cursor: agreed ? 'pointer' : 'not-allowed' }}>
           Continue
         </button>
+        <a
+          href="/status"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'block',
+            marginTop: 12,
+            textAlign: 'center',
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            textDecoration: 'underline',
+          }}
+        >
+          Test your setup first (opens in new tab)
+        </a>
       </CenteredCard>
     )
   }

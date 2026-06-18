@@ -36,12 +36,25 @@ export default function HRInterviewsPage() {
   const router = useRouter()
   const qc = useQueryClient()
   const [showSchedule, setShowSchedule] = useState(false)
+  const [rescheduleFor, setRescheduleFor] = useState<Interview | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['hr-interviews'],
     queryFn: () => interviewsApi.getAll().then(r => r.data),
     refetchInterval: 30_000,
   })
+
+  // Lightweight presence poll — backend tracks interviews whose candidate
+  // browser hit the public token endpoint in the last 30s and returns
+  // their ids here. Each upcoming row pulses cyan if its id is in the
+  // set so HR sees "candidate is on the join page already" before they
+  // even open the room.
+  const { data: presenceData } = useQuery({
+    queryKey: ['hr-interview-presence'],
+    queryFn: () => interviewsApi.presence().then(r => r.data),
+    refetchInterval: 10_000,
+  })
+  const activeIds: Set<string> = new Set(presenceData?.activeIds || [])
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => interviewsApi.cancel(id),
@@ -78,9 +91,9 @@ export default function HRInterviewsPage() {
         <EmptyState onSchedule={() => setShowSchedule(true)} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-          <Section title="Live now" emoji="🔴" items={groups.active} onCancel={(id) => cancelMutation.mutate(id)} />
-          <Section title="Upcoming" emoji="📅" items={groups.upcoming} onCancel={(id) => cancelMutation.mutate(id)} />
-          <Section title="Past" emoji="🗂" items={groups.past} onCancel={(id) => cancelMutation.mutate(id)} compact />
+          <Section title="Live now" emoji="🔴" items={groups.active} onCancel={(id) => cancelMutation.mutate(id)} onReschedule={setRescheduleFor} activeIds={activeIds} />
+          <Section title="Upcoming" emoji="📅" items={groups.upcoming} onCancel={(id) => cancelMutation.mutate(id)} onReschedule={setRescheduleFor} activeIds={activeIds} />
+          <Section title="Past" emoji="🗂" items={groups.past} onCancel={(id) => cancelMutation.mutate(id)} onReschedule={setRescheduleFor} compact activeIds={activeIds} />
         </div>
       )}
 
@@ -90,11 +103,54 @@ export default function HRInterviewsPage() {
           onScheduled={() => { setShowSchedule(false); qc.invalidateQueries({ queryKey: ['hr-interviews'] }) }}
         />
       )}
+
+      {rescheduleFor && (
+        <RescheduleModal
+          interview={rescheduleFor}
+          onClose={() => setRescheduleFor(null)}
+          onRescheduled={() => { setRescheduleFor(null); qc.invalidateQueries({ queryKey: ['hr-interviews'] }) }}
+        />
+      )}
     </div>
   )
 }
 
-function Section({ title, emoji, items, onCancel, compact }: { title: string; emoji: string; items: Interview[]; onCancel: (id: string) => void; compact?: boolean }) {
+function RescheduleModal({ interview, onClose, onRescheduled }: { interview: Interview; onClose: () => void; onRescheduled: () => void }) {
+  const [scheduledAt, setScheduledAt] = useState('')
+  const mutation = useMutation({
+    mutationFn: () => interviewsApi.reschedule(interview.id, new Date(scheduledAt).toISOString()),
+    onSuccess: () => { toast.success('Interview rescheduled — invite re-sent'); onRescheduled() },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Reschedule failed'),
+  })
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} className="glass-card" style={{ width: '100%', maxWidth: 460, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>Reschedule Interview</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+              Current slot: {fmtDate(interview.scheduledAt)}. The candidate's existing magic link stays valid until 24h after the new time.
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label htmlFor="re-when" style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>New date &amp; time</label>
+            <input id="re-when" className="form-input" type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} autoFocus />
+          </div>
+          <button type="button" className="btn-primary" disabled={!scheduledAt || mutation.isPending}
+            onClick={() => mutation.mutate()}
+            style={{ width: '100%', padding: '12px', fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            {mutation.isPending ? <><Loader2 size={16} className="animate-spin" /> Rescheduling…</> : <><Calendar size={16} /> Reschedule &amp; re-send invite</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Section({ title, emoji, items, onCancel, onReschedule, compact, activeIds }: { title: string; emoji: string; items: Interview[]; onCancel: (id: string) => void; onReschedule: (interview: Interview) => void; compact?: boolean; activeIds: Set<string> }) {
   if (items.length === 0) return null
   return (
     <div>
@@ -104,13 +160,13 @@ function Section({ title, emoji, items, onCancel, compact }: { title: string; em
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({items.length})</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map(i => <Row key={i.id} interview={i} onCancel={onCancel} compact={compact} />)}
+        {items.map(i => <Row key={i.id} interview={i} onCancel={onCancel} onReschedule={onReschedule} compact={compact} present={activeIds.has(i.id)} />)}
       </div>
     </div>
   )
 }
 
-function Row({ interview: i, onCancel, compact }: { interview: Interview; onCancel: (id: string) => void; compact?: boolean }) {
+function Row({ interview: i, onCancel, onReschedule, compact, present }: { interview: Interview; onCancel: (id: string) => void; onReschedule: (interview: Interview) => void; compact?: boolean; present?: boolean }) {
   const st = statusStyle(i.status)
   const { data: cand } = useQuery({
     queryKey: ['candidate', i.candidateId],
@@ -136,6 +192,12 @@ function Row({ interview: i, onCancel, compact }: { interview: Interview; onCanc
             {i.frVerdict && (
               <VerifyChip verdict={i.frVerdict} similarity={i.frSimilarity} />
             )}
+            {present && (
+              <span title="Candidate is on the join page right now" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--cyan)' }} />
+                Candidate waiting
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--text-muted)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={11} /> {fmtDate(i.scheduledAt)}</span>
@@ -160,6 +222,12 @@ function Row({ interview: i, onCancel, compact }: { interview: Interview; onCanc
             navigator.clipboard.writeText(url).then(() => toast.success('Candidate link copied')).catch(() => toast.error('Copy failed'))
           }} title="Copy candidate join link" className="btn-ghost" style={{ padding: '8px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
             <Link2 size={12} /> Copy link
+          </button>
+        )}
+        {i.status === 'SCHEDULED' && (
+          <button onClick={() => onReschedule(i)}
+            className="btn-ghost" style={{ padding: '8px 12px', fontSize: 12 }}>
+            Reschedule
           </button>
         )}
         {i.status === 'SCHEDULED' && (
@@ -276,6 +344,26 @@ function ScheduleModal({ onClose, onScheduled }: { onClose: () => void; onSchedu
           <div>
             <label htmlFor="iv-when" style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Date &amp; time</label>
             <input id="iv-when" className="form-input" type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} />
+            {scheduledAt && (
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                {(() => {
+                  // Show both HR's local tz AND a hint of how the candidate
+                  // will see it so HR doesn't schedule across timezones blind.
+                  // The candidate email uses the org's timezone (see
+                  // sendInterviewInvitation); we surface the browser tz here
+                  // as a sanity-check.
+                  try {
+                    const d = new Date(scheduledAt)
+                    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+                    const local = d.toLocaleString(undefined, {
+                      weekday: 'short', month: 'short', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })
+                    return `Your timezone: ${tz} · ${local}. The candidate will see this time converted to the organisation timezone in their invite email.`
+                  } catch { return null }
+                })()}
+              </p>
+            )}
           </div>
 
           <div>

@@ -8,6 +8,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 export class InterviewsService {
   private readonly logger = new Logger(InterviewsService.name);
 
+  // In-memory presence map: interviewId → lastSeenAt (ms).
+  // Bumped on every getByToken call (candidate browser polls the interview
+  // record every 8s on their join page, so this gets touched frequently
+  // while the candidate is in front of the screen). Survives until the
+  // backend restarts — that's fine, presence is ephemeral by definition.
+  private readonly presence = new Map<string, number>();
+  private readonly PRESENCE_TTL_MS = 30_000;
+
   constructor(
     private prisma: PrismaService,
     private fr: FacialRecognitionService,
@@ -142,6 +150,63 @@ export class InterviewsService {
     });
   }
 
+  /**
+   * Move a scheduled interview to a new time. Reuses the same magicToken
+   * so the candidate's existing link still works — we just push out the
+   * expiry to match the new slot. Best-effort re-sends the invite email
+   * with the new time so the candidate isn't confused.
+   *
+   * Only SCHEDULED interviews can be rescheduled. IN_PROGRESS / COMPLETED
+   * / CANCELLED must be re-created from scratch (matches the exam-side
+   * reschedule policy).
+   */
+  async reschedule(id: string, newScheduledAt: Date) {
+    const existing = await this.getOne(id);
+    if (existing.status !== 'SCHEDULED') {
+      throw new BadRequestException(
+        `Cannot reschedule an interview with status ${existing.status} — only SCHEDULED interviews are rescheduleable.`,
+      );
+    }
+    const tokenExpiresAt = new Date(newScheduledAt.getTime() + 24 * 60 * 60 * 1000);
+    const updated = await this.prisma.interview.update({
+      where: { id },
+      data: { scheduledAt: newScheduledAt, tokenExpiresAt },
+    });
+
+    // Best-effort reschedule email — same shape as the original invite.
+    try {
+      const candidate = await this.prisma.candidateRecord.findUnique({
+        where: { id: existing.candidateId },
+        select: { email: true, firstName: true, lastName: true, organizationId: true },
+      });
+      if (candidate) {
+        const org = await this.prisma.organization.findUnique({
+          where: { id: candidate.organizationId },
+          select: { name: true, timezone: true },
+        });
+        const baseUrl = process.env.FRONTEND_URL
+          || (process.env.FRONTEND_URLS || '').split(',')[0]
+          || 'http://localhost:3000';
+        const magicLink = `${baseUrl.replace(/\/$/, '')}/interview/${existing.magicToken}`;
+        await this.notifications.sendInterviewInvitation(
+          candidate.email,
+          `${candidate.firstName} ${candidate.lastName}`.trim() || candidate.email,
+          {
+            companyName: org?.name || 'Your assessor',
+            scheduledAt: newScheduledAt,
+            timezone: org?.timezone || 'Asia/Dubai',
+            magicLink,
+            notes: existing.notes ?? null,
+          },
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(`Interview reschedule email failed: ${err?.message || err}`);
+    }
+
+    return updated;
+  }
+
   // ── Identity verification during the interview ────────────────────────
 
   /**
@@ -192,6 +257,28 @@ export class InterviewsService {
     });
     if (!interview) throw new NotFoundException('Invalid interview link');
     if (interview.tokenExpiresAt < new Date()) throw new BadRequestException('Interview link has expired');
+    // Mark candidate as currently present in the room. HR's interview list
+    // polls /interviews/presence to render a "candidate waiting" indicator
+    // before they open the room.
+    this.presence.set(interview.id, Date.now());
     return interview;
+  }
+
+  /** Returns interview ids whose candidate browser polled inside the TTL. */
+  async getActivePresence(organizationId: string): Promise<string[]> {
+    const cutoff = Date.now() - this.PRESENCE_TTL_MS;
+    const fresh: string[] = [];
+    for (const [id, ts] of this.presence) {
+      if (ts >= cutoff) fresh.push(id);
+      else this.presence.delete(id);
+    }
+    if (fresh.length === 0) return [];
+    // Filter to interviews owned by this org. The presence map is global
+    // because it's a fast O(1) read, but the response must respect tenancy.
+    const rows = await this.prisma.interview.findMany({
+      where: { id: { in: fresh }, organizationId },
+      select: { id: true },
+    });
+    return rows.map(r => r.id);
   }
 }

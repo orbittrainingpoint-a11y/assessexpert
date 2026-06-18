@@ -30,11 +30,21 @@ export default function HRInterviewRoomPage({ params }: { params: Promise<{ id: 
     refetchInterval: 10_000,
   })
 
-  const { data: candidate } = useQuery({
+  const { data: candidate, error: candidateError } = useQuery<any, any>({
     queryKey: ['interview-cand', interview?.candidateId],
     queryFn: () => candidatesApi.getOne(interview!.candidateId).then(r => r.data),
     enabled: !!interview?.candidateId,
+    retry: false,
   })
+  // Backend now returns 403 + code: 'CANDIDATE_ORG_MISMATCH' when the
+  // interview points at a candidate that belongs to a different
+  // organisation (typically because the interview was scheduled before
+  // our tenant-safety check landed). Surface a clear amber banner so HR
+  // knows the live call still works but the reference photo + history
+  // are intentionally hidden — not silently broken.
+  const candidateOrgMismatch =
+    candidateError?.response?.status === 403 &&
+    candidateError?.response?.data?.code === 'CANDIDATE_ORG_MISMATCH'
 
   // Start the interview on first open (idempotent on backend).
   const started = useRef(false)
@@ -63,6 +73,32 @@ export default function HRInterviewRoomPage({ params }: { params: Promise<{ id: 
         </h1>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{interview.status.replace('_', ' ')}</span>
       </div>
+
+      {candidateOrgMismatch && (
+        <div style={{
+          marginBottom: 16,
+          padding: '12px 16px',
+          background: 'rgba(217,119,6,0.08)',
+          border: '1px solid rgba(217,119,6,0.3)',
+          borderRadius: 8,
+          color: 'var(--amber)',
+          fontSize: 13,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+        }}>
+          <AlertCircle size={16} style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <strong>Reference photo unavailable</strong>
+            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+              This interview points at a candidate from a different organisation,
+              so their reference photo and assessment history aren't shown here.
+              The live call still works normally — verify identity visually during
+              the call.
+            </div>
+          </div>
+        </div>
+      )}
 
       {isCompleted ? (
         <CompletedView interview={interview} candidate={candidate} />

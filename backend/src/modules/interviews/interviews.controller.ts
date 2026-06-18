@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { InterviewsService } from './interviews.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -36,6 +36,17 @@ export class InterviewsController {
     });
   }
 
+  /**
+   * Presence indicator — returns interview ids whose candidate browser
+   * polled the public token endpoint inside the last 30s. HR's interview
+   * list calls this every ~10s and renders a "candidate waiting" pulse
+   * on rows that show up here.
+   */
+  @Get('presence')
+  async getPresence(@Req() req: any) {
+    return { activeIds: await this.interviewsService.getActivePresence(req.user.organizationId) };
+  }
+
   @Get(':id')
   async getOne(@Param('id') id: string) {
     return this.interviewsService.getOne(id);
@@ -54,6 +65,12 @@ export class InterviewsController {
   @Post(':id/cancel')
   async cancel(@Param('id') id: string) {
     return this.interviewsService.cancel(id);
+  }
+
+  @Post(':id/reschedule')
+  async reschedule(@Param('id') id: string, @Body() body: any) {
+    if (!body?.scheduledAt) throw new BadRequestException('scheduledAt is required');
+    return this.interviewsService.reschedule(id, new Date(body.scheduledAt));
   }
 
   /**
