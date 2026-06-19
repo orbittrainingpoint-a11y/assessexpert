@@ -394,6 +394,8 @@ export const turnApi = {
 export const quizApi = {
   // Public (candidate)
   getByToken: (token: string) => api.get(`/quiz/public/by-token/${encodeURIComponent(token)}`),
+  confirmEmail: (token: string, email: string) =>
+    api.post(`/quiz/public/${encodeURIComponent(token)}/confirm-email`, { email }),
   sendOtp: (token: string) => api.post(`/quiz/public/${encodeURIComponent(token)}/send-otp`),
   verifyOtp: (token: string, otp: string) => api.post(`/quiz/public/${encodeURIComponent(token)}/verify-otp`, { otp }),
   getQuestions: (token: string) => api.get(`/quiz/public/${encodeURIComponent(token)}/questions`),
@@ -402,6 +404,7 @@ export const quizApi = {
   getReport: (token: string) => api.get(`/quiz/public/${encodeURIComponent(token)}/report`),
   // HR-only
   listReports: () => api.get('/quiz/reports'),
+  getReportDetail: (reportId: string) => api.get(`/quiz/reports/${encodeURIComponent(reportId)}`),
 }
 
 // Org branding — co-branded HR portal + candidate experience. Authenticated

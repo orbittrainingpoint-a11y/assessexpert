@@ -79,6 +79,32 @@ export class QuizService {
     };
   }
 
+  /**
+   * Confirm the candidate's email matches the one on the session before
+   * we expose anything else (name, OTP). Stops a shared link from being
+   * used by someone else: only the intended recipient can move forward.
+   * Returns the full name on success so the UI can greet them by name.
+   */
+  async confirmEmail(token: string, email: string) {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email');
+    }
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      include: { candidate: { select: { email: true, firstName: true, lastName: true } } },
+    });
+    if (!session) throw new NotFoundException('Invalid quiz link');
+    if (session.mode !== 'QUIZ') throw new BadRequestException('Not a quiz session');
+    if (session.candidate.email.toLowerCase() !== email.trim().toLowerCase()) {
+      // Don't reveal whether the email exists in another tenant — just
+      // refuse. Same shape as a wrong-link error from the candidate's
+      // perspective.
+      throw new UnauthorizedException('Email does not match the one this quiz was scheduled for');
+    }
+    const fullName = `${session.candidate.firstName} ${session.candidate.lastName}`.trim();
+    return { confirmed: true, fullName };
+  }
+
   /** Generate a 6-digit OTP, store its hash, email it to the candidate. */
   async sendOtp(token: string) {
     const session = await this.prisma.examSession.findUnique({
@@ -335,6 +361,63 @@ export class QuizService {
   }
 
   // ── HR listing ──────────────────────────────────────────────────────────
+
+  /**
+   * Full Q&A detail for HR's expanded view. Returns every answer the
+   * candidate submitted with the question text, the choice they made,
+   * the correct choice, whether they got it right, and how long they
+   * spent. Org-scoped — refuses cross-tenant reads.
+   */
+  async getReportDetail(reportId: string, organizationId: string) {
+    const report = await this.prisma.report.findFirst({
+      where: { id: reportId, organizationId },
+      include: {
+        session: {
+          include: {
+            candidate: { select: { firstName: true, lastName: true, email: true, jobPosition: true } },
+            assessmentType: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (report.session.mode !== 'QUIZ') {
+      throw new BadRequestException('Detail view is only for quiz reports');
+    }
+
+    const answers = await this.prisma.examAnswer.findMany({
+      where: { sessionId: report.sessionId, candidateId: report.candidateId },
+      orderBy: { position: 'asc' },
+    });
+
+    return {
+      reportId: report.id,
+      candidate: report.session.candidate,
+      assessmentName: report.session.assessmentType.name,
+      submittedAt: report.session.mcqSubmittedAt,
+      overall: {
+        score: report.mcqScore,
+        passed: report.mcqPassed,
+        result: report.mcqPassed ? 'PASS' : 'FAIL',
+        breakdown: report.mcqBreakdown,
+      },
+      questions: answers.map(a => {
+        const snap = a.questionSnapshot as any;
+        return {
+          position: a.position,
+          domain: snap?.domain || 'General',
+          content: snap?.content || {},
+          options: snap?.options || [],
+          candidateResponse: a.candidateResponse,
+          correctAnswer: a.correctAnswer,
+          isCorrect: a.isCorrect,
+          timeSpentSeconds: a.timeSpentSeconds,
+          marks: a.marks,
+          maxMarks: a.maxMarks,
+        };
+      }),
+    };
+  }
 
   /** Quiz-only reports for HR review. Org-scoped. */
   async listReportsForOrg(organizationId: string) {

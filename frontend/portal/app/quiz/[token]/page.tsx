@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import { Loader2, ShieldCheck, AlertTriangle, Clock, CheckCircle2 } from 'lucide-react'
 import { quizApi } from '@/lib/api'
 
-type Phase = 'loading' | 'invalid' | 'expired' | 'completed' | 'intro' | 'otp' | 'instructions' | 'quiz' | 'submitting' | 'thanks'
+type Phase = 'loading' | 'invalid' | 'expired' | 'completed' | 'intro' | 'email' | 'otp' | 'instructions' | 'quiz' | 'submitting' | 'thanks'
 
 type QuizInfo = {
   id: string
@@ -29,6 +29,8 @@ type Question = {
 export default function QuizCandidatePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const [phase, setPhase] = useState<Phase>('loading')
+  const [email, setEmail] = useState('')
+  const [confirmedName, setConfirmedName] = useState<string | null>(null)
   const [otp, setOtp] = useState('')
   const [questions, setQuestions] = useState<Question[]>([])
   const [duration, setDuration] = useState(30)
@@ -72,6 +74,19 @@ export default function QuizCandidatePage({ params }: { params: Promise<{ token:
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, secondsLeft])
+
+  // Confirm the candidate is who the quiz was scheduled for BEFORE we
+  // mint an OTP. Returns the full name from the candidate record so we
+  // can greet them after the typed-email matches.
+  const confirmEmailMutation = useMutation({
+    mutationFn: () => quizApi.confirmEmail(token, email),
+    onSuccess: (res) => {
+      setConfirmedName(res.data?.fullName || null)
+      // Auto-trigger the OTP send so the candidate doesn't need two clicks.
+      sendOtpMutation.mutate()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Email check failed'),
+  })
 
   const sendOtpMutation = useMutation({
     mutationFn: () => quizApi.sendOtp(token),
@@ -137,20 +152,61 @@ export default function QuizCandidatePage({ params }: { params: Promise<{ token:
         <Stat label="Time limit" value={`${info?.assessmentType.durationMinutes || '—'} min`} />
         <Stat label="Mode" value="MCQ only (no camera)" />
         <p style={{ marginTop: 18, fontSize: 13, color: '#64748b' }}>
-          We'll email a 6-digit access code to <strong>{info?.candidate.emailMask}</strong>.
-          Click below to receive it.
+          To begin, confirm the email this quiz was sent to.
         </p>
-        <button onClick={() => sendOtpMutation.mutate()} disabled={sendOtpMutation.isPending}
+        <button onClick={() => setPhase('email')}
           style={btnPrimary(brand?.brandColor)}>
-          {sendOtpMutation.isPending ? 'Sending…' : 'Send access code'}
+          Continue
         </button>
+      </Card>
+    )
+  }
+
+  if (phase === 'email') {
+    const busy = confirmEmailMutation.isPending || sendOtpMutation.isPending
+    return (
+      <Card brand={brand} title="Confirm your email">
+        <p style={{ color: '#475569', margin: '0 0 16px', fontSize: 14 }}>
+          Enter the email this quiz was scheduled for. We'll send the access code there.
+        </p>
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          autoComplete="email"
+          autoFocus
+          style={{
+            width: '100%', padding: '12px 14px', fontSize: 14,
+            borderRadius: 10, border: '1px solid #cbd5e1', marginBottom: 14,
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !busy && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+              confirmEmailMutation.mutate()
+            }
+          }}
+        />
+        <button
+          onClick={() => confirmEmailMutation.mutate()}
+          disabled={busy || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
+          style={btnPrimary(brand?.brandColor)}>
+          {busy ? 'Sending code…' : 'Send my access code'}
+        </button>
+        <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12 }}>
+          The hiring team scheduled this quiz to one specific email — typo proof.
+        </p>
       </Card>
     )
   }
 
   if (phase === 'otp') {
     return (
-      <Card brand={brand} title="Enter access code">
+      <Card brand={brand} title={confirmedName ? `Welcome, ${confirmedName}` : 'Enter access code'}>
+        {confirmedName && (
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ShieldCheck size={14} /> Email confirmed.
+          </p>
+        )}
         <p style={{ color: '#475569', margin: '0 0 16px', fontSize: 14 }}>
           We sent a 6-digit code to your email. Enter it below to start the quiz.
         </p>

@@ -18,6 +18,14 @@ export class QuizController {
   async listReports(@Req() req: any) {
     return this.quiz.listReportsForOrg(req.user.organizationId);
   }
+
+  /** Per-report Q&A detail — every question, candidate's choice, correct
+   *  choice, marks. Org-scoped. */
+  @Get('reports/:id')
+  @Roles('HR_MANAGER', 'HIRING_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
+  async getReportDetail(@Param('id') id: string, @Req() req: any) {
+    return this.quiz.getReportDetail(id, req.user.organizationId);
+  }
 }
 
 // Candidate-side: public, magic-token authenticated.
@@ -29,6 +37,11 @@ export class QuizPublicController {
   @Get('by-token/:token')
   async getByToken(@Param('token') token: string) {
     return this.quiz.getByToken(token);
+  }
+
+  @Post(':token/confirm-email')
+  async confirmEmail(@Param('token') token: string, @Body() body: { email: string }) {
+    return this.quiz.confirmEmail(token, body?.email);
   }
 
   @Post(':token/send-otp')

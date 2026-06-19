@@ -83,47 +83,162 @@ export default function HRQuizReportsPage() {
                 </div>
 
                 {isOpen && (
-                  <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                    {/* Per-domain breakdown */}
-                    {domains.length > 0 ? (
-                      <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          Score by topic
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {domains.map(d => (
-                            <div key={d.name}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                                <span style={{ color: 'var(--text-primary)' }}>{d.name}</span>
-                                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                                  {d.correct} / {d.total} · {d.percentage}%
-                                </span>
-                              </div>
-                              <div style={{ height: 6, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden' }}>
-                                <div style={{ height: '100%', borderRadius: 3, width: `${d.percentage}%`, background: d.percentage >= 60 ? 'var(--emerald)' : 'var(--amber)' }} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 0' }}>
-                        No per-topic breakdown stored for this submission.
-                      </p>
-                    )}
-
-                    {cand?.email && (
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '14px 0 0' }}>
-                        {cand.email}
-                      </p>
-                    )}
-                  </div>
+                  <ExpandedDetail
+                    reportId={r.id}
+                    candidateEmail={cand?.email}
+                    domains={domains}
+                  />
                 )}
               </div>
             )
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Expanded detail with per-question Q&A ──────────────────────────────────
+//
+// Fetched lazily on expand so the list view stays fast even with a lot of
+// reports. Renders: per-topic bars (carried over from the list payload),
+// then every question with the candidate's choice + correct choice + a
+// pass/fail strip per question.
+
+function ExpandedDetail({ reportId, candidateEmail, domains }: { reportId: string; candidateEmail?: string; domains: DomainRow[] }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hr-quiz-report-detail', reportId],
+    queryFn: () => quizApi.getReportDetail(reportId).then(r => r.data),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  return (
+    <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--border)', marginTop: 4 }}>
+      {/* Per-topic bar chart */}
+      {domains.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Score by topic
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {domains.map(d => (
+              <div key={d.name}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: 'var(--text-primary)' }}>{d.name}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                    {d.correct} / {d.total} · {d.percentage}%
+                  </span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: 3, width: `${d.percentage}%`, background: d.percentage >= 60 ? 'var(--emerald)' : 'var(--amber)' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {candidateEmail && (
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '14px 0 0' }}>
+          {candidateEmail}
+        </p>
+      )}
+
+      {/* Question-by-question Q&A */}
+      <div style={{ marginTop: 22 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Question-by-question
+        </div>
+
+        {isLoading && (
+          <div style={{ padding: '14px 0', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 13 }}>
+            <Loader2 size={14} className="animate-spin" /> Loading answers…
+          </div>
+        )}
+
+        {data?.questions?.map((q: any) => {
+          const selected: string[] = Array.isArray(q.candidateResponse) ? q.candidateResponse : []
+          const correct: string[] = Array.isArray(q.correctAnswer) ? q.correctAnswer : []
+          return (
+            <div key={q.position} style={{
+              padding: '12px 14px', marginBottom: 10, borderRadius: 8,
+              background: 'var(--bg-elevated)',
+              border: `1px solid ${q.isCorrect ? 'rgba(16,185,129,0.25)' : 'rgba(225,29,72,0.25)'}`,
+              borderLeft: `3px solid ${q.isCorrect ? 'var(--emerald)' : 'var(--rose)'}`,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 10 }}>
+                  <span>#{q.position}</span>
+                  <span>·</span>
+                  <span>{q.domain}</span>
+                </div>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                  background: q.isCorrect ? 'rgba(16,185,129,0.1)' : 'rgba(225,29,72,0.1)',
+                  color: q.isCorrect ? 'var(--emerald)' : 'var(--rose)',
+                }}>
+                  {q.isCorrect ? 'CORRECT' : 'INCORRECT'}
+                </span>
+              </div>
+
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.55, marginBottom: 10 }}>
+                {q.content?.text}
+              </p>
+
+              {q.content?.codeBlock && (
+                <pre style={{
+                  background: 'var(--bg-base)', color: 'var(--text-primary)',
+                  padding: 10, borderRadius: 6, fontSize: 11, overflowX: 'auto', marginBottom: 10,
+                }}>
+                  {q.content.codeBlock}
+                </pre>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {(q.options || []).map((opt: any) => {
+                  const isPicked = selected.includes(opt.key)
+                  const isRight = correct.includes(opt.key)
+                  let bg = 'var(--bg-base)'
+                  let border = 'var(--border)'
+                  let textColor = 'var(--text-secondary)'
+                  if (isRight) { bg = 'rgba(16,185,129,0.08)'; border = 'rgba(16,185,129,0.35)'; textColor = 'var(--emerald)' }
+                  if (isPicked && !isRight) { bg = 'rgba(225,29,72,0.08)'; border = 'rgba(225,29,72,0.35)'; textColor = 'var(--rose)' }
+
+                  return (
+                    <div key={opt.key} style={{
+                      padding: '8px 10px', borderRadius: 6, fontSize: 12,
+                      background: bg, border: `1px solid ${border}`,
+                      display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start',
+                    }}>
+                      <div style={{ color: textColor }}>
+                        <strong style={{ marginRight: 6 }}>{opt.key}.</strong>{opt.text}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        {isPicked && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 3, background: isRight ? 'rgba(16,185,129,0.15)' : 'rgba(225,29,72,0.15)', color: isRight ? 'var(--emerald)' : 'var(--rose)' }}>
+                            CANDIDATE
+                          </span>
+                        )}
+                        {isRight && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 3, background: 'rgba(16,185,129,0.15)', color: 'var(--emerald)' }}>
+                            CORRECT
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {q.timeSpentSeconds > 0 && (
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                  Time spent: {q.timeSpentSeconds}s
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
