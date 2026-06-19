@@ -550,6 +550,18 @@ model ExamSession {
   tokenUsedAt      DateTime?
   tokenUsedFromIp  String?
   status           SessionStatus  @default(SCHEDULED)
+  // Session mode — PROCTORED (default, with camera + checklist + proctor)
+  // or QUIZ (MCQ-only, no camera, no proctor; candidate self-serves via
+  // magic link + OTP). Stored as a free-form string for forward-compat
+  // so we can add hybrid modes (HOMEWORK, INVIGILATED, etc.) without a
+  // migration each time. Default preserves existing behaviour.
+  mode             String         @default("PROCTORED")
+  // Quiz-mode OTP — generated when the candidate first hits the magic
+  // link; 6-digit code emailed to them. Stored as a SHA-256 hash so the
+  // raw value can't be reconstructed from a DB read. Cleared once the
+  // exam moves to MCQ_IN_PROGRESS.
+  quizOtpHash      String?
+  quizOtpExpiresAt DateTime?
   isMultiCandidate Boolean        @default(false)
   // Length of the booking slot in minutes (default 1 hour). Candidates
   // scheduled with the same proctor + assessment whose time falls inside

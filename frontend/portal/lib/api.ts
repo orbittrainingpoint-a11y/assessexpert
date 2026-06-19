@@ -389,6 +389,21 @@ export const turnApi = {
   getCredentials: () => api.get('/turn/credentials'),
 }
 
+// Quiz mode — MCQ-only exam, no camera/proctor. Token-gated public surface
+// for the candidate flow; authenticated /reports surface for HR.
+export const quizApi = {
+  // Public (candidate)
+  getByToken: (token: string) => api.get(`/quiz/public/by-token/${encodeURIComponent(token)}`),
+  sendOtp: (token: string) => api.post(`/quiz/public/${encodeURIComponent(token)}/send-otp`),
+  verifyOtp: (token: string, otp: string) => api.post(`/quiz/public/${encodeURIComponent(token)}/verify-otp`, { otp }),
+  getQuestions: (token: string) => api.get(`/quiz/public/${encodeURIComponent(token)}/questions`),
+  submit: (token: string, answers: Array<{ questionId: string; selected: string[]; timeSpentSeconds?: number }>) =>
+    api.post(`/quiz/public/${encodeURIComponent(token)}/submit`, { answers }),
+  getReport: (token: string) => api.get(`/quiz/public/${encodeURIComponent(token)}/report`),
+  // HR-only
+  listReports: () => api.get('/quiz/reports'),
+}
+
 // Org branding — co-branded HR portal + candidate experience. Authenticated
 // HR can read+update their own org's branding; the public endpoint lets
 // candidate pages fetch by org id (the org id is returned alongside the

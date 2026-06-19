@@ -109,6 +109,9 @@ export class SchedulingService {
     scheduledAt: Date;
     proctorId?: string;
     slotDurationMinutes?: number;
+    // Quiz mode: MCQ-only, no camera/proctor. Defaults to PROCTORED so
+    // every existing caller keeps current behaviour without changes.
+    mode?: 'PROCTORED' | 'QUIZ';
   }) {
     // Tenant isolation: refuse to schedule a candidate that belongs to a
     // different organization than the one the caller is scoped to. Without
@@ -290,6 +293,7 @@ export class SchedulingService {
         magicToken: token,
         tokenExpiresAt,
         status: 'SCHEDULED',
+        mode: data.mode || 'PROCTORED',
         isMultiCandidate: true,
         sessionCandidates: {
           create: [{ candidateId: data.candidateId, status: 'PENDING' as any }],
@@ -304,7 +308,11 @@ export class SchedulingService {
     // .catch(() => {}) made every flaky SMTP attempt look successful and
     // is exactly why the user was seeing "scheduled but no email
     // arrived, works on retry" behaviour.
-    const magicLink = `${process.env.FRONTEND_URL}/exam?token=${token}`;
+    // Quiz mode lands on /quiz/<token>; proctored exam uses /exam?token=…
+    const isQuiz = (data.mode || 'PROCTORED') === 'QUIZ';
+    const magicLink = isQuiz
+      ? `${process.env.FRONTEND_URL}/quiz/${token}`
+      : `${process.env.FRONTEND_URL}/exam?token=${token}`;
     const orgTimezone = (session as any).organization?.timezone || 'Asia/Dubai';
     let invitationResult: { sent: boolean; error?: string };
     try {

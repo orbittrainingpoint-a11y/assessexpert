@@ -254,6 +254,9 @@ export default function CandidatesPage() {
   // Slot length in minutes (default 1h). Candidates booked into the same
   // proctor + assessment within this window are auto-grouped into one slot.
   const [schedDuration, setSchedDuration] = useState(60)
+  // Quiz mode = no camera, no proctor, MCQ-only. Defaults to PROCTORED
+  // so existing scheduling behaviour is unchanged unless HR opts in.
+  const [schedMode, setSchedMode] = useState<'PROCTORED' | 'QUIZ'>('PROCTORED')
 
   const { data, isLoading } = useQuery({
     queryKey: ['candidates', search],
@@ -417,6 +420,7 @@ export default function CandidatesPage() {
       assessmentTypeId: schedAssessmentId,
       scheduledAt: selectedSlot.datetime,
       slotDurationMinutes: schedDuration,
+      mode: schedMode,
     })
   }
 
@@ -701,6 +705,30 @@ export default function CandidatesPage() {
                     <option value={90}>90 minutes</option>
                     <option value={120}>2 hours</option>
                   </select>
+                </div>
+              )}
+
+              {!rescheduleSessionId && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Mode</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {([
+                      ['PROCTORED', 'Proctored', 'Camera, ID check, live proctor — full assessment flow'],
+                      ['QUIZ', 'Quiz only', 'MCQ only, no camera, candidate self-administers'],
+                    ] as const).map(([val, label, desc]) => (
+                      <button key={val} type="button"
+                        onClick={() => setSchedMode(val as any)}
+                        style={{
+                          padding: '12px 14px', borderRadius: 8,
+                          border: `1px solid ${schedMode === val ? 'var(--cyan)' : 'var(--border)'}`,
+                          background: schedMode === val ? 'rgba(0,212,255,0.08)' : 'var(--bg-elevated)',
+                          textAlign: 'left', cursor: 'pointer',
+                        }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: schedMode === val ? 'var(--cyan)' : 'var(--text-primary)' }}>{label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
