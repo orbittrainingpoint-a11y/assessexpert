@@ -250,6 +250,15 @@ function ExamContent() {
   })
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+  // Refs that mirror the latest phase + candidate id so the timer
+  // interval callbacks always read CURRENT values even if they outlive
+  // the effect closure that created them. Fixes a class of "proctor
+  // advanced the phase but the old timer fired and reverted it"
+  // glitches in long-running sessions.
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  const candidateIdRef = useRef<string | undefined>(undefined)
+  candidateIdRef.current = sessionState?.candidate?.id
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
   // Initial Link Verification
@@ -349,10 +358,14 @@ function ExamContent() {
   // (defence against a tampered client clock).
   useEffect(() => {
     if (phase !== 'mcq' && phase !== 'practical') return
+    // All callbacks below read phase + candidateId from refs so a
+    // proctor-driven phase advance during a server-sync poll can't be
+    // silently rolled back when a stale closure fires.
     const notifyExpired = async () => {
       try {
-        const cid = sessionState?.candidate?.id
-        await examApi.notifyTimerExpired(token, phase as 'mcq' | 'practical', cid)
+        const ph = phaseRef.current
+        if (ph !== 'mcq' && ph !== 'practical') return
+        await examApi.notifyTimerExpired(token, ph, candidateIdRef.current)
       } catch {}
     }
     const sync = async () => {
@@ -361,8 +374,9 @@ function ExamContent() {
         setTimeRemaining(data.remaining)
         if (data.remaining <= 0) {
           await notifyExpired()
-          if (phase === 'mcq') setPhase('mcq-complete')
-          else if (phase === 'practical') setPhase('complete')
+          const ph = phaseRef.current
+          if (ph === 'mcq') setPhase('mcq-complete')
+          else if (ph === 'practical') setPhase('complete')
         }
       } catch {}
     }
@@ -371,12 +385,10 @@ function ExamContent() {
       setTimeRemaining(t => {
         if (t <= 1) {
           clearInterval(timerRef.current)
-          // Fire-and-forget: phase change happens immediately so the
-          // UI doesn't hang waiting for the network. The backend will
-          // also get a cron-driven sweep within ~60s as a safety net.
           notifyExpired()
-          if (phase === 'mcq') setPhase('mcq-complete')
-          else setPhase('complete')
+          const ph = phaseRef.current
+          if (ph === 'mcq') setPhase('mcq-complete')
+          else if (ph === 'practical') setPhase('complete')
           return 0
         }
         return t - 1

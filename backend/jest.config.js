@@ -33,6 +33,9 @@ module.exports = {
   coverageDirectory: 'coverage',
   // Reasonable defaults for a backend with a real DB available in CI/dev.
   testTimeout: 15_000,
+  // Integration tests share a single test org by slug; running suites
+  // in parallel races their setup/teardown. Force serial.
+  maxWorkers: 1,
   // Quiet teardown of ts-jest's worker so the run exits cleanly.
   forceExit: true,
   // Show clear test names + failure context.

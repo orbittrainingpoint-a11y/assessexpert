@@ -203,6 +203,46 @@ describe('Quiz flow (integration)', () => {
       .expect(400);
   });
 
+  it('OTP verify is atomic — concurrent verifies cannot both succeed', async () => {
+    // Set up a fresh quiz session purely for this test.
+    const otp = '424242';
+    const { createHash } = await import('crypto');
+    const otpHash = createHash('sha256').update(otp).digest('hex');
+
+    const tmpSession = await prisma.examSession.create({
+      data: {
+        assessmentType: { connect: { id: assessmentTypeId } },
+        candidate: { connect: { id: candidateId } },
+        organization: { connect: { id: orgId } },
+        scheduledAt: new Date(),
+        magicToken: randomBytes(32).toString('hex'),
+        tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: 'SCHEDULED' as any,
+        mode: 'QUIZ',
+        isMultiCandidate: false,
+        quizOtpHash: otpHash,
+        quizOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      },
+    });
+
+    // Fire two verify requests in parallel with the same OTP. The
+    // atomic compare-and-swap should let exactly one win.
+    const results = await Promise.allSettled([
+      request(app.getHttpServer()).post(`/api/quiz/public/${tmpSession.magicToken}/verify-otp`).send({ otp }),
+      request(app.getHttpServer()).post(`/api/quiz/public/${tmpSession.magicToken}/verify-otp`).send({ otp }),
+    ]);
+    const statuses = results.map(r => r.status === 'fulfilled' ? r.value.status : 500);
+    // Exactly one 2xx, exactly one 4xx (401 = invalid code after the
+    // race winner clears the hash).
+    const successes = statuses.filter(s => s >= 200 && s < 300).length;
+    const failures = statuses.filter(s => s >= 400).length;
+    expect(successes).toBe(1);
+    expect(failures).toBe(1);
+
+    // Cleanup the temp session.
+    await prisma.examSession.delete({ where: { id: tmpSession.id } });
+  });
+
   it('getReport returns the published report for the candidate', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/quiz/public/${magicToken}/report`)

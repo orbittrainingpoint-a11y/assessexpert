@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, randomInt } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -117,7 +117,10 @@ export class QuizService {
     if (!session) throw new NotFoundException('Invalid quiz link');
     if (session.mode !== 'QUIZ') throw new BadRequestException('Not a quiz session');
 
-    const otp = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+    // CSPRNG — Math.random() is predictable enough to brute-force a
+    // 6-digit OTP within the 10-minute window. crypto.randomInt is the
+    // standard Node-native CSPRNG and works without any new dep.
+    const otp = String(randomInt(100000, 1000000));
     const otpHash = createHash('sha256').update(otp).digest('hex');
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
@@ -144,28 +147,56 @@ export class QuizService {
     return { sent: true, expiresAt: otpExpiresAt };
   }
 
-  /** Verify OTP; on success, return the question payload. */
+  /**
+   * Verify OTP atomically. Previous version read-then-wrote which
+   * allowed two concurrent calls with the same OTP to both succeed
+   * (one-time-use semantics broken). updateMany with the OTP hash in
+   * the where clause does the check-and-clear as a single DB-level
+   * compare-and-swap — the first request claims it, the second sees
+   * `count === 0` and gets rejected.
+   */
   async verifyOtp(token: string, otp: string) {
     if (!otp || !/^\d{6}$/.test(otp)) throw new BadRequestException('Enter the 6-digit code');
-    const session = await this.prisma.examSession.findUnique({ where: { magicToken: token } });
+
+    // Cheap pre-checks: surface a clear "expired" / "request first" /
+    // "not a quiz" error rather than a generic "invalid code" message.
+    // These reads don't have to be atomic because the actual claim is.
+    const session = await this.prisma.examSession.findUnique({
+      where: { magicToken: token },
+      select: { id: true, mode: true, quizOtpHash: true, quizOtpExpiresAt: true, tokenUsedAt: true },
+    });
     if (!session) throw new NotFoundException('Invalid quiz link');
     if (session.mode !== 'QUIZ') throw new BadRequestException('Not a quiz session');
     if (!session.quizOtpHash || !session.quizOtpExpiresAt) {
       throw new BadRequestException('Request an access code first');
     }
     if (session.quizOtpExpiresAt < new Date()) throw new BadRequestException('Access code expired');
-    const provided = createHash('sha256').update(otp).digest('hex');
-    if (provided !== session.quizOtpHash) throw new UnauthorizedException('Invalid access code');
 
-    // Clear OTP so it can't be re-used; mark token used.
-    await this.prisma.examSession.update({
-      where: { id: session.id },
+    const provided = createHash('sha256').update(otp).digest('hex');
+
+    // ATOMIC compare-and-swap. Only succeeds if (a) the magicToken
+    // still matches, (b) the stored hash still equals the provided
+    // one, (c) the expiry is still in the future. On success the
+    // OTP is cleared in the same statement so no concurrent caller
+    // can re-use it.
+    const result = await this.prisma.examSession.updateMany({
+      where: {
+        id: session.id,
+        quizOtpHash: provided,
+        quizOtpExpiresAt: { gt: new Date() },
+      },
       data: {
         quizOtpHash: null,
         quizOtpExpiresAt: null,
         tokenUsedAt: session.tokenUsedAt || new Date(),
       },
     });
+    if (result.count !== 1) {
+      // Two failure modes collapse here: wrong code, or someone else
+      // already claimed it. Returning 401 either way matches the
+      // candidate's expectation and avoids leaking which it was.
+      throw new UnauthorizedException('Invalid access code');
+    }
     return { verified: true };
   }
 
@@ -199,13 +230,21 @@ export class QuizService {
       where: { assessmentTypeId: session.assessmentType.id },
       select: { id: true, type: true, content: true, options: true, domain: true, difficulty: true },
     });
-    // Shuffle + take target count
-    const shuffled = all.sort(() => Math.random() - 0.5).slice(0, target);
+    // Fisher-Yates with crypto.randomInt — `arr.sort(() => Math.random() - 0.5)`
+    // is biased (non-uniform distribution) AND predictable (gameable by anyone
+    // who controls the seed). This gives a uniformly-random permutation from
+    // a CSPRNG source.
+    const shuffled = [...all];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = randomInt(0, i + 1);
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const picked = shuffled.slice(0, target);
 
     return {
       durationMinutes: session.assessmentType.mcqTimeLimit || 30,
       startedAt: session.mcqStartedAt || new Date(),
-      questions: shuffled.map((q, i) => ({
+      questions: picked.map((q, i) => ({
         position: i + 1,
         id: q.id,
         type: q.type,

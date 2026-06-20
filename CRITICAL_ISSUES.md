@@ -9,26 +9,15 @@ Updated 2026-06-21 alongside the unit + integration test setup commit.
 
 ## 🚨 P0 — Ship today (each ≤ 15 minutes)
 
-### #1 — Weak OTP randomness (Quiz)
-- **Where:** `backend/src/modules/quiz/quiz.service.ts:120` (and `:203`)
-- **Issue:** `Math.random()` for the 6-digit quiz OTP. Brute-forceable in 10 min under throttle ceiling.
-- **Fix:**
-  ```ts
-  import { randomInt } from 'crypto';
-  const otp = String(randomInt(100000, 1000000));
-  ```
-  Same fix for question shuffle: replace `.sort(() => Math.random() - 0.5)` with a Fisher-Yates that uses `randomInt`.
-- **Effort:** 10 min. Touches one file. Zero blast radius — pure swap.
-- **Why P0:** trivial, removes a real attack surface, no migration.
+### #1 — Weak OTP randomness (Quiz) ✅ DONE
+- **Where:** `backend/src/modules/quiz/quiz.service.ts:120` + question shuffle.
+- **Fix shipped:** `Math.random()` replaced with `crypto.randomInt` for OTP; question shuffle is now Fisher-Yates with `randomInt(0, i+1)`. Bias-free + CSPRNG-sourced.
 
-### #2 — PII in plaintext server logs
+### #2 — PII in plaintext server logs ✅ DONE
 - **Where:** `backend/src/modules/candidates/candidates.service.ts:83`
-- **Issue:** `Logger.log(JSON.stringify({ ...data, organizationId }))` writes first/last name, email, phone, notes on every candidate create. Leaks to any logging sink (CloudWatch, Datadog, contractor with log read).
-- **Fix:** log `{ id, orgId, email: 'a***@domain' }` only.
-- **Effort:** 5 min. One-line change.
-- **Why P0:** GDPR/CCPA exposure, trivial fix.
+- **Fix shipped:** log line is now `Creating candidate org=<id> email=a***@domain` — first letter + domain only. No more full name / phone / notes in pm2 logs.
 
-### #3 — `'as any'` on Prisma enums (~50 sites)
+### #3 — `'as any'` on Prisma enums (~50 sites) — DEFERRED
 - **Where:** throughout `backend/src/modules/`
 - **Issue:** every `status: 'XYZ' as any` bypasses TS — a future enum rename compiles fine and 500s at runtime. We hit this exact bug 3 days ago with `'COMPLETED'`.
 - **Fix:** mechanical sweep — import `SessionStatus` etc. from `@prisma/client` and use the enum value.
@@ -38,37 +27,20 @@ Updated 2026-06-21 alongside the unit + integration test setup commit.
 
 ## 🔴 P1 — Ship this week (each ≤ 1 hour)
 
-### #4 — Quiz OTP verify is non-atomic (one OTP used twice)
-- **Where:** `backend/src/modules/quiz/quiz.service.ts:148-169`
-- **Issue:** read-then-write on `quizOtpHash`. Two concurrent verify calls can both succeed.
-- **Fix:**
-  ```ts
-  const result = await prisma.examSession.updateMany({
-    where: { magicToken, quizOtpHash: providedHash, quizOtpExpiresAt: { gt: new Date() } },
-    data: { quizOtpHash: null, quizOtpExpiresAt: null, tokenUsedAt: new Date() },
-  });
-  if (result.count !== 1) throw new UnauthorizedException(...);
-  ```
-- **Effort:** 30 min including a unit test against the new path.
-- **Why P1:** auth-equivalent path. Same shape as the magic-link race (#5).
+### #4 — Quiz OTP verify is non-atomic (one OTP used twice) ✅ DONE
+- **Where:** `backend/src/modules/quiz/quiz.service.ts`
+- **Fix shipped:** `verifyOtp` switched to atomic `updateMany` with the OTP hash + expiry in the where clause. First request wins, second sees `count === 0` and 401s. **New integration test** confirms concurrent verifies yield exactly 1 success + 1 failure.
 
-### #5 — Magic-link verify race (proctored exam path)
-- **Where:** `backend/src/modules/exam-delivery/exam-delivery.service.ts` (and `auth.service.ts:157`)
-- **Issue:** same shape as #4 but on the exam magic link. Two browser tabs racing the same link both succeed.
-- **Fix:** same atomic `updateMany` pattern with `tokenUsedAt IS NULL` in the where.
-- **Effort:** 45 min including verification with the integration suite.
+### #5 — Magic-link verify race (proctored exam path) ✅ DONE
+- **Where:** `backend/src/modules/auth/auth.service.ts:157`
+- **Fix shipped:** `verifyMagicToken` now uses `updateMany({ where: { id, tokenUsedAt: null }, ... })` so the first-use IP / status update is a compare-and-swap. Two tabs racing the same link can't both claim the first-use record.
 
-### #6 — Stale `phase` closure in exam timer
-- **Where:** `frontend/portal/app/exam/page.tsx:352-388`
-- **Issue:** timer's `setPhase` callback reads `phase` from a stale closure (`eslint-disable-next-line` suppresses the warning). Proctor's manual phase advance can be silently overwritten when the timer fires.
-- **Fix:** mirror `phase` in a ref updated every render; read `phaseRef.current` in the callback.
-- **Effort:** 20 min.
+### #6 — Stale `phase` closure in exam timer ✅ DONE
+- **Where:** `frontend/portal/app/exam/page.tsx`
+- **Fix shipped:** added `phaseRef` + `candidateIdRef` mirroring the latest values every render. Timer + sync callbacks read from refs, so a proctor-driven phase advance during a server-sync round-trip can't be silently rolled back.
 
-### #7 — Multi-candidate audio chunks miss `candidateId`
-- **Where:** `frontend/portal/lib/useAudioTranscriber.ts` + `app/exam/page.tsx:486`
-- **Issue:** `extraFields: () => ({ candidateId: sessionState?.candidate?.id })` captures `sessionState` at effect-setup time. If audio recording starts before OTP resolves the id, the first ~30s of chunks land with `candidateId: undefined`.
-- **Fix:** read from a ref, or add `extraFields` to the effect's dep array.
-- **Effort:** 20 min.
+### #7 — Multi-candidate audio chunks miss `candidateId` — FALSE POSITIVE
+- **Verified clean.** `useAudioTranscriber` already uses an `extraFieldsRef` reassigned every render at `useAudioTranscriber.ts:60`; the chunk uploader at `:101` calls `extraFieldsRef.current?.()` which evaluates the latest arrow → latest `sessionState`. Agent's claim re-checked against source — no fix needed.
 
 ---
 
@@ -106,9 +78,8 @@ Updated 2026-06-21 alongside the unit + integration test setup commit.
 ### #13 — File-upload audit-only mode currently logs but doesn't enforce
 - Status: shipped earlier as audit-only (S8). After a week of pm2-log data, tighten the ceilings into actual rejection.
 
-### #14 — `useJitsi.ts` has 20 silent `catch {}` blocks
-- Each one swallows WebRTC errors. The user sees a black tile with no signal.
-- Fix: add `console.warn` with context to each catch, OR surface via the existing `setError()` and render it.
+### #14 — `useJitsi.ts` has 20 silent `catch {}` blocks ✅ PARTIAL
+- **Fix shipped:** the two highest-value catches (`setRemoteDescription(answer)` and `addIceCandidate`) now log `console.warn` with the peer id and error message. The remaining silent catches are cleanup-related (closing already-closed PCs, stopping tracks) and intentionally quiet — adding warns there would be noisy without diagnostic value.
 
 ### #15 — Frontend cache busts only on chunk-hash change
 - After every deploy, users in open tabs see the OLD bundle until they hard-reload. We hit this 3× during debugging.

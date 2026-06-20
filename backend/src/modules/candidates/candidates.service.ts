@@ -80,7 +80,14 @@ export class CandidatesService {
 
   async createCandidate(data: any, organizationId: string) {
     try {
-      this.logger.log(`Creating candidate with data: ${JSON.stringify({ ...data, organizationId })}`);
+      // PII-safe log line — never write full name/phone/notes to the
+      // application log. Masked email (first char + domain) is enough
+      // to trace a row without leaking the candidate's identity into
+      // any third-party log sink (CloudWatch, Datadog, etc.).
+      const emailMasked = data.email
+        ? `${String(data.email)[0]}***@${String(data.email).split('@')[1] || '?'}`
+        : '?';
+      this.logger.log(`Creating candidate org=${organizationId} email=${emailMasked}`);
       
       // Validate required fields
       if (!data.email) {

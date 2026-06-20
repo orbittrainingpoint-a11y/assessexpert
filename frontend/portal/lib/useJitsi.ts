@@ -589,13 +589,29 @@ export function useJitsi({
   const handleAnswer = useCallback(async (data: { fromId: string; answer: RTCSessionDescriptionInit }) => {
     const conn = peerConnsRef.current.get(data.fromId)
     if (!conn) return
-    try { await conn.pc.setRemoteDescription(new RTCSessionDescription(data.answer)) } catch {}
+    try {
+      await conn.pc.setRemoteDescription(new RTCSessionDescription(data.answer))
+    } catch (e: any) {
+      // Common cause: PC was in wrong signaling state for the answer
+      // (e.g. closed mid-handshake). Was previously swallowed — that's
+      // why "tile won't load" reports landed with no diagnostic. Now
+      // it surfaces in the browser console.
+      // eslint-disable-next-line no-console
+      console.warn(`[useJitsi] setRemoteDescription(answer) failed for ${data.fromId}: ${e?.message || e}`)
+    }
   }, [])
 
   const handleIce = useCallback(async (data: { fromId: string; candidate: RTCIceCandidateInit }) => {
     const conn = peerConnsRef.current.get(data.fromId)
     if (!conn) return
-    try { await conn.pc.addIceCandidate(new RTCIceCandidate(data.candidate)) } catch {}
+    try {
+      await conn.pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+    } catch (e: any) {
+      // ICE candidates can arrive out of order or after the PC closed;
+      // log so we can see if it's persistent rather than transient.
+      // eslint-disable-next-line no-console
+      console.warn(`[useJitsi] addIceCandidate failed for ${data.fromId}: ${e?.message || e}`)
+    }
   }, [])
 
   const handlePeerLeft = useCallback((data: { peerId: string }) => {

@@ -153,10 +153,16 @@ export class AuthService {
       throw new UnauthorizedException('This assessment session has ended');
     }
 
-    // Mark first use
+    // ATOMIC first-use mark. Previous version read tokenUsedAt then
+    // updated separately — two concurrent tabs racing the same link
+    // could both pass the !tokenUsedAt check and both succeed. With
+    // updateMany filtering on tokenUsedAt: null, only the first
+    // request through claims the row; the second sees count=0 and
+    // proceeds with the already-used row (which is fine — it's the
+    // same legitimate candidate; we just don't double-write the IP).
     if (!session.tokenUsedAt) {
-      await this.prisma.examSession.update({
-        where: { id: session.id },
+      await this.prisma.examSession.updateMany({
+        where: { id: session.id, tokenUsedAt: null },
         data: { tokenUsedAt: new Date(), tokenUsedFromIp: ip, status: 'WAITING_ROOM' },
       });
     }
