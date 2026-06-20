@@ -240,51 +240,17 @@ export class QuizService {
     const questions = await this.prisma.question.findMany({
       where: { id: { in: ids } },
     });
-    const byId = new Map(questions.map(q => [q.id, q]));
 
-    // Build the ExamAnswer rows + accumulate per-domain stats.
-    const domainStats: Record<string, { correct: number; total: number; score: number; maxScore: number }> = {};
-    let totalScore = 0;
-    let maxTotal = 0;
-    const answerRows: any[] = [];
-
-    for (let i = 0; i < body.answers.length; i++) {
-      const a = body.answers[i];
-      const q = byId.get(a.questionId);
-      if (!q) continue;
-
-      const correctSet = new Set((q.correctAnswer as any[]) || []);
-      const providedSet = new Set(a.selected || []);
-      const isCorrect = correctSet.size === providedSet.size &&
-        [...correctSet].every(k => providedSet.has(k as any));
-      const marks = isCorrect ? 1 : 0;
-      const maxMarks = 1;
-
-      const domain = q.domain || 'General';
-      if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0, score: 0, maxScore: 0 };
-      domainStats[domain].total += 1;
-      domainStats[domain].maxScore += maxMarks;
-      if (isCorrect) {
-        domainStats[domain].correct += 1;
-        domainStats[domain].score += marks;
-      }
-      totalScore += marks;
-      maxTotal += maxMarks;
-
-      answerRows.push({
-        sessionId: session.id,
-        candidateId: session.candidateId,
-        questionId: q.id,
-        position: i + 1,
-        questionSnapshot: { content: q.content, options: q.options, domain: q.domain, difficulty: q.difficulty },
-        candidateResponse: a.selected || [],
-        isCorrect,
-        correctAnswer: q.correctAnswer as any,
-        timeSpentSeconds: a.timeSpentSeconds || 0,
-        marks,
-        maxMarks,
-      });
-    }
+    // Grading runs in a pure helper (gradeAnswers, exported below) so we
+    // can unit-test it without spinning up Prisma. The helper produces
+    // the per-question rows + per-domain aggregate; the service just
+    // attaches session/candidate ids before writing.
+    const { totalScore, maxTotal, domainStats, answerRows: answerRowsRaw } = gradeAnswers(body.answers, questions);
+    const answerRows = answerRowsRaw.map(r => ({
+      ...r,
+      sessionId: session.id,
+      candidateId: session.candidateId,
+    }));
 
     // Per-domain percentage
     const domains = Object.entries(domainStats).map(([name, s]) => ({
@@ -669,6 +635,82 @@ export class QuizService {
       take: 200,
     });
   }
+}
+
+// ── Pure helpers (exported for unit tests) ─────────────────────────────────
+
+export type GradeInputAnswer = { questionId: string; selected: string[]; timeSpentSeconds?: number };
+export type GradeInputQuestion = {
+  id: string;
+  domain: string;
+  difficulty?: any;
+  content?: any;
+  options?: any;
+  correctAnswer: any; // JsonValue from Prisma; expected to be string[]
+};
+export type DomainStats = Record<string, { correct: number; total: number; score: number; maxScore: number }>;
+
+/**
+ * Grade a set of candidate answers against the question bank. Pure
+ * function — no DB, no side effects. Returns per-question rows ready
+ * for ExamAnswer.createMany (minus sessionId/candidateId which the
+ * caller attaches), plus per-domain aggregate and totals.
+ *
+ * Grading rules (MCQ):
+ *  - SINGLE_SELECT / MULTI_SELECT both use exact-set match. Order of
+ *    keys doesn't matter; partial credit is not awarded.
+ *  - Missing question id in the bank is skipped (not graded).
+ *  - Empty selected[] counts as a wrong answer with marks=0.
+ *  - Per-question marks default to 1; assessment weighting would
+ *    extend this if/when it lands.
+ */
+export function gradeAnswers(
+  answers: GradeInputAnswer[],
+  questions: GradeInputQuestion[],
+): { totalScore: number; maxTotal: number; domainStats: DomainStats; answerRows: any[] } {
+  const byId = new Map(questions.map(q => [q.id, q]));
+  const domainStats: DomainStats = {};
+  let totalScore = 0;
+  let maxTotal = 0;
+  const answerRows: any[] = [];
+
+  for (let i = 0; i < answers.length; i++) {
+    const a = answers[i];
+    const q = byId.get(a.questionId);
+    if (!q) continue;
+
+    const correctSet = new Set((q.correctAnswer as any[]) || []);
+    const providedSet = new Set(a.selected || []);
+    const isCorrect = correctSet.size === providedSet.size &&
+      [...correctSet].every(k => providedSet.has(k as any));
+    const marks = isCorrect ? 1 : 0;
+    const maxMarks = 1;
+
+    const domain = q.domain || 'General';
+    if (!domainStats[domain]) domainStats[domain] = { correct: 0, total: 0, score: 0, maxScore: 0 };
+    domainStats[domain].total += 1;
+    domainStats[domain].maxScore += maxMarks;
+    if (isCorrect) {
+      domainStats[domain].correct += 1;
+      domainStats[domain].score += marks;
+    }
+    totalScore += marks;
+    maxTotal += maxMarks;
+
+    answerRows.push({
+      questionId: q.id,
+      position: i + 1,
+      questionSnapshot: { content: q.content, options: q.options, domain: q.domain, difficulty: q.difficulty },
+      candidateResponse: a.selected || [],
+      isCorrect,
+      correctAnswer: q.correctAnswer,
+      timeSpentSeconds: a.timeSpentSeconds || 0,
+      marks,
+      maxMarks,
+    });
+  }
+
+  return { totalScore, maxTotal, domainStats, answerRows };
 }
 
 // Minimal HTML escape for values interpolated into the PDF template. The

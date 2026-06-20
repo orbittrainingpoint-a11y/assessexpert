@@ -318,7 +318,7 @@ export class NotificationsService {
 // the handful of HTML entities our templates actually use. No new dep — the
 // templates are simple enough that a focused regex pass is more reliable
 // than pulling in html-to-text.
-function htmlToPlainText(html: string): string {
+export function htmlToPlainText(html: string): string {
   return html
     // kill script + style blocks entirely (content + tags)
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
