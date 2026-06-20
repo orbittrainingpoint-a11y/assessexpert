@@ -1,7 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, FileText, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react'
+import { Loader2, FileText, ChevronDown, ChevronUp, CheckCircle2, XCircle, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { quizApi } from '@/lib/api'
 
 type DomainRow = { name: string; correct: number; total: number; percentage: number; score?: number; maxScore?: number }
@@ -78,6 +79,7 @@ export default function HRQuizReportsPage() {
                       </div>
                       <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>overall</div>
                     </div>
+                    <DownloadPdfButton reportId={r.id} candidateName={name} />
                     {isOpen ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
                   </div>
                 </div>
@@ -95,6 +97,43 @@ export default function HRQuizReportsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// Inline PDF download button. Triggers a blob fetch then drops a hidden
+// anchor click to start the browser download with the server-provided
+// filename (or our fallback if the response-header parse fails).
+function DownloadPdfButton({ reportId, candidateName }: { reportId: string; candidateName: string }) {
+  const [busy, setBusy] = useState(false)
+  const onClick = async (e: React.MouseEvent) => {
+    e.stopPropagation() // don't toggle the row expand/collapse
+    setBusy(true)
+    try {
+      const res = await quizApi.getReportPdf(reportId)
+      const cd = res.headers?.['content-disposition'] as string | undefined
+      const match = cd?.match(/filename="?([^";]+)"?/i)
+      const filename = match?.[1] || `quiz-${candidateName.replace(/[^a-z0-9-]+/gi, '_')}.pdf`
+      const url = URL.createObjectURL(res.data as Blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'PDF download failed')
+    } finally { setBusy(false) }
+  }
+  return (
+    <button onClick={onClick} disabled={busy}
+      title="Download PDF report"
+      style={{
+        background: 'transparent', border: '1px solid var(--border)',
+        color: busy ? 'var(--text-muted)' : 'var(--cyan)',
+        padding: '6px 10px', borderRadius: 6, cursor: busy ? 'wait' : 'pointer',
+        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600,
+      }}>
+      {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+      PDF
+    </button>
   )
 }
 

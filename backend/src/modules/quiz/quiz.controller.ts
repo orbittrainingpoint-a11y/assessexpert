@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { QuizService } from './quiz.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -25,6 +26,18 @@ export class QuizController {
   @Roles('HR_MANAGER', 'HIRING_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
   async getReportDetail(@Param('id') id: string, @Req() req: any) {
     return this.quiz.getReportDetail(id, req.user.organizationId);
+  }
+
+  /** Branded PDF of the quiz report. Streams the binary directly so the
+   *  browser triggers a download (Content-Disposition: attachment). */
+  @Get('reports/:id/pdf')
+  @Roles('HR_MANAGER', 'HIRING_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
+  async getReportPdf(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
+    const { buffer, filename } = await this.quiz.generateReportPdf(id, req.user.organizationId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(buffer.length));
+    res.end(buffer);
   }
 }
 

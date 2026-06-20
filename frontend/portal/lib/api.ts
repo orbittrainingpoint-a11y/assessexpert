@@ -405,6 +405,10 @@ export const quizApi = {
   // HR-only
   listReports: () => api.get('/quiz/reports'),
   getReportDetail: (reportId: string) => api.get(`/quiz/reports/${encodeURIComponent(reportId)}`),
+  // Returns the rendered PDF as a Blob so the caller can trigger a
+  // browser download via createObjectURL.
+  getReportPdf: (reportId: string) =>
+    api.get(`/quiz/reports/${encodeURIComponent(reportId)}/pdf`, { responseType: 'blob' }),
 }
 
 // Org branding — co-branded HR portal + candidate experience. Authenticated

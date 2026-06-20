@@ -468,6 +468,178 @@ export class QuizService {
     };
   }
 
+  /**
+   * Render a quiz report to PDF via Puppeteer and stream it back to HR.
+   * Reuses the report-detail payload so the PDF mirrors the on-screen
+   * view exactly: org branding, overall score, per-domain breakdown,
+   * and every question with the candidate's response + correct answer.
+   *
+   * Returns the PDF as a Buffer; the controller pipes it to the
+   * response with a Content-Disposition header so browsers prompt for
+   * download.
+   */
+  async generateReportPdf(reportId: string, organizationId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const detail = await this.getReportDetail(reportId, organizationId);
+    // Pull org branding for the header.
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, tradingName: true, logo: true, brandingConfig: true },
+    });
+    const branding = {
+      displayName: org?.tradingName || org?.name || 'assessexpert',
+      logoUrl: org?.logo || null,
+      brandColor: (org?.brandingConfig as any)?.brandColor || '#00D4FF',
+    };
+
+    const html = this.buildQuizReportHtml(detail, branding);
+
+    // Lazy-load puppeteer so the rest of the app still boots if its
+    // bundled Chromium failed to download. Same pattern as the proctored
+    // PDF generator.
+    let puppeteer: any;
+    try {
+      puppeteer = await import('puppeteer');
+    } catch (e: any) {
+      this.logger.error('puppeteer not available: ' + (e?.message || e));
+      throw new BadRequestException('PDF generation is unavailable on this server. Run `npm install` to install puppeteer.');
+    }
+
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const buffer = await page.pdf({
+        format: 'A4',
+        margin: { top: '18mm', right: '14mm', bottom: '18mm', left: '14mm' },
+        printBackground: true,
+        displayHeaderFooter: true,
+        headerTemplate: `<div style="font-size:9px;color:#94A3B8;width:100%;padding:0 14mm;display:flex;justify-content:space-between"><span>${escapeHtml(branding.displayName)} · Quiz Report</span><span class="date"></span></div>`,
+        footerTemplate: `<div style="font-size:9px;color:#94A3B8;width:100%;padding:0 14mm;display:flex;justify-content:space-between"><span>Generated <span class="date"></span></span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`,
+      });
+      const candidateName = `${detail.candidate.firstName} ${detail.candidate.lastName}`.trim() || detail.candidate.email;
+      const safeName = candidateName.replace(/[^a-zA-Z0-9-]+/g, '_');
+      return {
+        buffer: Buffer.from(buffer),
+        filename: `quiz-report-${safeName}-${detail.reportId}.pdf`,
+      };
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  }
+
+  private buildQuizReportHtml(d: any, brand: { displayName: string; logoUrl: string | null; brandColor: string }): string {
+    const candidateName = `${d.candidate.firstName || ''} ${d.candidate.lastName || ''}`.trim() || d.candidate.email;
+    const overall = d.overall || {};
+    const breakdown = (overall.breakdown || {}) as any;
+    const domains: any[] = breakdown.domains || [];
+    const passed = overall.passed;
+    const dateStr = d.submittedAt ? new Date(d.submittedAt).toLocaleString() : '—';
+
+    const logoHtml = brand.logoUrl
+      ? `<img src="${brand.logoUrl}" alt="logo" style="height:40px;width:auto;object-fit:contain;margin-right:14px"/>`
+      : '';
+
+    const domainRows = domains.map(dom => `
+      <tr>
+        <td style="padding:6px 10px;font-size:11px;color:#0f172a">${escapeHtml(dom.name)}</td>
+        <td style="padding:6px 10px;font-size:11px;color:#475569;text-align:right">${dom.correct} / ${dom.total}</td>
+        <td style="padding:6px 10px;font-size:11px;color:#475569;text-align:right;font-weight:600">${dom.percentage}%</td>
+        <td style="padding:6px 10px;width:140px">
+          <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${dom.percentage}%;background:${dom.percentage >= 60 ? '#10b981' : '#f59e0b'}"></div>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    const questionsHtml = (d.questions || []).map((q: any) => {
+      const selected: string[] = Array.isArray(q.candidateResponse) ? q.candidateResponse : [];
+      const correct: string[] = Array.isArray(q.correctAnswer) ? q.correctAnswer : [];
+      const optsHtml = (q.options || []).map((opt: any) => {
+        const isPicked = selected.includes(opt.key);
+        const isRight = correct.includes(opt.key);
+        let bg = '#fff', border = '#e2e8f0', color = '#475569';
+        if (isRight) { bg = '#f0fdf4'; border = '#86efac'; color = '#15803d'; }
+        if (isPicked && !isRight) { bg = '#fef2f2'; border = '#fca5a5'; color = '#991b1b'; }
+        const chips = `${isPicked ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:${isRight ? '#dcfce7' : '#fee2e2'};color:${isRight ? '#15803d' : '#991b1b'};margin-left:8px">CANDIDATE</span>` : ''}${isRight ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#dcfce7;color:#15803d;margin-left:6px">CORRECT</span>` : ''}`;
+        return `
+          <div style="padding:7px 10px;border-radius:5px;border:1px solid ${border};background:${bg};margin-bottom:4px;font-size:11px;color:${color};display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+            <span><strong style="margin-right:6px">${escapeHtml(opt.key)}.</strong>${escapeHtml(opt.text)}</span>
+            <span style="flex-shrink:0">${chips}</span>
+          </div>
+        `;
+      }).join('');
+      const codeHtml = q.content?.codeBlock
+        ? `<pre style="background:#0f172a;color:#e2e8f0;padding:8px;border-radius:5px;font-size:10px;overflow-x:auto;margin:8px 0">${escapeHtml(q.content.codeBlock)}</pre>`
+        : '';
+      const stripe = q.isCorrect ? '#10b981' : '#ef4444';
+      const verdict = q.isCorrect
+        ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#dcfce7;color:#15803d">CORRECT</span>`
+        : `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#fee2e2;color:#991b1b">INCORRECT</span>`;
+      return `
+        <div style="padding:10px 12px;margin-bottom:10px;border-radius:6px;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid ${stripe};page-break-inside:avoid">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+            <div style="font-size:10px;color:#64748b">#${q.position} · ${escapeHtml(q.domain || 'General')}</div>
+            ${verdict}
+          </div>
+          <p style="margin:0;font-size:12px;color:#0f172a;line-height:1.5;margin-bottom:8px">${escapeHtml(q.content?.text || '')}</p>
+          ${codeHtml}
+          ${optsHtml}
+        </div>
+      `;
+    }).join('');
+
+    return `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:0;padding:0}</style>
+</head>
+<body>
+  <!-- Header -->
+  <div style="display:flex;align-items:center;padding:0 0 14px;border-bottom:2px solid ${brand.brandColor}">
+    ${logoHtml}
+    <div>
+      <div style="font-size:18px;font-weight:700;color:${brand.brandColor};line-height:1.1">${escapeHtml(brand.displayName)}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px">Quiz Assessment Report</div>
+    </div>
+  </div>
+
+  <!-- Candidate / overall -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:18px 0 14px">
+    <div>
+      <div style="font-size:11px;color:#64748b">Candidate</div>
+      <div style="font-size:15px;font-weight:600;color:#0f172a;line-height:1.2">${escapeHtml(candidateName)}</div>
+      <div style="font-size:11px;color:#475569;margin-top:2px">${escapeHtml(d.candidate.email || '')}</div>
+      <div style="font-size:11px;color:#475569">${escapeHtml(d.candidate.jobPosition || '')}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">Submitted: ${dateStr}</div>
+      <div style="font-size:11px;color:#64748b">Assessment: ${escapeHtml(d.assessmentName || '')}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:32px;font-weight:700;color:${passed ? '#10b981' : '#ef4444'};line-height:1">${Math.round(overall.score || 0)}<span style="font-size:14px;color:#64748b">%</span></div>
+      <div style="font-size:10px;color:#64748b">overall</div>
+      <div style="margin-top:6px;display:inline-block;padding:4px 12px;border-radius:5px;background:${passed ? '#dcfce7' : '#fee2e2'};color:${passed ? '#15803d' : '#991b1b'};font-size:12px;font-weight:700">${overall.result || (passed ? 'PASS' : 'FAIL')}</div>
+    </div>
+  </div>
+
+  <!-- Per-domain -->
+  ${domains.length > 0 ? `
+    <div style="margin-bottom:18px">
+      <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Score by topic</div>
+      <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:6px">${domainRows}</table>
+    </div>
+  ` : ''}
+
+  <!-- Q&A -->
+  <div>
+    <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Question-by-question</div>
+    ${questionsHtml}
+  </div>
+</body></html>`;
+  }
+
   /** Quiz-only reports for HR review. Org-scoped. */
   async listReportsForOrg(organizationId: string) {
     return this.prisma.report.findMany({
@@ -488,6 +660,20 @@ export class QuizService {
       take: 200,
     });
   }
+}
+
+// Minimal HTML escape for values interpolated into the PDF template. The
+// values come from our own DB (question text, candidate name, option
+// labels) but we still sanitise to defend against XSS via stored
+// content in case a CMS_ADMIN account is ever compromised.
+function escapeHtml(s: any): string {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function maskEmail(email?: string | null): string {
