@@ -232,6 +232,11 @@ model Organization {
   maxConcurrentSessions Int      @default(5)
   recordingRetentionDays Int     @default(7)
   reportingLanguage    String    @default("en")
+  // Feature flag — super-admin opt-in per org for the MCQ-only "Quiz"
+  // mode (no camera, no proctor, self-administered). Disabled by default
+  // so existing tenants don't see the menu/scheduling option until the
+  // platform owner explicitly enables it for them.
+  quizEnabled          Boolean   @default(false)
   // Org-level timezone used for every candidate-facing email and any
   // dashboard timestamp formatting. Falls back to Asia/Dubai for
   // historical rows so existing customers don't suddenly see UTC times

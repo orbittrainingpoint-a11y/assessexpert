@@ -52,6 +52,19 @@ export default function AdminCompaniesPage() {
     onSuccess: () => { toast.success('Company suspended'); qc.invalidateQueries({ queryKey: ['orgs'] }) },
   })
 
+  // Per-org feature flag toggle for the MCQ-only Quiz mode. Backend
+  // gates scheduling + reports listing on this; the HR portal reads it
+  // out of /branding to conditionally show the menu + scheduling option.
+  const quizToggleMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      orgsApi.setQuizEnabled(id, enabled),
+    onSuccess: (_res, vars) => {
+      toast.success(vars.enabled ? 'Quiz feature ENABLED for this org' : 'Quiz feature disabled')
+      qc.invalidateQueries({ queryKey: ['orgs'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Toggle failed'),
+  })
+
   const inviteMutation = useMutation({
     mutationFn: () => usersApi.invite({ email: inviteEmail, role: inviteRole, organizationId: viewOrg.id }),
     onSuccess: () => { toast.success('Invitation sent — user will receive an email'); qc.invalidateQueries({ queryKey: ['org-users', viewOrg?.id] }); setInviteEmail('') },
@@ -92,13 +105,13 @@ export default function AdminCompaniesPage() {
       <div className="glass-card" style={{ overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
-            <tr><th>Company</th><th>Industry</th><th>Country</th><th>Credits</th><th>Status</th><th>Contact</th><th>Actions</th></tr>
+            <tr><th>Company</th><th>Industry</th><th>Country</th><th>Credits</th><th>Status</th><th>Features</th><th>Contact</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
             ) : !Array.isArray(orgs) || !orgs.length ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No companies yet.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No companies yet.</td></tr>
             ) : orgs.map((o: any) => (
               <tr key={o.id}>
                 <td>
@@ -121,6 +134,17 @@ export default function AdminCompaniesPage() {
                   </div>
                 </td>
                 <td><span className={`badge ${o.status === 'ACTIVE' ? 'badge-pass' : o.status === 'TRIAL' ? 'badge-pending' : 'badge-fail'}`}>{o.status}</span></td>
+                <td>
+                  <label title={o.quizEnabled ? 'Quiz mode enabled — HR can schedule MCQ-only assessments' : 'Quiz mode disabled — toggle to enable for this org'}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: o.quizEnabled ? 'var(--emerald)' : 'var(--text-muted)' }}>
+                    <input type="checkbox"
+                      checked={!!o.quizEnabled}
+                      disabled={quizToggleMutation.isPending}
+                      onChange={e => quizToggleMutation.mutate({ id: o.id, enabled: e.target.checked })}
+                      style={{ accentColor: 'var(--cyan)', cursor: 'pointer' }} />
+                    Quiz
+                  </label>
+                </td>
                 <td style={{ fontSize: '12px' }}>{o.primaryContactEmail || '—'}</td>
                 <td>
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>

@@ -84,6 +84,10 @@ export const orgsApi = {
   create: (data: any) => api.post('/organizations', data),
   update: (id: string, data: any) => api.put(`/organizations/${id}`, data),
   suspend: (id: string, reason: string) => api.post(`/organizations/${id}/suspend`, { reason }),
+  // Super-admin only — toggle a feature flag per org. Currently used for
+  // the MCQ-only Quiz mode; same shape can fan out to other features.
+  setQuizEnabled: (id: string, enabled: boolean) =>
+    api.put(`/organizations/${id}/features/quiz`, { enabled }),
 }
 
 // Users

@@ -70,7 +70,7 @@ export class OrganizationsService {
   async getBranding(organizationId: string) {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { id: true, name: true, tradingName: true, logo: true, brandingConfig: true },
+      select: { id: true, name: true, tradingName: true, logo: true, brandingConfig: true, quizEnabled: true },
     });
     if (!org) throw new NotFoundException('Organization not found');
     return {
@@ -81,7 +81,23 @@ export class OrganizationsService {
       // Surface the legal name separately so the candidate UI can show
       // both "Brand X — by Legal Y" if the operator wants it.
       legalName: org.name,
+      // Feature flags shipped alongside branding so the HR portal can
+      // gate menu items + scheduling options without a separate fetch.
+      features: {
+        quiz: !!org.quizEnabled,
+      },
     };
+  }
+
+  /** Super-admin only — toggle the quiz feature flag for this org. */
+  async setQuizEnabled(organizationId: string, enabled: boolean) {
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } });
+    if (!org) throw new NotFoundException('Organization not found');
+    await this.prisma.organization.update({
+      where: { id: organizationId },
+      data: { quizEnabled: enabled },
+    });
+    return { organizationId, quizEnabled: enabled };
   }
 
   /** Org-scoped update — only HR managers + org admins for this org. */

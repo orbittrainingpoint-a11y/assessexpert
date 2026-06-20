@@ -137,6 +137,22 @@ export class SchedulingService {
     });
     if (!at) throw new BadRequestException('Assessment type not found');
 
+    // Quiz mode is a super-admin opt-in per org. If the caller asks for
+    // QUIZ but the org doesn't have the flag, refuse cleanly — same
+    // message as the HR portal hides the option, so this should only
+    // trigger from a hand-crafted API call or a stale frontend bundle.
+    if (data.mode === 'QUIZ') {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: data.organizationId },
+        select: { quizEnabled: true },
+      });
+      if (!org?.quizEnabled) {
+        throw new BadRequestException(
+          'Quiz mode is not enabled for this organization. Ask the platform admin to enable it under Companies → Features.',
+        );
+      }
+    }
+
     // Auto-assign proctor if not specified
     let proctorId = data.proctorId;
     if (!proctorId) {

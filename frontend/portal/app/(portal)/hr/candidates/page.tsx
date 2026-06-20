@@ -1,7 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { candidatesApi, assessmentsApi, schedulingApi } from '@/lib/api'
+import { candidatesApi, assessmentsApi, schedulingApi, brandingApi } from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import { Plus, Upload, Search, Calendar, ChevronRight, Download, CheckCircle, AlertCircle, X, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -257,6 +258,26 @@ export default function CandidatesPage() {
   // Quiz mode = no camera, no proctor, MCQ-only. Defaults to PROCTORED
   // so existing scheduling behaviour is unchanged unless HR opts in.
   const [schedMode, setSchedMode] = useState<'PROCTORED' | 'QUIZ'>('PROCTORED')
+
+  // Read org feature flags via branding so we can hide the Quiz mode
+  // option when the platform admin hasn't enabled the feature for
+  // this org. Same query key as the layout uses, so the result is
+  // shared from React Query's cache — no duplicate fetch.
+  const { user: authUser } = useAuthStore()
+  const { data: brandingData } = useQuery({
+    queryKey: ['branding', authUser?.organizationId],
+    queryFn: () => brandingApi.get(authUser!.organizationId!).then(r => r.data),
+    enabled: !!authUser?.organizationId,
+    staleTime: 5 * 60 * 1000,
+  })
+  const quizFeatureEnabled = brandingData?.features?.quiz === true
+  // If the platform admin disables Quiz while HR has the modal open
+  // with QUIZ selected, reset to PROCTORED so the (now hidden) state
+  // can't sneak past into the schedule mutation.
+  useEffect(() => {
+    if (!quizFeatureEnabled && schedMode === 'QUIZ') setSchedMode('PROCTORED')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizFeatureEnabled])
 
   const { data, isLoading } = useQuery({
     queryKey: ['candidates', search],
@@ -708,7 +729,7 @@ export default function CandidatesPage() {
                 </div>
               )}
 
-              {!rescheduleSessionId && (
+              {!rescheduleSessionId && quizFeatureEnabled && (
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Mode</label>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

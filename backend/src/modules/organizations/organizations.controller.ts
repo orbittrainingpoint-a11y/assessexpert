@@ -52,6 +52,17 @@ export class OrganizationsController {
     return this.orgsService.suspendOrganization(id, body.reason);
   }
 
+  /**
+   * Toggle the quiz feature flag for an org. Super-admin only. Hidden by
+   * default; enabling it surfaces the Quiz mode option in HR scheduling
+   * and the Quiz Reports menu item on the HR sidebar.
+   */
+  @Put(':id/features/quiz')
+  @Roles('SUPER_ADMIN')
+  async setQuizEnabled(@Param('id') id: string, @Body() body: { enabled: boolean }) {
+    return this.orgsService.setQuizEnabled(id, !!body?.enabled);
+  }
+
   // ── Branding ────────────────────────────────────────────────────────────
   // HR / ORG_ADMIN read + update their OWN org's logo + brand display.
   // Super admin can read + update any org.

@@ -640,8 +640,17 @@ export class QuizService {
 </body></html>`;
   }
 
-  /** Quiz-only reports for HR review. Org-scoped. */
+  /** Quiz-only reports for HR review. Org-scoped + feature-flag gated. */
   async listReportsForOrg(organizationId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { quizEnabled: true },
+    });
+    if (!org?.quizEnabled) {
+      throw new BadRequestException(
+        'Quiz mode is not enabled for this organization.',
+      );
+    }
     return this.prisma.report.findMany({
       where: {
         organizationId,

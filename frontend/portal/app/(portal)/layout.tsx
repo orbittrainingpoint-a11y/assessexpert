@@ -112,7 +112,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   if (!hydrated) return null
   if (!user) return null
 
-  const navItems = NAV_CONFIG[user.role] || NAV_CONFIG.HR_MANAGER
+  // Filter nav items by per-org feature flags. Super-admin nav doesn't
+  // depend on an org (no organizationId in their JWT) so we leave it
+  // alone. HR-role nav drops items their org doesn't have access to —
+  // currently just the Quiz Reports entry.
+  const quizEnabled = branding?.features?.quiz === true
+  const rawNavItems = NAV_CONFIG[user.role] || NAV_CONFIG.HR_MANAGER
+  const navItems = rawNavItems.filter(item => {
+    if (item.href === '/hr/quiz-reports' && !quizEnabled) return false
+    return true
+  })
 
   const handleLogout = async () => {
     try { await authApi.logout() } catch {}
