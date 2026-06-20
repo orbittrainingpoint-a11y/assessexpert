@@ -381,13 +381,23 @@ function BrandingSection({ organizationId }: { organizationId: string }) {
           <div>
             <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Logo</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              {/* Preview tile: shows the logo on a white chip the same
+                  way the rest of the app does. Operator sees exactly
+                  what candidates and HR will see. */}
               <div style={{
                 width: 96, height: 96, borderRadius: 10, background: 'var(--bg-base)',
                 border: '1px solid var(--border)', display: 'flex',
                 alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                padding: 8,
               }}>
                 {logoPreview ? (
-                  <img src={logoPreview} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                  <div style={{
+                    background: '#fff', padding: '6px 8px', borderRadius: 6,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    maxWidth: '100%', maxHeight: '100%',
+                  }}>
+                    <img src={logoPreview} alt="Logo" style={{ maxWidth: '100%', maxHeight: 56, objectFit: 'contain', display: 'block' }} />
+                  </div>
                 ) : (
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No logo</span>
                 )}

@@ -387,7 +387,11 @@ function BrandHeader({ brand }: { brand?: QuizInfo['organization'] }) {
   if (!brand) return null
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      {brand.logoUrl && <img src={brand.logoUrl} alt={brand.displayName} style={{ height: 24, objectFit: 'contain' }} />}
+      {brand.logoUrl && (
+        <div style={{ background: '#fff', padding: '4px 6px', borderRadius: 5, display: 'inline-flex', alignItems: 'center' }}>
+          <img src={brand.logoUrl} alt={brand.displayName} style={{ height: 20, objectFit: 'contain', display: 'block' }} />
+        </div>
+      )}
       <span style={{ fontSize: 14, fontWeight: 600, color: brand.brandColor || C.cyan }}>
         {brand.displayName}
       </span>
@@ -401,7 +405,11 @@ function Card({ title, children, brand, wide }: { title: string; children: React
       <div style={{ width: '100%', maxWidth: wide ? 600 : 460, background: C.bgSurface, borderRadius: 12, padding: 28, border: `1px solid ${C.border}`, boxShadow: '0 10px 40px rgba(0,0,0,0.35)' }}>
         {brand && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
-            {brand.logoUrl && <img src={brand.logoUrl} alt={brand.displayName} style={{ height: 28, objectFit: 'contain' }} />}
+            {brand.logoUrl && (
+              <div style={{ background: '#fff', padding: '5px 7px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
+                <img src={brand.logoUrl} alt={brand.displayName} style={{ height: 24, objectFit: 'contain', display: 'block' }} />
+              </div>
+            )}
             <span style={{ fontSize: 14, fontWeight: 600, color: brand.brandColor || C.cyan }}>
               {brand.displayName}
             </span>

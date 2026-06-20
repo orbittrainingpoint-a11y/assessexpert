@@ -161,7 +161,9 @@ function CandidateLive({ interview, token, branding }: { interview: any; token: 
       <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.6)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {branding?.logoUrl && (
-            <img src={branding.logoUrl} alt={branding.displayName || ''} style={{ height: 20, width: 'auto', objectFit: 'contain' }} />
+            <div style={{ background: '#fff', padding: '4px 6px', borderRadius: 5, display: 'inline-flex', alignItems: 'center' }}>
+              <img src={branding.logoUrl} alt={branding.displayName || ''} style={{ height: 18, width: 'auto', objectFit: 'contain', display: 'block' }} />
+            </div>
           )}
           {branding?.displayName && (
             <span style={{ color: branding.brandColor || 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 600 }}>
@@ -274,7 +276,9 @@ function CenteredCard({ title, subtitle, branding, children }: { title: string; 
         {branding && (branding.logoUrl || branding.displayName) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
             {branding.logoUrl && (
-              <img src={branding.logoUrl} alt={branding.displayName || 'Logo'} style={{ height: 28, width: 'auto', objectFit: 'contain' }} />
+              <div style={{ background: '#fff', padding: '5px 7px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
+                <img src={branding.logoUrl} alt={branding.displayName || 'Logo'} style={{ height: 24, width: 'auto', objectFit: 'contain', display: 'block' }} />
+              </div>
             )}
             {branding.displayName && (
               <span style={{ fontSize: 14, fontWeight: 600, color: branding.brandColor || 'var(--cyan)' }}>

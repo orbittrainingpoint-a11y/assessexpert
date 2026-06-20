@@ -156,7 +156,7 @@ export class NotificationsService {
     const html = `
       <div style="font-family: Inter, sans-serif; background: #060B18; color: #F1F5F9; padding: 40px; max-width: 600px; margin: 0 auto;">
         <div style="text-align: center; margin-bottom: 32px;">
-          ${brandLogo ? `<img src="${brandLogo}" alt="${brandName}" style="max-height: 48px; max-width: 240px; margin-bottom: 12px; object-fit: contain;" /><br/>` : ''}
+          ${brandLogo ? `<div style="display:inline-block;background:#ffffff;padding:8px 12px;border-radius:8px;margin-bottom:12px"><img src="${brandLogo}" alt="${brandName}" style="max-height: 40px; max-width: 220px; object-fit: contain; display: block;" /></div><br/>` : ''}
           <h1 style="color: ${brandColor}; font-size: 24px; margin: 0;">${brandName}</h1>
         </div>
         <h2 style="color: #F1F5F9;">You're Invited to an Interview</h2>

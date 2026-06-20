@@ -143,11 +143,23 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border)' }}>
           {branding?.logoUrl ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <img
-                src={branding.logoUrl}
-                alt={branding.displayName || 'Organization logo'}
-                style={{ height: 28, width: 'auto', objectFit: 'contain' }}
-              />
+              {/* White chip behind the logo so an uploaded white-on-white,
+                  transparent, or opaque-coloured logo all read cleanly on
+                  the dark sidebar. Mirrors how every B2B SaaS handles
+                  customer-uploaded brand marks. */}
+              <div style={{
+                background: '#fff',
+                padding: '4px 6px',
+                borderRadius: 6,
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}>
+                <img
+                  src={branding.logoUrl}
+                  alt={branding.displayName || 'Organization logo'}
+                  style={{ height: 22, width: 'auto', objectFit: 'contain', display: 'block' }}
+                />
+              </div>
               <h1 style={{
                 color: branding?.brandColor || 'var(--cyan)',
                 fontSize: '15px', fontWeight: '700', margin: 0,
