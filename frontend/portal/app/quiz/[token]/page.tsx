@@ -54,7 +54,7 @@ export default function QuizCandidatePage({ params }: { params: Promise<{ token:
       return
     }
     if (!info) return
-    if (['COMPLETED', 'SUBMITTED'].includes(info.status)) {
+    if (['SUBMITTED', 'REPORT_PUBLISHED'].includes(info.status)) {
       // Already done — fetch report and show thank-you
       quizApi.getReport(token).then(r => { setReport(r.data); setPhase('thanks') }).catch(() => setPhase('completed'))
       return

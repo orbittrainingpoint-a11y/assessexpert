@@ -44,7 +44,10 @@ export class QuizService {
       throw new BadRequestException('This link is for a proctored exam, not a quiz.');
     }
     if (session.tokenExpiresAt < new Date()) throw new BadRequestException('Quiz link has expired');
-    if (['COMPLETED', 'SUBMITTED', 'CANCELLED', 'TERMINATED'].includes(session.status)) {
+    // Valid SessionStatus terminal values: SUBMITTED, REPORT_PUBLISHED,
+    // CANCELLED, NO_SHOW, DISQUALIFIED. Quiz mode flips to SUBMITTED then
+    // immediately to REPORT_PUBLISHED when the report row is written.
+    if (['SUBMITTED', 'REPORT_PUBLISHED', 'CANCELLED', 'NO_SHOW', 'DISQUALIFIED'].includes(session.status)) {
       // Return the row but flag the status so the UI can show "already submitted".
       return this.publicShape(session);
     }
@@ -176,7 +179,10 @@ export class QuizService {
     });
     if (!session) throw new NotFoundException('Invalid quiz link');
     if (session.mode !== 'QUIZ') throw new BadRequestException('Not a quiz session');
-    if (['COMPLETED', 'SUBMITTED', 'CANCELLED', 'TERMINATED'].includes(session.status)) {
+    // Valid SessionStatus terminal values: SUBMITTED, REPORT_PUBLISHED,
+    // CANCELLED, NO_SHOW, DISQUALIFIED. Quiz mode flips to SUBMITTED then
+    // immediately to REPORT_PUBLISHED when the report row is written.
+    if (['SUBMITTED', 'REPORT_PUBLISHED', 'CANCELLED', 'NO_SHOW', 'DISQUALIFIED'].includes(session.status)) {
       throw new BadRequestException('Quiz already submitted');
     }
 
@@ -222,7 +228,10 @@ export class QuizService {
     });
     if (!session) throw new NotFoundException('Invalid quiz link');
     if (session.mode !== 'QUIZ') throw new BadRequestException('Not a quiz session');
-    if (['COMPLETED', 'SUBMITTED', 'CANCELLED', 'TERMINATED'].includes(session.status)) {
+    // Valid SessionStatus terminal values: SUBMITTED, REPORT_PUBLISHED,
+    // CANCELLED, NO_SHOW, DISQUALIFIED. Quiz mode flips to SUBMITTED then
+    // immediately to REPORT_PUBLISHED when the report row is written.
+    if (['SUBMITTED', 'REPORT_PUBLISHED', 'CANCELLED', 'NO_SHOW', 'DISQUALIFIED'].includes(session.status)) {
       throw new BadRequestException('Quiz already submitted');
     }
 
@@ -307,7 +316,10 @@ export class QuizService {
         await tx.examSession.update({
           where: { id: session.id },
           data: {
-            status: 'COMPLETED' as any,
+            // REPORT_PUBLISHED — quiz mode is auto-published on submit, so
+            // skip SUBMITTED/GRADING/PENDING_PROCTOR_REVIEW intermediate
+            // states that only the proctored flow needs.
+            status: 'REPORT_PUBLISHED' as any,
             mcqSubmittedAt: new Date(),
           },
         });
