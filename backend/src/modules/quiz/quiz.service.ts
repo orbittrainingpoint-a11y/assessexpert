@@ -290,35 +290,72 @@ export class QuizService {
     const passingThreshold = session.assessmentType.mcqPassThreshold || 60;
     const passed = overallPercentage >= passingThreshold;
 
-    // Atomically: write answers, finalize session, publish report.
-    await this.prisma.$transaction(async (tx) => {
-      if (answerRows.length > 0) {
-        await tx.examAnswer.createMany({ data: answerRows });
-      }
-      await tx.examSession.update({
-        where: { id: session.id },
-        data: {
-          status: 'COMPLETED' as any,
-          mcqSubmittedAt: new Date(),
-        },
+    // Atomically: clear any prior answers from a half-finished attempt,
+    // write the fresh ones, finalize the session, publish (or update) the
+    // report. Upsert on the (sessionId, candidateId) compound key handles
+    // re-submits cleanly — Report.create would 500 on the second attempt.
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Clean slate for THIS candidate — defensive against the rare case
+        // of a half-written previous attempt left over from a crash.
+        await tx.examAnswer.deleteMany({
+          where: { sessionId: session.id, candidateId: session.candidateId },
+        });
+        if (answerRows.length > 0) {
+          await tx.examAnswer.createMany({ data: answerRows });
+        }
+        await tx.examSession.update({
+          where: { id: session.id },
+          data: {
+            status: 'COMPLETED' as any,
+            mcqSubmittedAt: new Date(),
+          },
+        });
+        await tx.report.upsert({
+          where: {
+            sessionId_candidateId: {
+              sessionId: session.id,
+              candidateId: session.candidateId,
+            },
+          },
+          create: {
+            sessionId: session.id,
+            candidateId: session.candidateId,
+            organizationId: session.organizationId,
+            mcqScore: overallPercentage,
+            mcqPassed: passed,
+            mcqBreakdown: { domains, overallPercentage, totalScore, maxTotal, passingThreshold } as any,
+            // Quiz mode has no practical / integrity to score — overall = MCQ.
+            overallScore: overallPercentage,
+            overallPassed: passed,
+            integrityScore: 100, // no proctor data → assume clean
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+          },
+          update: {
+            mcqScore: overallPercentage,
+            mcqPassed: passed,
+            mcqBreakdown: { domains, overallPercentage, totalScore, maxTotal, passingThreshold } as any,
+            overallScore: overallPercentage,
+            overallPassed: passed,
+            integrityScore: 100,
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+          },
+        });
       });
-      await tx.report.create({
-        data: {
-          sessionId: session.id,
-          candidateId: session.candidateId,
-          organizationId: session.organizationId,
-          mcqScore: overallPercentage,
-          mcqPassed: passed,
-          mcqBreakdown: { domains, overallPercentage, totalScore, maxTotal, passingThreshold } as any,
-          // Quiz mode has no practical / integrity to score — overall = MCQ.
-          overallScore: overallPercentage,
-          overallPassed: passed,
-          integrityScore: 100, // no proctor data → assume clean
-          status: 'PUBLISHED',
-          publishedAt: new Date(),
-        },
-      });
-    });
+    } catch (err: any) {
+      // Make the failure mode visible in pm2 logs so future "500 on
+      // submit" reports can be traced quickly. The candidate sees a
+      // generic message but our log line has the full reason.
+      this.logger.error(
+        `Quiz submit failed for session=${session.id} candidate=${session.candidateId}: ` +
+        `${err?.code || ''} ${err?.message || err}`,
+      );
+      throw new BadRequestException(
+        'Could not finalise your submission. Please try again, or contact HR if this persists.',
+      );
+    }
 
     return {
       submitted: true,
