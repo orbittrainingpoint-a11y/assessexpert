@@ -153,14 +153,24 @@ export class SchedulingService {
       }
     }
 
-    // Auto-assign proctor if not specified
+    // QUIZ mode is self-administered — no camera, no proctor, no slot.
+    // Skip proctor auto-assignment (a quiz session with a proctor
+    // attached would show up in proctor queues, which is the bug HR
+    // hit). Same for slot grouping below — slot grouping is a
+    // proctor-window optimisation that's meaningless when there's no
+    // proctor. Quiz tokens get a much longer validity window so the
+    // candidate can take the quiz whenever it suits them.
+    const isQuiz = data.mode === 'QUIZ';
+
+    // Auto-assign proctor only for proctored sessions.
     let proctorId = data.proctorId;
-    if (!proctorId) {
+    if (!isQuiz && !proctorId) {
       const proctor = await this.prisma.user.findFirst({
         where: { role: 'PROCTOR', status: 'ACTIVE' },
       });
       proctorId = proctor?.id;
     }
+    if (isQuiz) proctorId = undefined;
 
     // Slot grouping: a "slot" is a time WINDOW (slotDurationMinutes, default
     // 60). When a candidate is scheduled with the same proctor + assessment +
@@ -173,7 +183,7 @@ export class SchedulingService {
     // and a re-schedule produced a second link.)
     const slotDurationMinutes =
       Number(data.slotDurationMinutes) > 0 ? Math.round(Number(data.slotDurationMinutes)) : 60;
-    if (proctorId) {
+    if (!isQuiz && proctorId) {
       const newStart = data.scheduledAt.getTime();
       const newEnd = newStart + slotDurationMinutes * 60_000;
       // Bound the scan to ±6h around the request so we don't read the whole
@@ -290,8 +300,18 @@ export class SchedulingService {
     }
 
     const token = randomBytes(32).toString('hex');
-    // Token valid from 15 minutes before scheduled time until 15 minutes after
-    const tokenExpiresAt = new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
+    // Token validity window:
+    //   - PROCTORED: tight ±15min around scheduledAt (matches the
+    //     proctor's live slot — late candidates miss the session).
+    //   - QUIZ: long window so the candidate can take it whenever
+    //     suits them. Defaults to 14 days; configurable via the
+    //     QUIZ_TOKEN_VALIDITY_DAYS env var.
+    const quizDays = Number(process.env.QUIZ_TOKEN_VALIDITY_DAYS) > 0
+      ? Number(process.env.QUIZ_TOKEN_VALIDITY_DAYS)
+      : 14;
+    const tokenExpiresAt = isQuiz
+      ? new Date(data.scheduledAt.getTime() + quizDays * 24 * 60 * 60 * 1000)
+      : new Date(data.scheduledAt.getTime() + 15 * 60 * 1000);
 
     // Every new session is created as multi-candidate (with N=1 for the
     // moment) so the proctor + candidate UIs only ever need one rendering
@@ -325,7 +345,8 @@ export class SchedulingService {
     // is exactly why the user was seeing "scheduled but no email
     // arrived, works on retry" behaviour.
     // Quiz mode lands on /quiz/<token>; proctored exam uses /exam?token=…
-    const isQuiz = (data.mode || 'PROCTORED') === 'QUIZ';
+    // `isQuiz` was declared earlier (line ~163) to gate proctor
+    // assignment and slot grouping — reuse it here.
     const magicLink = isQuiz
       ? `${process.env.FRONTEND_URL}/quiz/${token}`
       : `${process.env.FRONTEND_URL}/exam?token=${token}`;

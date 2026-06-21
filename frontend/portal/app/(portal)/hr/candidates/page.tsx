@@ -435,6 +435,20 @@ export default function CandidatesPage() {
   }
 
   const handleConfirmSchedule = () => {
+    if (!schedAssessmentId) { toast.error('Select an assessment'); return }
+    // QUIZ mode is self-administered — no slot picking, no proctor,
+    // no camera. Send "now" as scheduledAt and the backend stretches
+    // the token to a 14-day validity window. Candidate takes it
+    // whenever it suits them.
+    if (schedMode === 'QUIZ') {
+      scheduleMutation.mutate({
+        candidateId: scheduleCandidate.id,
+        assessmentTypeId: schedAssessmentId,
+        scheduledAt: new Date().toISOString(),
+        mode: 'QUIZ',
+      })
+      return
+    }
     if (!selectedSlot) { toast.error('Select a time slot'); return }
     scheduleMutation.mutate({
       candidateId: scheduleCandidate.id,
@@ -753,6 +767,16 @@ export default function CandidatesPage() {
                 </div>
               )}
 
+              {/* Quiz mode skips slot picking entirely — self-administered,
+                  no proctor, no specific time. Show a brief note instead. */}
+              {schedMode === 'QUIZ' ? (
+                <div style={{ padding: '14px 16px', borderRadius: 8, background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.25)' }}>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Self-administered quiz</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    No camera, no proctor, no slot booking. The candidate gets a magic link valid for 14 days and can take the quiz any time within that window.
+                  </p>
+                </div>
+              ) : (<>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Time Preference</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -793,14 +817,15 @@ export default function CandidatesPage() {
                   )}
                 </div>
               )}
+              </>)}
             </div>
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button className="btn-ghost" onClick={closeScheduleModal} style={{ flex: 1 }}>Cancel</button>
               <button className="btn-primary" onClick={handleConfirmSchedule}
-                disabled={!selectedSlot || scheduleMutation.isPending}
-                style={{ flex: 1, opacity: selectedSlot ? 1 : 0.5 }}>
-                {scheduleMutation.isPending ? 'Scheduling...' : 'Confirm & Send Invitation'}
+                disabled={scheduleMutation.isPending || (schedMode === 'PROCTORED' && !selectedSlot) || !schedAssessmentId}
+                style={{ flex: 1, opacity: (schedMode === 'QUIZ' ? !!schedAssessmentId : !!selectedSlot) ? 1 : 0.5 }}>
+                {scheduleMutation.isPending ? 'Scheduling...' : (schedMode === 'QUIZ' ? 'Send Quiz Link' : 'Confirm & Send Invitation')}
               </button>
             </div>
           </div>
