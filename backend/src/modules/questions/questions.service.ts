@@ -315,10 +315,76 @@ export class QuestionsService {
   // them without re-uploading the whole file. Row numbers in errors
   // are 1-based and account for the header row, matching what the
   // user sees in Excel.
+  //
+  // Type and difficulty values are normalised through alias maps so
+  // CSVs exported from other platforms (or AI-generated banks) work
+  // without hand-editing. `single_choice`, `multiple choice`,
+  // `beginner`, `advanced`, etc. all map to the canonical Prisma
+  // enum values.
   async bulkImport(questions: any[], assessmentTypeId: string, createdBy: string) {
+    const TYPE_ALIASES: Record<string, string> = {
+      mcq: 'MCQ_SINGLE',
+      mcqsingle: 'MCQ_SINGLE',
+      single: 'MCQ_SINGLE',
+      singlechoice: 'MCQ_SINGLE',
+      singleselect: 'MCQ_SINGLE',
+      singleanswer: 'MCQ_SINGLE',
+      mcq1: 'MCQ_SINGLE',
+      radio: 'MCQ_SINGLE',
+      mcqmulti: 'MCQ_MULTI',
+      mcqmultiple: 'MCQ_MULTI',
+      multi: 'MCQ_MULTI',
+      multiple: 'MCQ_MULTI',
+      multichoice: 'MCQ_MULTI',
+      multiplechoice: 'MCQ_MULTI',
+      multiselect: 'MCQ_MULTI',
+      multipleselect: 'MCQ_MULTI',
+      multianswer: 'MCQ_MULTI',
+      multipleanswer: 'MCQ_MULTI',
+      multipleanswers: 'MCQ_MULTI',
+      checkbox: 'MCQ_MULTI',
+      truefalse: 'TRUE_FALSE',
+      true_false: 'TRUE_FALSE',
+      'true/false': 'TRUE_FALSE',
+      tf: 'TRUE_FALSE',
+      boolean: 'TRUE_FALSE',
+      bool: 'TRUE_FALSE',
+      yesno: 'TRUE_FALSE',
+    };
+    const DIFFICULTY_ALIASES: Record<string, string> = {
+      easy: 'EASY',
+      beginner: 'EASY',
+      basic: 'EASY',
+      simple: 'EASY',
+      low: 'EASY',
+      junior: 'EASY',
+      '1': 'EASY',
+      medium: 'MEDIUM',
+      intermediate: 'MEDIUM',
+      moderate: 'MEDIUM',
+      mid: 'MEDIUM',
+      midlevel: 'MEDIUM',
+      normal: 'MEDIUM',
+      average: 'MEDIUM',
+      '2': 'MEDIUM',
+      hard: 'HARD',
+      advanced: 'HARD',
+      difficult: 'HARD',
+      expert: 'HARD',
+      high: 'HARD',
+      senior: 'HARD',
+      '3': 'HARD',
+    };
+    // Strip whitespace, underscores, hyphens, and slashes so
+    // `single_choice`, `Single-Choice`, `single choice`, and
+    // `true/false` all normalise to the same lookup key.
+    const normaliseKey = (s: string) => s.trim().toLowerCase().replace(/[\s_\-/]/g, '');
     const VALID_TYPES = new Set(['MCQ_SINGLE', 'MCQ_MULTI', 'TRUE_FALSE']);
     const VALID_DIFFICULTY = new Set(['EASY', 'MEDIUM', 'HARD']);
     const VALID_KEYS = new Set(['A', 'B', 'C', 'D', 'E']);
+    // Map 1-based numeric correct answers ("1" → "A", "2" → "B" …)
+    // so AI-generated CSVs that use indices instead of letters work.
+    const INDEX_TO_LETTER: Record<string, string> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D', '5': 'E' };
 
     const results = { success: 0, errors: [] as { row: number; error: string; questionText?: string }[] };
 
@@ -330,14 +396,21 @@ export class QuestionsService {
         if (!q.questionText) throw new Error('questionText is empty');
         if (!q.correctAnswers) throw new Error('correctAnswers is empty (use single letter A/B/C/D/E for MCQ_SINGLE, comma-separated A,B,C for MCQ_MULTI)');
 
-        const type = String(q.type || 'MCQ_SINGLE').toUpperCase().trim();
+        // Type — accept aliases (single_choice, multi, true_false, …)
+        // plus the canonical Prisma enum values. Normalise to canonical
+        // before validation.
+        const rawType = String(q.type ?? 'MCQ_SINGLE').trim();
+        const type = TYPE_ALIASES[normaliseKey(rawType)] || rawType.toUpperCase().replace(/[\s-]/g, '_');
         if (!VALID_TYPES.has(type)) {
-          throw new Error(`type "${q.type}" is not valid (allowed: MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE)`);
+          throw new Error(`type "${q.type}" is not valid (allowed: MCQ_SINGLE / single_choice, MCQ_MULTI / multiple_choice, TRUE_FALSE)`);
         }
 
-        const difficulty = String(q.difficulty || 'MEDIUM').toUpperCase().trim();
+        // Difficulty — accept aliases (beginner, intermediate, advanced,
+        // 1/2/3, …) plus the canonical Prisma enum values.
+        const rawDifficulty = String(q.difficulty ?? 'MEDIUM').trim();
+        const difficulty = DIFFICULTY_ALIASES[normaliseKey(rawDifficulty)] || rawDifficulty.toUpperCase();
         if (!VALID_DIFFICULTY.has(difficulty)) {
-          throw new Error(`difficulty "${q.difficulty}" is not valid (allowed: EASY, MEDIUM, HARD)`);
+          throw new Error(`difficulty "${q.difficulty}" is not valid (allowed: EASY / beginner, MEDIUM / intermediate, HARD / advanced)`);
         }
 
         // Options. TRUE_FALSE only needs A/B; MCQ needs at least A/B/C/D.
@@ -355,11 +428,14 @@ export class QuestionsService {
           throw new Error('MCQ rows need at least 2 options (A and B)');
         }
 
-        // Correct answer keys. Accept "A" or "A,C" or "A, C" with whitespace.
+        // Correct answer keys. Accept letters (`A`, `A,C`, `A, C`) and
+        // 1-based numeric indices (`1`, `1,3`) — common in AI-generated
+        // CSVs. Numeric values get mapped to letters before validation.
         const correctAnswer = String(q.correctAnswers)
           .split(/[,;|]/)
-          .map((s) => s.trim().toUpperCase())
-          .filter(Boolean);
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => INDEX_TO_LETTER[s] || s.toUpperCase());
 
         if (correctAnswer.length === 0) throw new Error('correctAnswers parsed to empty');
         if (type === 'MCQ_SINGLE' && correctAnswer.length !== 1) {
@@ -368,7 +444,7 @@ export class QuestionsService {
 
         const optionKeys = new Set(options.map((o) => o.key));
         for (const key of correctAnswer) {
-          if (!VALID_KEYS.has(key)) throw new Error(`correctAnswers contains invalid key "${key}" (allowed: A, B, C, D, E)`);
+          if (!VALID_KEYS.has(key)) throw new Error(`correctAnswers contains invalid key "${key}" (allowed: A, B, C, D, E or 1, 2, 3, 4, 5)`);
           if (!optionKeys.has(key)) throw new Error(`correctAnswers references "${key}" but option${key} is empty`);
         }
 
