@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
+import { SITE } from '@/lib/marketing-content'
 
 // Inter stays for the authenticated portal so internal tooling keeps its
 // existing rhythm. The PUBLIC site (and any future engineering-flavoured
@@ -30,7 +31,12 @@ const plexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://assessexpert.ae'),
+  // Single source of truth (lib/marketing-content.ts SITE.url) so the
+  // OG/canonical/meta URLs all line up with the sitemap and schema.
+  // Was: hardcoded to assessexpert.ae which caused Google Search
+  // Console to reject the sitemap whenever the deployed site was on
+  // a different domain.
+  metadataBase: new URL(SITE.url),
   title: {
     default: 'AssessExpert — AI-Proctored Pre-Employment Assessment Platform',
     template: '%s',

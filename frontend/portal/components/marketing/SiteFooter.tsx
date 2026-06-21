@@ -47,7 +47,7 @@ export function SiteFooter() {
         </div>
         <div style={{ borderTop: '1px solid rgba(59,141,255,0.14)', paddingTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--web-text-muted)' }}>© 2026 {SITE.brand}. All rights reserved.</p>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--web-text-muted)' }}>assessexpert.ae · app.assessexpert.ae</p>
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--web-text-muted)' }}>{SITE.url.replace(/^https?:\/\//, '')}</p>
         </div>
       </div>
     </footer>

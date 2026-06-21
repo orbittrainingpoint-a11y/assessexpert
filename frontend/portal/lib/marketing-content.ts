@@ -51,11 +51,30 @@ export interface PageMeta {
   keywords: string[]
 }
 
+// Resolve the public site URL once at module load. Production sets
+// NEXT_PUBLIC_SITE_URL to the actual canonical domain (e.g.
+// https://assessexpert.com) so the sitemap, schema, OG tags, robots,
+// and llms.txt all advertise URLs that match where the site is
+// actually served from. Google Search Console rejects any sitemap
+// whose URLs don't match the sitemap's own host — so this constant
+// MUST track reality.
+//
+// Both NEXT_PUBLIC_SITE_URL and SITE_URL are read so the same value
+// works server-side and at build time. Falls back to assessexpert.com
+// (current production) so a missing env var still produces a working
+// sitemap rather than a broken .ae one.
+const RAW_SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.SITE_URL ||
+  'https://assessexpert.com'
+// Strip any trailing slash so we never emit `…//path` in URLs.
+const SITE_URL = RAW_SITE_URL.replace(/\/+$/, '')
+
 export const SITE = {
   name: 'AssessExpert',
   brand: 'assessexpert',
   tagline: 'AI-Proctored Pre-Employment Assessment Platform',
-  url: 'https://assessexpert.ae',
+  url: SITE_URL,
   email: 'enquiry@assessexpert.com',
   phone: '+971 58 545 0455',
   // E.164 form used by tel: links and schema. Strip spaces for href.

@@ -24,7 +24,7 @@ const CONTACT_INFO: { Icon: any; label: string; value: string; sub: string; href
   { Icon: Mail,   label: 'Email',            value: SITE.email,   sub: 'We respond within 1 business day', href: `mailto:${SITE.email}` },
   { Icon: Phone,  label: 'Phone / WhatsApp', value: SITE.phone,   sub: 'Sun – Thu · 9AM – 6PM GST',         href: `tel:${SITE.phoneE164}` },
   { Icon: MapPin, label: 'Address',          value: SITE.address, sub: 'Orbit Training HQ' },
-  { Icon: Globe,  label: 'Website',          value: 'assessexpert.ae', sub: 'app.assessexpert.ae for portal' },
+  { Icon: Globe,  label: 'Website',          value: SITE.url.replace(/^https?:\/\//, ''), sub: 'Sign in via the Portal Login link in the header' },
 ]
 
 const PROCESS_STEPS = [
