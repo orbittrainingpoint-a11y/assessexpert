@@ -49,6 +49,38 @@ export interface BlogPost {
   keywords?: string[]
 }
 
+/**
+ * Extract Q&A pairs from a sanitized blog body for FAQPage JSON-LD.
+ *
+ * Posts mark their FAQ block with `<h2>FAQ</h2>` (or `<h2 id="faq">`).
+ * After that heading, each `<h3>Question</h3>` followed by a `<p>Answer</p>`
+ * is captured. Stops at the next `<h2>` so post-FAQ sections (CTA, etc.)
+ * are not pulled in.
+ *
+ * Returning an empty array means no schema is emitted — safer than a
+ * malformed FAQPage that confuses search engines.
+ */
+export function extractFaqsFromBody(body: string): { question: string; answer: string }[] {
+  if (!body) return []
+  // Slice out the FAQ block: from the FAQ heading to the next H2.
+  const faqHeadingMatch = body.match(/<h2[^>]*>\s*FAQ[^<]*<\/h2>/i)
+  if (!faqHeadingMatch || faqHeadingMatch.index === undefined) return []
+  const afterFaq = body.slice(faqHeadingMatch.index + faqHeadingMatch[0].length)
+  const nextH2 = afterFaq.search(/<h2[\s>]/i)
+  const faqBlock = nextH2 === -1 ? afterFaq : afterFaq.slice(0, nextH2)
+
+  const items: { question: string; answer: string }[] = []
+  // Pattern: <h3>Question</h3> <p>Answer</p>
+  const pairRegex = /<h3[^>]*>([\s\S]*?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi
+  let m: RegExpExecArray | null
+  while ((m = pairRegex.exec(faqBlock)) !== null) {
+    const question = m[1].replace(/<[^>]+>/g, '').trim()
+    const answer = m[2].replace(/<[^>]+>/g, '').trim()
+    if (question && answer) items.push({ question, answer })
+  }
+  return items
+}
+
 /** Resolve SEO metadata for a page: CMS overrides → bundled default. */
 export async function getPageMeta(slug: string): Promise<PageMeta & { ogImage?: string | null }> {
   const fallback = PAGE_META[slug] ?? PAGE_META.home

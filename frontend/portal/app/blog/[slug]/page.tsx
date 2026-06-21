@@ -5,7 +5,7 @@ import { ArrowLeft } from 'lucide-react'
 import DOMPurify from 'isomorphic-dompurify'
 import { SiteNav } from '@/components/marketing/SiteNav'
 import { SiteFooter } from '@/components/marketing/SiteFooter'
-import { getPost } from '@/lib/cms'
+import { getPost, extractFaqsFromBody } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
 
 export const revalidate = 60
@@ -42,7 +42,7 @@ export default async function BlogPostPage({ params }: Props) {
 
   const safeHtml = DOMPurify.sanitize(post.body || '', { USE_PROFILES: { html: true } })
 
-  const jsonLd = {
+  const blogJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'BlogPosting',
     headline: post.title,
@@ -54,9 +54,28 @@ export default async function BlogPostPage({ params }: Props) {
     mainEntityOfPage: `${SITE.url}/blog/${post.slug}`,
   }
 
+  // FAQPage JSON-LD. Extracted from the body so editors writing in
+  // /cms with the standard `<h2>FAQ</h2>` + `<h3>Q</h3><p>A</p>` shape
+  // automatically get the schema without a separate field.
+  const faqItems = extractFaqsFromBody(post.body || '')
+  const faqJsonLd = faqItems.length
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqItems.map((f) => ({
+          '@type': 'Question',
+          name: f.question,
+          acceptedAnswer: { '@type': 'Answer', text: f.answer },
+        })),
+      }
+    : null
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(blogJsonLd) }} />
+      {faqJsonLd && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      )}
       <SiteNav />
 
       <article style={{ maxWidth: '760px', margin: '0 auto', padding: '80px 24px 100px' }}>
