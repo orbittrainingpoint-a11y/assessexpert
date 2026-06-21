@@ -142,6 +142,10 @@ export const questionsApi = {
   bulkActivate: (body: { ids?: string[]; assessmentTypeId?: string }) => api.post(`/questions/bulk-activate`, body),
   getPoolStats: (assessmentTypeId: string) => api.get(`/questions/pool-stats/${assessmentTypeId}`),
   bulkImport: (formData: FormData) => api.post('/questions/import', formData),
+  // Download the CSV template a user can hand-edit before bulk import.
+  // We hit the API with responseType:'blob' so the browser saves the
+  // file rather than rendering it as text.
+  downloadImportTemplate: () => api.get('/questions/import/template', { responseType: 'blob' }),
 }
 
 // Practical Paper Sets — new model with file library + typed questions

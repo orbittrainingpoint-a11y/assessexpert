@@ -309,37 +309,90 @@ export class QuestionsService {
     };
   }
 
+  // Bulk-import question rows produced by the CSV/XLSX parser in the
+  // controller. Each row is validated, then created as a DRAFT
+  // Question. The result lists per-row errors so the importer can fix
+  // them without re-uploading the whole file. Row numbers in errors
+  // are 1-based and account for the header row, matching what the
+  // user sees in Excel.
   async bulkImport(questions: any[], assessmentTypeId: string, createdBy: string) {
-    const results = { success: 0, errors: [] as any[] };
+    const VALID_TYPES = new Set(['MCQ_SINGLE', 'MCQ_MULTI', 'TRUE_FALSE']);
+    const VALID_DIFFICULTY = new Set(['EASY', 'MEDIUM', 'HARD']);
+    const VALID_KEYS = new Set(['A', 'B', 'C', 'D', 'E']);
+
+    const results = { success: 0, errors: [] as { row: number; error: string; questionText?: string }[] };
+
     for (const [idx, q] of questions.entries()) {
+      const rowNum = idx + 2; // +1 for 0-index, +1 for header row
+      const preview = String(q.questionText || '').slice(0, 80);
       try {
+        // ── Validate required fields up-front with helpful errors ──
+        if (!q.questionText) throw new Error('questionText is empty');
+        if (!q.correctAnswers) throw new Error('correctAnswers is empty (use single letter A/B/C/D/E for MCQ_SINGLE, comma-separated A,B,C for MCQ_MULTI)');
+
+        const type = String(q.type || 'MCQ_SINGLE').toUpperCase().trim();
+        if (!VALID_TYPES.has(type)) {
+          throw new Error(`type "${q.type}" is not valid (allowed: MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE)`);
+        }
+
+        const difficulty = String(q.difficulty || 'MEDIUM').toUpperCase().trim();
+        if (!VALID_DIFFICULTY.has(difficulty)) {
+          throw new Error(`difficulty "${q.difficulty}" is not valid (allowed: EASY, MEDIUM, HARD)`);
+        }
+
+        // Options. TRUE_FALSE only needs A/B; MCQ needs at least A/B/C/D.
+        const options = [
+          q.optionA && { key: 'A', text: String(q.optionA) },
+          q.optionB && { key: 'B', text: String(q.optionB) },
+          q.optionC && { key: 'C', text: String(q.optionC) },
+          q.optionD && { key: 'D', text: String(q.optionD) },
+          q.optionE && { key: 'E', text: String(q.optionE) },
+        ].filter(Boolean) as { key: string; text: string }[];
+
+        if (type === 'TRUE_FALSE') {
+          if (options.length < 2) throw new Error('TRUE_FALSE rows need at least optionA and optionB');
+        } else if (options.length < 2) {
+          throw new Error('MCQ rows need at least 2 options (A and B)');
+        }
+
+        // Correct answer keys. Accept "A" or "A,C" or "A, C" with whitespace.
+        const correctAnswer = String(q.correctAnswers)
+          .split(/[,;|]/)
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean);
+
+        if (correctAnswer.length === 0) throw new Error('correctAnswers parsed to empty');
+        if (type === 'MCQ_SINGLE' && correctAnswer.length !== 1) {
+          throw new Error(`MCQ_SINGLE expects exactly one correct answer, got ${correctAnswer.length}`);
+        }
+
+        const optionKeys = new Set(options.map((o) => o.key));
+        for (const key of correctAnswer) {
+          if (!VALID_KEYS.has(key)) throw new Error(`correctAnswers contains invalid key "${key}" (allowed: A, B, C, D, E)`);
+          if (!optionKeys.has(key)) throw new Error(`correctAnswers references "${key}" but option${key} is empty`);
+        }
+
         await this.prisma.question.create({
           data: {
             assessmentTypeId,
-            type: q.type || 'MCQ_SINGLE',
-            content: { text: q.questionText },
-            options: [
-              { key: 'A', text: q.optionA },
-              { key: 'B', text: q.optionB },
-              { key: 'C', text: q.optionC },
-              { key: 'D', text: q.optionD },
-              ...(q.optionE ? [{ key: 'E', text: q.optionE }] : []),
-            ],
-            correctAnswer: q.correctAnswers.split(',').map((a: string) => a.trim()),
-            explanation: q.explanation,
-            difficulty: q.difficulty || 'MEDIUM',
-            domain: q.domain || 'General',
-            tags: q.tags ? q.tags.split(',').map((t: string) => t.trim()) : [],
-            marks: parseFloat(q.marks) || 1,
-            language: q.language || 'en',
+            type: type as any,
+            content: { text: String(q.questionText) },
+            options,
+            correctAnswer,
+            explanation: q.explanation ? String(q.explanation) : null,
+            difficulty: difficulty as any,
+            domain: q.domain ? String(q.domain) : 'General',
+            tags: q.tags ? String(q.tags).split(/[,;]/).map((t: string) => t.trim()).filter(Boolean) : [],
+            marks: q.marks != null && q.marks !== '' ? parseFloat(String(q.marks)) || 1 : 1,
+            language: q.language ? String(q.language).toLowerCase() : 'en',
             status: 'DRAFT',
             createdBy,
             version: 1,
           },
         });
         results.success++;
-      } catch (e) {
-        results.errors.push({ row: idx + 2, error: e.message });
+      } catch (e: any) {
+        results.errors.push({ row: rowNum, error: e?.message || String(e), questionText: preview || undefined });
       }
     }
     return results;

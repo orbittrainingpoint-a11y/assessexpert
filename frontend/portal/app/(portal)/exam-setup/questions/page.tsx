@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { questionsApi, assessmentsApi } from '@/lib/api'
-import { Plus, Upload, Archive, CheckCircle2 } from 'lucide-react'
+import { Plus, Upload, Archive, CheckCircle2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
@@ -62,15 +62,49 @@ function QuestionsContent() {
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (!assessmentTypeId) {
+      toast.error('Pick an Assessment Type first')
+      e.target.value = ''
+      return
+    }
     const fd = new FormData()
     fd.append('file', file)
-    if (assessmentTypeId) fd.append('assessmentTypeId', assessmentTypeId)
+    fd.append('assessmentTypeId', assessmentTypeId)
     try {
       const { data } = await questionsApi.bulkImport(fd)
-      toast.success(`Imported ${data.success} questions`)
+      const errCount = data.errors?.length || 0
+      if (data.success > 0) toast.success(`Imported ${data.success} question${data.success === 1 ? '' : 's'}${errCount ? ` · ${errCount} row${errCount === 1 ? '' : 's'} failed` : ''}`)
+      if (errCount > 0) {
+        // First 3 row errors surface in the toast; full list logged
+        // for the user to copy out of devtools.
+        const first = data.errors.slice(0, 3).map((er: any) => `row ${er.row}: ${er.error}`).join(' · ')
+        toast.error(`${errCount} row${errCount === 1 ? '' : 's'} skipped — ${first}${errCount > 3 ? ' …' : ''}`, { duration: 8000 })
+        console.warn('[CSV import] row errors:', data.errors)
+      }
       qc.invalidateQueries({ queryKey: ['questions-esm'] })
-    } catch { toast.error('Import failed') }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Import failed')
+    }
     e.target.value = ''
+  }
+
+  // Triggers a browser download of the canonical CSV template so the
+  // user can fill it in without guessing the column names.
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await questionsApi.downloadImportTemplate()
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mcq-question-bank-template.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Could not download template')
+    }
   }
 
   const atList = atData?.assessmentTypes || atData || []
@@ -99,9 +133,17 @@ function QuestionsContent() {
               {bulkActivateMutation.isPending ? 'Activating...' : `Activate ${poolStats.draft} Draft${poolStats.draft > 1 ? 's' : ''}`}
             </button>
           )}
-          <label style={{ cursor: 'pointer' }}>
-            <input type="file" accept=".csv,.xlsx" onChange={handleImport} style={{ display: 'none' }} />
-            <span className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', cursor: 'pointer' }}>
+          <button
+            className="btn-ghost"
+            onClick={handleDownloadTemplate}
+            title="Download a ready-to-edit CSV template with column headers, sample rows, and the allowed values"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px' }}
+          >
+            <Download size={15} /> Download Template
+          </button>
+          <label style={{ cursor: assessmentTypeId ? 'pointer' : 'not-allowed', opacity: assessmentTypeId ? 1 : 0.5 }}>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImport} disabled={!assessmentTypeId} style={{ display: 'none' }} />
+            <span className="btn-ghost" title={assessmentTypeId ? 'Upload a CSV or XLSX file matching the template format' : 'Pick an Assessment Type first'} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', cursor: 'inherit' }}>
               <Upload size={15} /> Import CSV
             </span>
           </label>

@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { questionsApi, assessmentsApi, practicalTasksApi, storageApi, uploadUrl } from '@/lib/api'
-import { Plus, Upload, FileText, Code, ArrowLeft, CheckCircle2, ImagePlus, X } from 'lucide-react'
+import { Plus, Upload, Download, FileText, Code, ArrowLeft, CheckCircle2, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { SetsList } from '@/components/paper-sets/SetsList'
 import { SetEditor } from '@/components/paper-sets/SetEditor'
@@ -104,14 +104,37 @@ export default function MasterProctorQuestionsPage() {
     fd.append('file', file)
     fd.append('assessmentTypeId', selected.id)
     try {
-      await questionsApi.bulkImport(fd)
-      toast.success('CSV imported successfully')
+      const { data } = await questionsApi.bulkImport(fd)
+      const errCount = data.errors?.length || 0
+      if (data.success > 0) toast.success(`Imported ${data.success} question${data.success === 1 ? '' : 's'}${errCount ? ` · ${errCount} failed` : ''}`)
+      if (errCount > 0) {
+        const first = data.errors.slice(0, 3).map((er: any) => `row ${er.row}: ${er.error}`).join(' · ')
+        toast.error(`${errCount} row${errCount === 1 ? '' : 's'} skipped — ${first}${errCount > 3 ? ' …' : ''}`, { duration: 8000 })
+        console.warn('[CSV import] row errors:', data.errors)
+      }
       qc.invalidateQueries({ queryKey: ['questions-mp', selected?.id] })
       qc.invalidateQueries({ queryKey: ['pool-stats-mp', selected?.id] })
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'CSV import failed')
     }
     e.target.value = ''
+  }
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await questionsApi.downloadImportTemplate()
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mcq-question-bank-template.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Could not download template')
+    }
   }
 
   const handleAddQuestion = (e: React.FormEvent) => {
@@ -261,9 +284,17 @@ export default function MasterProctorQuestionsPage() {
               {bulkActivateMutation.isPending ? 'Activating...' : `Activate ${poolStats.draft} Draft${poolStats.draft > 1 ? 's' : ''}`}
             </button>
           )}
-          <label className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '8px 16px', fontSize: '14px' }}>
+          <button
+            className="btn-ghost"
+            onClick={handleDownloadTemplate}
+            title="Download a ready-to-edit CSV template with column headers and sample rows"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '14px' }}
+          >
+            <Download size={14} /> Download Template
+          </button>
+          <label className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '8px 16px', fontSize: '14px' }} title="Upload a CSV or XLSX file matching the template format">
             <Upload size={14} /> Upload CSV
-            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={handleCSVUpload} />
+            <input type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={handleCSVUpload} />
           </label>
           <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={14} /> Add Question
