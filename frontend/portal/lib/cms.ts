@@ -104,3 +104,59 @@ export async function getPosts(): Promise<BlogPost[]> {
 export async function getPost(slug: string): Promise<BlogPost | null> {
   return cmsFetch<BlogPost>(`/cms/public/posts/${encodeURIComponent(slug)}`)
 }
+
+// ── Dynamic service pages (SEO landing pages) ────────────────────────
+// These are seeded via prisma/cms-seed/run.ts with a rich content shape
+// that the /services/[slug] route renders. Editors can override copy in
+// the CMS without a code deploy.
+
+export interface ServicePageContent {
+  heroBadge: string
+  heroTitle: string
+  heroHighlight: string
+  heroSubtitle: string
+  intro: string
+  sections: { title: string; body: string }[]
+  features: { title: string; description: string }[]
+  faqs: { question: string; answer: string }[]
+  ctaTitle: string
+  ctaSubtitle: string
+}
+
+export interface ServicePage {
+  slug: string
+  title: string
+  metaTitle: string
+  metaDescription: string
+  keywords: string[]
+  content: ServicePageContent
+}
+
+export async function getServicePage(slug: string): Promise<ServicePage | null> {
+  const row = await cmsFetch<CmsPageRow>(`/cms/public/pages/${encodeURIComponent(slug)}`)
+  if (!row?.content) return null
+  const c = row.content as Partial<ServicePageContent>
+  // Require the shape that distinguishes a service page from a generic
+  // CMS page — if `intro` / `sections` are missing the slug is something
+  // else (e.g. the bundled home/about row) and we should 404.
+  if (typeof c.intro !== 'string' || !Array.isArray(c.sections)) return null
+  return {
+    slug: row.slug,
+    title: row.title || slug,
+    metaTitle: row.metaTitle || row.title || slug,
+    metaDescription: row.metaDescription || '',
+    keywords: row.keywords || [],
+    content: {
+      heroBadge: c.heroBadge || '',
+      heroTitle: c.heroTitle || row.title || '',
+      heroHighlight: c.heroHighlight || '',
+      heroSubtitle: c.heroSubtitle || '',
+      intro: c.intro || '',
+      sections: c.sections || [],
+      features: c.features || [],
+      faqs: c.faqs || [],
+      ctaTitle: c.ctaTitle || 'Talk to our team',
+      ctaSubtitle: c.ctaSubtitle || '',
+    },
+  }
+}

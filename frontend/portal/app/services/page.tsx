@@ -9,6 +9,24 @@ import { Icon } from '@/components/marketing/icons'
 import { getMarketingPageContent, getPageMeta } from '@/lib/cms'
 import { SITE, type IconKey } from '@/lib/marketing-content'
 
+// Curated drill-down — these are the dedicated SEO landing pages
+// rendered by /services/[slug] from the CMS. Title + tagline mirror the
+// hero of each page so the cards read consistently.
+const SERVICE_PAGES_INDEX: { slug: string; title: string; tagline: string }[] = [
+  { slug: 'technical-assessment-platform', title: 'Technical Assessment Platform', tagline: 'Test real job skills. Hand the manager a decision-ready report.' },
+  { slug: 'pre-employment-testing-software', title: 'Pre-Employment Testing Software', tagline: 'Screen candidates before the recruiter call.' },
+  { slug: 'technical-interview-assessment', title: 'Technical Interview Assessment', tagline: 'Managed evaluation when your senior team is stretched.' },
+  { slug: 'online-assessment-platform', title: 'Online Assessment Platform', tagline: 'Deliver structured assessments anywhere, proctored end-to-end.' },
+  { slug: 'corporate-assessment-system', title: 'Corporate Assessment System', tagline: 'Multi-tenant, audited, built for enterprise hiring.' },
+  { slug: 'custom-assessment-tests', title: 'Custom Assessment Tests', tagline: 'Bespoke role-specific banks built in 2-3 weeks.' },
+  { slug: 'coding-assessment-platform', title: 'Coding Assessment Platform', tagline: 'Real-code tasks, not whiteboard puzzles.' },
+  { slug: 'cad-bim-engineering-assessments', title: 'CAD, BIM & Engineering Assessments', tagline: 'AutoCAD, Revit, BIM, MEP, structural — tested by drawing production.' },
+  { slug: 'candidate-reports-scoring', title: 'Candidate Reports & Scoring', tagline: 'Reports your managers will actually read.' },
+  { slug: 'recruitment-agency-assessment-platform', title: 'For Recruitment Agencies', tagline: 'Submit candidates with reports. Close placements at higher fees.' },
+  { slug: 'technical-testing-for-applicants', title: 'Technical Testing for Applicants', tagline: 'Fair, controlled, defensible measurement of ability.' },
+  { slug: 'assessment-platform-uae', title: 'Assessment Platform UAE & GCC', tagline: 'Bilingual delivery, regional support, local data residency.' },
+]
+
 export async function generateMetadata(): Promise<Metadata> {
   const m = await getPageMeta('services')
   return {
@@ -103,6 +121,30 @@ export default async function ServicesPage() {
               </article>
             </Reveal>
           ))}
+        </div>
+      </section>
+
+      {/* SERVICE LANDING PAGES — drill-down into each dedicated service page */}
+      <section style={{ background: 'rgba(33,115,255,0.025)', borderTop: '1px solid rgba(59,141,255,0.12)', borderBottom: '1px solid rgba(59,141,255,0.12)', padding: '100px 24px' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+          <Reveal style={{ textAlign: 'center', marginBottom: '56px' }}>
+            <div className="web-label" style={{ marginBottom: '16px' }}>Explore by topic</div>
+            <h2 style={{ fontSize: 'clamp(32px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 16px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>Service Categories</h2>
+            <p style={{ color: 'var(--web-text-muted)', fontSize: '16px', margin: 0, maxWidth: 640, marginInline: 'auto' }}>Dedicated pages for each way teams use AssessExpert — pick the closest fit for your hiring problem.</p>
+          </Reveal>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+            {SERVICE_PAGES_INDEX.map((sp, i) => (
+              <Reveal key={sp.slug} delay={(i % 3) * 50}>
+                <Link href={`/services/${sp.slug}`} style={{ textDecoration: 'none', display: 'block', height: '100%' }}>
+                  <article className="web-card" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--web-text)', letterSpacing: '-0.01em' }}>{sp.title}</h3>
+                    <p style={{ margin: 0, fontSize: '14px', color: 'var(--web-text-secondary)', lineHeight: 1.65, flex: 1 }}>{sp.tagline}</p>
+                    <span style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: '13px', color: 'var(--web-gold)', fontWeight: 600 }}>Read more <ArrowRight size={14} /></span>
+                  </article>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 

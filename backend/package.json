@@ -13,6 +13,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "node prisma/seed-full.js",
+    "cms:seed": "ts-node prisma/cms-seed/run.ts",
     "deploy": "bash ./scripts/deploy.sh",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest --testPathPatterns=src",

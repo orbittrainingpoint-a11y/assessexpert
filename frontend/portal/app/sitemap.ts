@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { getPosts } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
+import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
 
 // Dynamic sitemap: static marketing pages + every published blog post.
 // Regenerated on the ISR window so newly published posts appear without
@@ -19,6 +20,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/blog`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
   ]
 
+  const serviceRoutes: MetadataRoute.Sitemap = SERVICE_PAGE_SLUGS.map((slug) => ({
+    url: `${base}/services/${slug}`,
+    lastModified: now,
+    changeFrequency: 'monthly',
+    priority: 0.85,
+  }))
+
   const posts = await getPosts()
   const postRoutes: MetadataRoute.Sitemap = posts.map((p) => ({
     url: `${base}/blog/${p.slug}`,
@@ -27,5 +35,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }))
 
-  return [...staticRoutes, ...postRoutes]
+  return [...staticRoutes, ...serviceRoutes, ...postRoutes]
 }
