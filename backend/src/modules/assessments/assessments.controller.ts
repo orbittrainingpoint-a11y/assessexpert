@@ -39,4 +39,13 @@ export class AssessmentsController {
   async archiveAssessmentType(@Param('id') id: string) {
     return this.assessmentsService.archiveAssessmentType(id);
   }
+
+  // Flip DRAFT (or ARCHIVED) → ACTIVE so HR can schedule candidates
+  // against the type. Same role gate as create — SUPER_ADMIN or
+  // MASTER_PROCTOR own the activation decision.
+  @Post(':id/activate')
+  @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
+  async activateAssessmentType(@Param('id') id: string) {
+    return this.assessmentsService.activateAssessmentType(id);
+  }
 }

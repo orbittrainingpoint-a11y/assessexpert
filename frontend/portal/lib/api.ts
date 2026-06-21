@@ -111,6 +111,12 @@ export const assessmentsApi = {
   getOne: (id: string) => api.get(`/assessment-types/${id}`),
   create: (data: any) => api.post('/assessment-types', data),
   update: (id: string, data: any) => api.put(`/assessment-types/${id}`, data),
+  // DRAFT/ARCHIVED → ACTIVE. Required before HR can schedule
+  // candidates against this assessment type.
+  activate: (id: string) => api.post(`/assessment-types/${id}/activate`),
+  // ACTIVE → ARCHIVED. Hides the type from HR scheduling without
+  // deleting existing session data.
+  archive: (id: string) => api.post(`/assessment-types/${id}/archive`),
 }
 
 // Questions
