@@ -10,6 +10,7 @@ import { Reveal } from '@/components/marketing/Reveal'
 import { getServicePage } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
 import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
+import { breadcrumbSchema, faqPageSchema, jsonLdProps, ORG_ID } from '@/lib/seo-schema'
 
 // Revalidate cached service pages every 60s so editor changes appear
 // within a minute without a redeploy.
@@ -51,26 +52,39 @@ export default async function ServicePage({ params }: Props) {
 
   const { content } = page
 
-  // FAQ schema for AEO/AI search. We render this even if the page is
-  // updated through the CMS — it's read from the content shape, not
-  // hard-coded.
-  const faqJsonLd = content.faqs.length
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        mainEntity: content.faqs.map((f) => ({
-          '@type': 'Question',
-          name: f.question,
-          acceptedAnswer: { '@type': 'Answer', text: f.answer },
-        })),
-      }
-    : null
+  const url = `${SITE.url}/services/${page.slug}`
+
+  // Bundle page-specific schema into one @graph: Service node, FAQPage
+  // (if content has FAQs), BreadcrumbList. Site-wide Organization +
+  // LocalBusiness + WebSite are already emitted by SiteNav.
+  const graph: object[] = []
+  graph.push({
+    '@type': 'Service',
+    '@id': `${url}#service`,
+    name: page.title,
+    description: page.metaDescription,
+    url,
+    provider: { '@id': ORG_ID },
+    serviceType: 'Technical Assessment',
+    areaServed: [
+      { '@type': 'Country', name: 'United Arab Emirates' },
+      { '@type': 'Country', name: 'Saudi Arabia' },
+      { '@type': 'Country', name: 'Qatar' },
+      { '@type': 'Country', name: 'Kuwait' },
+    ],
+    audience: { '@type': 'BusinessAudience', audienceType: 'HR teams, recruitment agencies, corporate hiring managers' },
+  })
+  if (content.faqs.length) graph.push(faqPageSchema(content.faqs))
+  graph.push(breadcrumbSchema([
+    { name: 'Home', url: SITE.url },
+    { name: 'Services', url: `${SITE.url}/services` },
+    { name: page.title, url },
+  ]))
+  const pageJsonLd = { '@context': 'https://schema.org', '@graph': graph }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
-      {faqJsonLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
-      )}
+      <script {...jsonLdProps(pageJsonLd)} />
       <SiteNav />
 
       {/* HERO */}

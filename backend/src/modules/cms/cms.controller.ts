@@ -26,6 +26,11 @@ export class CmsController {
 
   // ── PUBLIC READS (no auth) — consumed by the marketing site ─────────
 
+  @Get('public/pages')
+  listPublicPages() {
+    return this.cms.listPublicPages();
+  }
+
   @Get('public/pages/:slug')
   getPublicPage(@Param('slug') slug: string) {
     return this.cms.getPublicPage(slug);

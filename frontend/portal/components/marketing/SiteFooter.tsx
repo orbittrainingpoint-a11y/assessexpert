@@ -31,9 +31,18 @@ export function SiteFooter() {
           </div>
           <div>
             <p className="web-footer-head">Contact</p>
-            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: 8 }}><Mail size={15} style={{ color: 'var(--web-gold)' }} /> {SITE.email}</p>
-            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: 8 }}><Phone size={15} style={{ color: 'var(--web-gold)' }} /> {SITE.phone}</p>
-            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: 8 }}><MapPin size={15} style={{ color: 'var(--web-gold)' }} /> {SITE.location}</p>
+            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Mail size={15} style={{ color: 'var(--web-gold)' }} />
+              <a href={`mailto:${SITE.email}`} style={{ color: 'inherit', textDecoration: 'none' }}>{SITE.email}</a>
+            </p>
+            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Phone size={15} style={{ color: 'var(--web-gold)' }} />
+              <a href={`tel:${SITE.phoneE164}`} style={{ color: 'inherit', textDecoration: 'none' }}>{SITE.phone}</a>
+            </p>
+            <p style={{ color: 'var(--web-text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'flex-start', gap: 8, lineHeight: 1.5 }}>
+              <MapPin size={15} style={{ color: 'var(--web-gold)', marginTop: 3, flexShrink: 0 }} />
+              <span>{SITE.address}</span>
+            </p>
           </div>
         </div>
         <div style={{ borderTop: '1px solid rgba(59,141,255,0.14)', paddingTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
 import { NAV_LINKS, SITE } from '@/lib/marketing-content'
+import { siteGraph, jsonLdProps } from '@/lib/seo-schema'
 
 function Logo({ size = 32 }: { size?: number }) {
   return (
@@ -29,6 +30,14 @@ export function SiteNav() {
   const isActive = (href: string) => href === '/' ? pathname === '/' : pathname.startsWith(href)
 
   return (
+    <>
+    {/* Site-wide schema graph — Organization + LocalBusiness + WebSite.
+        Emitted from the nav so every marketing page that includes
+        <SiteNav /> automatically gets the entity graph without each
+        page needing to remember to add it. Page-specific schema
+        (BreadcrumbList, BlogPosting, FAQPage, Service) is added on
+        the individual page. */}
+    <script {...jsonLdProps(siteGraph())} />
     <nav className="web-nav" style={{ boxShadow: scrolled ? '0 18px 42px rgba(1,6,18,0.72)' : 'none', borderBottomColor: scrolled ? 'rgba(59,141,255,0.22)' : 'rgba(59,141,255,0.08)' }}>
       {/* Inner container caps + centers nav content so it lines up with
           the page sections (also max-width 1280, margin auto). */}
@@ -74,5 +83,6 @@ export function SiteNav() {
         </div>
       )}
     </nav>
+    </>
   )
 }

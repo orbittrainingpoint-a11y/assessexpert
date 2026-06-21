@@ -38,6 +38,12 @@ async function seedBlogPosts() {
       keywords: p.keywords,
       status: 'PUBLISHED' as const,
       publishedAt,
+      // Cover image — served by the Next.js dynamic /blog-cover/<slug>
+      // route as a branded SVG. Storing as a relative path so the
+      // image follows the deploy URL automatically (assessexpert.ae
+      // in production, localhost in dev). The blog list and detail
+      // pages render an <img>; OG/Twitter cards also pick it up.
+      coverImage: `/blog-cover/${p.slug}.svg`,
     }
     if (existing) {
       await prisma.cmsPost.update({ where: { slug: p.slug }, data })

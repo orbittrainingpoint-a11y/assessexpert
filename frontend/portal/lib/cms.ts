@@ -164,6 +164,28 @@ export interface ServicePage {
   content: ServicePageContent
 }
 
+/**
+ * List every PUBLISHED CMS page slug. Powers the dynamic sitemap so it
+ * doesn't depend on the hardcoded SERVICE_PAGE_SLUGS constant —
+ * publishing a new page in /cms makes it appear in /sitemap.xml on
+ * the next revalidation tick.
+ *
+ * `kind` is the backend's discriminator: `top` for top-level routes
+ * (home/about/services/contact/blog → rendered at /<slug>), `service`
+ * for service-page-shaped rows (rendered at /services/<slug>).
+ */
+export interface PublicPageEntry {
+  slug: string
+  title: string
+  updatedAt: string
+  kind: 'top' | 'service'
+}
+
+export async function listPublicPages(): Promise<PublicPageEntry[]> {
+  const rows = await cmsFetch<PublicPageEntry[]>('/cms/public/pages')
+  return rows ?? []
+}
+
 export async function getServicePage(slug: string): Promise<ServicePage | null> {
   const row = await cmsFetch<CmsPageRow>(`/cms/public/pages/${encodeURIComponent(slug)}`)
   if (!row?.content) return null

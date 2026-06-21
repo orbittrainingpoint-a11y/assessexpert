@@ -1,39 +1,99 @@
 import type { MetadataRoute } from 'next'
-import { getPosts } from '@/lib/cms'
+import { getPosts, listPublicPages } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
-import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
 
-// Dynamic sitemap: static marketing pages + every published blog post.
-// Regenerated on the ISR window so newly published posts appear without
-// a redeploy.
+// Fully dynamic sitemap — every entry is data-driven, nothing
+// hardcoded. Top-level routes, service landing pages, and blog posts
+// are all pulled from the CMS at request time. Publishing a new page
+// or post in /cms makes it appear in /sitemap.xml on the next
+// revalidation tick — no code change required.
+//
+// Blog cover images are included as `images: [...]` per post so the
+// Next.js sitemap generator emits xmlns:image entries — these surface
+// in Google Images and OG previews. Service pages don't have hero
+// images yet; when they do, add them the same way.
+//
+// Revalidate window: 5 minutes. Strikes a balance between freshness
+// (newly-published content appears quickly) and load (sitemap fetches
+// the CMS list endpoints on every cold revalidation).
 export const revalidate = 300
+
+// Fallback list — used only when the CMS is unreachable. Mirrors the
+// known top-level marketing routes so the sitemap is never empty on a
+// transient backend outage. The CMS-driven list takes priority on
+// success.
+const FALLBACK_TOP = ['home', 'about', 'services', 'contact', 'blog'] as const
+
+function topLevelUrl(base: string, slug: string): string {
+  return slug === 'home' ? `${base}/` : `${base}/${slug}`
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = SITE.url
   const now = new Date()
 
-  const staticRoutes: MetadataRoute.Sitemap = [
-    { url: `${base}/`, lastModified: now, changeFrequency: 'weekly', priority: 1 },
-    { url: `${base}/services`, lastModified: now, changeFrequency: 'monthly', priority: 0.9 },
-    { url: `${base}/about`, lastModified: now, changeFrequency: 'monthly', priority: 0.8 },
-    { url: `${base}/contact`, lastModified: now, changeFrequency: 'yearly', priority: 0.7 },
-    { url: `${base}/blog`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
-  ]
+  // Pull everything in parallel — we don't need to await sequentially.
+  const [pages, posts] = await Promise.all([
+    listPublicPages().catch(() => []),
+    getPosts().catch(() => []),
+  ])
 
-  const serviceRoutes: MetadataRoute.Sitemap = SERVICE_PAGE_SLUGS.map((slug) => ({
-    url: `${base}/services/${slug}`,
-    lastModified: now,
-    changeFrequency: 'monthly',
-    priority: 0.85,
-  }))
+  // Top-level pages. Prefer the CMS list; fall back to the static
+  // catalogue if the CMS returned nothing (cold start, backend down).
+  const topPagesFromCms = pages.filter((p) => p.kind === 'top')
+  const topPages = topPagesFromCms.length > 0
+    ? topPagesFromCms
+    : FALLBACK_TOP.map((slug) => ({ slug, title: slug, updatedAt: now.toISOString(), kind: 'top' as const }))
 
-  const posts = await getPosts()
-  const postRoutes: MetadataRoute.Sitemap = posts.map((p) => ({
-    url: `${base}/blog/${p.slug}`,
-    lastModified: p.publishedAt ? new Date(p.publishedAt) : now,
-    changeFrequency: 'monthly',
-    priority: 0.6,
-  }))
+  // Priority / changeFrequency map — search engines treat these as
+  // hints, not commitments. We bias toward higher priority for the
+  // homepage + services + blog index because those drive most paid
+  // and organic landings.
+  const topPriority: Record<string, { p: number; cf: MetadataRoute.Sitemap[number]['changeFrequency'] }> = {
+    home: { p: 1, cf: 'weekly' },
+    services: { p: 0.9, cf: 'monthly' },
+    blog: { p: 0.8, cf: 'weekly' },
+    about: { p: 0.7, cf: 'monthly' },
+    contact: { p: 0.6, cf: 'yearly' },
+  }
 
-  return [...staticRoutes, ...serviceRoutes, ...postRoutes]
+  const topRoutes: MetadataRoute.Sitemap = topPages.map((p) => {
+    const meta = topPriority[p.slug] || { p: 0.5, cf: 'monthly' as const }
+    return {
+      url: topLevelUrl(base, p.slug),
+      lastModified: p.updatedAt ? new Date(p.updatedAt) : now,
+      changeFrequency: meta.cf,
+      priority: meta.p,
+    }
+  })
+
+  // Service landing pages — entirely CMS-driven. A new
+  // /services/<slug> appears as soon as the CMS row exists with a
+  // service-page-shaped content payload (intro + sections).
+  const serviceRoutes: MetadataRoute.Sitemap = pages
+    .filter((p) => p.kind === 'service')
+    .map((p) => ({
+      url: `${base}/services/${p.slug}`,
+      lastModified: p.updatedAt ? new Date(p.updatedAt) : now,
+      changeFrequency: 'monthly',
+      priority: 0.85,
+    }))
+
+  // Blog posts — image entries enable Google Images discovery + nicer
+  // OG previews. Cover images are SVGs served by the dynamic
+  // /blog-cover/<slug> route, promoted to absolute URLs here.
+  const postRoutes: MetadataRoute.Sitemap = posts.map((p) => {
+    const coverAbs = p.coverImage
+      ? (p.coverImage.startsWith('http') ? p.coverImage : `${base}${p.coverImage}`)
+      : undefined
+    return {
+      url: `${base}/blog/${p.slug}`,
+      lastModified: p.publishedAt ? new Date(p.publishedAt) : now,
+      changeFrequency: 'monthly',
+      priority: 0.6,
+      ...(coverAbs ? { images: [coverAbs] } : {}),
+    }
+  })
+
+  return [...topRoutes, ...serviceRoutes, ...postRoutes]
 }

@@ -7,6 +7,7 @@ import { SiteNav } from '@/components/marketing/SiteNav'
 import { SiteFooter } from '@/components/marketing/SiteFooter'
 import { getPost, extractFaqsFromBody } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
+import { breadcrumbSchema, faqPageSchema, jsonLdProps, ORG_ID } from '@/lib/seo-schema'
 
 export const revalidate = 60
 
@@ -18,15 +19,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!post) return { title: 'Article not found | AssessExpert' }
   const title = post.metaTitle || `${post.title} | AssessExpert`
   const description = post.metaDescription || post.excerpt || undefined
+  // OG/Twitter image must be absolute. Cover paths are seeded as
+  // /blog-cover/<slug>.svg — promote to absolute here.
+  const coverAbs = post.coverImage
+    ? (post.coverImage.startsWith('http') ? post.coverImage : `${SITE.url}${post.coverImage}`)
+    : undefined
   return {
     title, description, keywords: post.keywords,
     alternates: { canonical: `${SITE.url}/blog/${post.slug}` },
     openGraph: {
       title, description, url: `${SITE.url}/blog/${post.slug}`, siteName: SITE.name,
       type: 'article', publishedTime: post.publishedAt || undefined,
-      images: post.coverImage ? [{ url: post.coverImage }] : undefined,
+      images: coverAbs ? [{ url: coverAbs, width: 1200, height: 630, alt: post.title }] : undefined,
     },
-    twitter: { card: 'summary_large_image', title, description: description || '' },
+    twitter: {
+      card: 'summary_large_image', title, description: description || '',
+      images: coverAbs ? [coverAbs] : undefined,
+    },
   }
 }
 
@@ -42,40 +51,44 @@ export default async function BlogPostPage({ params }: Props) {
 
   const safeHtml = DOMPurify.sanitize(post.body || '', { USE_PROFILES: { html: true } })
 
-  const blogJsonLd = {
-    '@context': 'https://schema.org',
+  const url = `${SITE.url}/blog/${post.slug}`
+  // Absolute URL for the cover image so OG/Twitter cards resolve it
+  // correctly when shared from third-party sites.
+  const coverAbs = post.coverImage
+    ? (post.coverImage.startsWith('http') ? post.coverImage : `${SITE.url}${post.coverImage}`)
+    : undefined
+
+  // Bundle BlogPosting + FAQPage + BreadcrumbList into one @graph so
+  // the rendered HTML only carries one schema script for the page.
+  const graph: object[] = []
+  graph.push({
     '@type': 'BlogPosting',
+    '@id': `${url}#post`,
     headline: post.title,
     description: post.excerpt || post.metaDescription || undefined,
-    image: post.coverImage || undefined,
+    image: coverAbs ? [coverAbs] : undefined,
     datePublished: post.publishedAt || undefined,
-    author: { '@type': 'Organization', name: post.authorName || SITE.name },
-    publisher: { '@type': 'Organization', name: SITE.name },
-    mainEntityOfPage: `${SITE.url}/blog/${post.slug}`,
-  }
-
-  // FAQPage JSON-LD. Extracted from the body so editors writing in
-  // /cms with the standard `<h2>FAQ</h2>` + `<h3>Q</h3><p>A</p>` shape
-  // automatically get the schema without a separate field.
+    dateModified: post.publishedAt || undefined,
+    author: { '@type': 'Organization', name: post.authorName || SITE.name, url: SITE.url },
+    publisher: { '@id': ORG_ID },
+    mainEntityOfPage: url,
+    keywords: post.keywords?.join(', ') || post.tags?.join(', '),
+    articleSection: post.tags?.[0],
+  })
+  // FAQPage extracted from the body's `<h2>FAQ</h2>` block — editors
+  // writing in /cms with the standard pattern get this for free.
   const faqItems = extractFaqsFromBody(post.body || '')
-  const faqJsonLd = faqItems.length
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        mainEntity: faqItems.map((f) => ({
-          '@type': 'Question',
-          name: f.question,
-          acceptedAnswer: { '@type': 'Answer', text: f.answer },
-        })),
-      }
-    : null
+  if (faqItems.length) graph.push(faqPageSchema(faqItems))
+  graph.push(breadcrumbSchema([
+    { name: 'Home', url: SITE.url },
+    { name: 'Blog', url: `${SITE.url}/blog` },
+    { name: post.title, url },
+  ]))
+  const pageJsonLd = { '@context': 'https://schema.org', '@graph': graph }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--web-bg)', fontFamily: 'var(--web-sans)', overflowX: 'hidden' }}>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(blogJsonLd) }} />
-      {faqJsonLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
-      )}
+      <script {...jsonLdProps(pageJsonLd)} />
       <SiteNav />
 
       <article style={{ maxWidth: '760px', margin: '0 auto', padding: '80px 24px 100px' }}>

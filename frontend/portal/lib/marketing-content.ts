@@ -56,8 +56,25 @@ export const SITE = {
   brand: 'assessexpert',
   tagline: 'AI-Proctored Pre-Employment Assessment Platform',
   url: 'https://assessexpert.ae',
-  email: 'hello@assessexpert.ae',
-  phone: '+971 50 000 0000',
+  email: 'enquiry@assessexpert.com',
+  phone: '+971 58 545 0455',
+  // E.164 form used by tel: links and schema. Strip spaces for href.
+  phoneE164: '+971585450455',
+  whatsapp: '+971585450455',
+  // Full postal address — used by LocalBusiness schema, footer, and
+  // Contact page. Component fields available too for schema markup.
+  address: '211 Pinnacle, Sheikh Zayed Road, Al Barsha, Dubai, United Arab Emirates',
+  addressParts: {
+    street: '211 Pinnacle, Sheikh Zayed Road',
+    locality: 'Al Barsha',
+    region: 'Dubai',
+    country: 'AE',
+    countryName: 'United Arab Emirates',
+  },
+  // Approximate coordinates of the Pinnacle building, Al Barsha 1
+  // (Sheikh Zayed Road). Used by LocalBusiness `geo` property — Google
+  // accepts a building-level approximation.
+  geo: { lat: 25.1098, lng: 55.1942 },
   location: 'Dubai, United Arab Emirates',
   org: 'Orbit Training',
 }

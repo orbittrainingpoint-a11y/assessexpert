@@ -77,6 +77,36 @@ export class CmsService {
     return page;
   }
 
+  /**
+   * Public list of all PUBLISHED page slugs + last-modified timestamps.
+   *
+   * Powers the marketing-site sitemap so it's fully data-driven: every
+   * CMS page that gets published appears in the sitemap on the next
+   * revalidation tick without a code change. Returns minimal fields
+   * (slug, updatedAt, title, kind) to keep the response cheap.
+   *
+   * `kind`: discriminator the frontend uses to route the slug — top-level
+   * slugs go to /<slug>, service-page slugs (anything with a service-page
+   * content shape) go to /services/<slug>.
+   */
+  async listPublicPages() {
+    const TOP_LEVEL = new Set(['home', 'about', 'services', 'contact', 'blog']);
+    const pages = await this.prisma.cmsPage.findMany({
+      where: { status: 'PUBLISHED' },
+      select: { slug: true, title: true, updatedAt: true, content: true },
+    });
+    return pages.map((p) => {
+      const c = (p.content || {}) as Record<string, unknown>;
+      const isService = !TOP_LEVEL.has(p.slug) && typeof c.intro === 'string' && Array.isArray(c.sections);
+      return {
+        slug: p.slug,
+        title: p.title,
+        updatedAt: p.updatedAt,
+        kind: isService ? ('service' as const) : ('top' as const),
+      };
+    });
+  }
+
   private async ensureManagedPages() {
     await Promise.all(PAGE_SLUGS.map((slug) => this.prisma.cmsPage.upsert({
       where: { slug },

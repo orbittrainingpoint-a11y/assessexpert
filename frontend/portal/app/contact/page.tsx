@@ -17,11 +17,14 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-const CONTACT_INFO = [
-  { Icon: Mail, label: 'Email', value: SITE.email, sub: 'We respond within 1 business day' },
-  { Icon: Phone, label: 'Phone / WhatsApp', value: SITE.phone, sub: 'Sun – Thu · 9AM – 6PM GST' },
-  { Icon: MapPin, label: 'Location', value: SITE.location, sub: 'Orbit Training HQ' },
-  { Icon: Globe, label: 'Website', value: 'assessexpert.ae', sub: 'app.assessexpert.ae for portal' },
+// Each row carries an optional href so we can render the email/phone
+// rows as real clickable links — mailto: and tel: — which AI search
+// engines and accessibility tools both prefer.
+const CONTACT_INFO: { Icon: any; label: string; value: string; sub: string; href?: string }[] = [
+  { Icon: Mail,   label: 'Email',            value: SITE.email,   sub: 'We respond within 1 business day', href: `mailto:${SITE.email}` },
+  { Icon: Phone,  label: 'Phone / WhatsApp', value: SITE.phone,   sub: 'Sun – Thu · 9AM – 6PM GST',         href: `tel:${SITE.phoneE164}` },
+  { Icon: MapPin, label: 'Address',          value: SITE.address, sub: 'Orbit Training HQ' },
+  { Icon: Globe,  label: 'Website',          value: 'assessexpert.ae', sub: 'app.assessexpert.ae for portal' },
 ]
 
 const PROCESS_STEPS = [
@@ -86,7 +89,11 @@ export default async function ContactPage() {
                 </div>
                 <div>
                   <p style={{ margin: '0 0 2px', fontSize: '11px', color: 'var(--web-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{c.label}</p>
-                  <p style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--web-text)', fontWeight: 600 }}>{c.value}</p>
+                  {c.href ? (
+                    <a href={c.href} style={{ display: 'block', margin: '0 0 2px', fontSize: '15px', color: 'var(--web-text)', fontWeight: 600, textDecoration: 'none' }}>{c.value}</a>
+                  ) : (
+                    <p style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--web-text)', fontWeight: 600 }}>{c.value}</p>
+                  )}
                   <p style={{ margin: 0, fontSize: '12px', color: 'var(--web-text-muted)' }}>{c.sub}</p>
                 </div>
               </div>
