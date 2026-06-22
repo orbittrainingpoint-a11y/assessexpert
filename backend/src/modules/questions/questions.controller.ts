@@ -169,13 +169,35 @@ export class QuestionsController {
 
     // Normalise header names. Drop unknown columns silently — adding
     // an extra column for human notes should not break the import.
+    // String values are also passed through `defangFormula` to defeat
+    // CSV/XLSX formula-injection — see SAST P1 #9 below.
     return records.map((rec) => {
       const out: Record<string, any> = {};
       for (const [k, v] of Object.entries(rec)) {
         const norm = normaliseHeader(String(k));
-        if (norm) out[norm] = typeof v === 'string' ? v.trim() : v;
+        if (norm) out[norm] = typeof v === 'string' ? defangFormula(v.trim()) : v;
       }
       return out;
     }).filter((r) => r.questionText);
   }
+}
+
+// SAST P1 #9 — CSV / XLSX formula injection (a.k.a. "CSV injection",
+// CWE-1236). If we accept question text like `=cmd|'/c calc'!A1` or
+// `+1+cmd|'/c calc'!A1` and later export it back into a CSV that an
+// HR manager opens in Excel/Numbers/Sheets, the cell is interpreted as
+// a formula and runs (DDE on Windows, hyperlink-style abuse elsewhere).
+// Mitigation pattern from OWASP: prefix any string starting with one of
+// the "active" chars — `=`, `+`, `-`, `@`, tab, or carriage return —
+// with a single apostrophe. Excel treats `'=cmd` as the literal text
+// `=cmd` instead of executing it. The apostrophe is shown by Excel
+// only — it's stripped on display — so the question stays readable.
+function defangFormula(value: string): string {
+  if (!value) return value;
+  const first = value.charAt(0);
+  if (first === '=' || first === '+' || first === '-' || first === '@' ||
+      first === '\t' || first === '\r') {
+    return `'${value}`;
+  }
+  return value;
 }

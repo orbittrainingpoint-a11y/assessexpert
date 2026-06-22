@@ -277,10 +277,25 @@ export class UsersService {
     this.logger.log(`Accepting invitation with token: ${token}`);
 
     // Find invitation
+    // SAST P1 #10 — see getInvitation. Same enumeration concern, same
+    // mitigation. The "user already exists" branch can stay distinct
+    // because by that point the caller has already presented a valid
+    // invitation token (so they have legitimate awareness of which
+    // email it was for) — that's not a fresh enumeration vector.
     const invitation = await this.prisma.userInvitation.findUnique({ where: { token } });
-    if (!invitation) throw new NotFoundException('Invalid invitation token');
-    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
-    if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation expired');
+    const generic = new NotFoundException('Invitation not available');
+    if (!invitation) {
+      this.logger.warn(`acceptInvitation miss for token=${token.slice(0, 8)}…`);
+      throw generic;
+    }
+    if (invitation.acceptedAt) {
+      this.logger.warn(`acceptInvitation already-accepted, id=${invitation.id}`);
+      throw generic;
+    }
+    if (invitation.expiresAt < new Date()) {
+      this.logger.warn(`acceptInvitation expired, id=${invitation.id}`);
+      throw generic;
+    }
 
     // Check if user already exists
     const existing = await this.prisma.user.findUnique({ where: { email: invitation.email } });
@@ -321,11 +336,26 @@ export class UsersService {
     return user;
   }
 
+  // SAST P1 #10 — public endpoint, distinct error messages for
+  // "invalid" / "already accepted" / "expired" leak whether a token
+  // exists. An attacker can grind tokens and read the response text
+  // to enumerate valid ones. Now: one generic 404 for all three
+  // failure modes; the specific reason is logged server-side only.
   async getInvitation(token: string) {
     const invitation = await this.prisma.userInvitation.findUnique({ where: { token } });
-    if (!invitation) throw new NotFoundException('Invalid invitation token');
-    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
-    if (invitation.expiresAt < new Date()) throw new BadRequestException('Invitation expired');
+    const generic = new NotFoundException('Invitation not available');
+    if (!invitation) {
+      this.logger.warn(`Invitation lookup miss for token=${token.slice(0, 8)}…`);
+      throw generic;
+    }
+    if (invitation.acceptedAt) {
+      this.logger.warn(`Invitation already-accepted, id=${invitation.id}`);
+      throw generic;
+    }
+    if (invitation.expiresAt < new Date()) {
+      this.logger.warn(`Invitation expired, id=${invitation.id}`);
+      throw generic;
+    }
 
     return {
       email: invitation.email,

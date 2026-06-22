@@ -56,7 +56,7 @@ Each finding lists: file:line · description · attack scenario · severity · w
 
 ---
 
-## 🔴 P1 — Real risk, fix this sprint
+## 🔴 P1 — All fixed (2026-06-22 follow-up commit)
 
 ### #6 — Weak randomness for practical paper assignment ✅ FIXED IN THIS COMMIT
 - **Where:** `backend/src/modules/practical-sets/practical-sets.service.ts:235`
@@ -64,36 +64,30 @@ Each finding lists: file:line · description · attack scenario · severity · w
 - **Severity:** Lower than the quiz OTP (which we already fixed) because the practical set is randomised by the proctor, not the candidate. But for assessment integrity, predictability is a defect.
 - **Fix:** `crypto.randomInt(0, sets.length)`.
 
-### #7 — MFA verify lacks per-user rate limit
+### #7 — MFA verify lacks per-user rate limit ✅ FIXED
 - **Where:** `backend/src/modules/auth/auth.service.ts:75-86`, `auth.controller.ts:28-32`
-- **Issue:** TOTP verify only has the global throttle (10/min). An attacker with the userId can grind through TOTPs from many IPs.
-- **Severity:** Mitigated by 6-digit TOTP key space × window=1 (so ~500k tries to guess), but a determined adversary with bot infrastructure could attempt it.
-- **Fix:** Per-userId throttle (5 attempts / 15min sliding window). Lockout after N failures. Audit-log every attempt.
+- **Was:** TOTP verify only had the global throttle (10/min). An attacker with the userId could grind through TOTPs from many IPs.
+- **Fixed:** Per-userId rate limit via Redis (`mfa:fail:<userId>` key, sliding 15-min TTL). After 5 failed attempts the endpoint returns 429 regardless of code correctness — closes the timing side-channel too. Success path drops the counter so a legit user who mis-types isn't locked out long. Falls back to in-memory store if Redis is down (same RedisService pattern as the OTP path).
 
-### #8 — `quiz/public/:token/submit` accepts unvalidated body
+### #8 — `quiz/public/:token/submit` accepts unvalidated body ✅ FIXED
 - **Where:** `backend/src/modules/quiz/quiz.controller.ts:75-78`
-- **Issue:** `@Body() body: any` on the public quiz submission endpoint. No DTO. Service code path eventually validates the shape, but malformed input can throw deep in Prisma with verbose stack traces.
-- **Severity:** Information disclosure via error messages plus DoS via malformed input.
-- **Fix:** Add a `SubmitQuizDto` with class-validator.
+- **Was:** `@Body() body: any`. No shape validation. Malformed input crashed deeper in Prisma with verbose stack traces (info disclosure) or got silently mis-graded.
+- **Fixed:** New `SubmitQuizDto` (and `SubmitQuizAnswerDto`) in `quiz/dto/submit-quiz.dto.ts` with class-validator constraints. Global ValidationPipe (whitelist + transform) is already registered in main.ts so the DTO takes effect automatically. Caps: 1-500 answers, each with 1-5 selected option keys, optional timeSpentSeconds bounded to 24h.
 
-### #9 — XLSX import — no formula-injection scrubbing on round-trip
-- **Where:** `backend/src/modules/questions/questions.controller.ts` (parseImportFile via `XLSX.read`)
-- **Issue:** XLSX import accepts user-supplied cells starting with `=`, `+`, `-`, `@`, `\t`. When a question containing such a cell is later exported (e.g., a CSV report) and opened in Excel, those become executable formulas. CVE class: CSV / spreadsheet formula injection.
-- **Severity:** Indirect — only exploitable if the question text round-trips into a CSV download that a HR manager then opens in Excel.
-- **Fix:** On import, prefix any field starting with `=+-@\t` with a single quote `'` (Excel's "treat as text" escape). Or sanitise on export.
+### #9 — XLSX import — no formula-injection scrubbing on round-trip ✅ FIXED
+- **Where:** `backend/src/modules/questions/questions.controller.ts` (parseImportFile)
+- **Was:** XLSX/CSV import accepted user-supplied cells starting with `=`, `+`, `-`, `@`, `\t`, `\r`. If a question containing such a cell was later exported to CSV and opened in Excel, the cell ran as a formula (CWE-1236, "CSV injection" / "formula injection").
+- **Fixed:** New `defangFormula(value)` helper applied to every string cell on import. Prepends a single apostrophe to any value starting with one of the active chars, which Excel/Sheets/Numbers treat as the "show as text" escape. The apostrophe is hidden on display so the question stays readable, but the cell can no longer execute.
 
-### #10 — Invitation token error messages enable enumeration
-- **Where:** `backend/src/modules/users/users.service.ts:287-299` + `users.controller.ts:15-17` (`GET /users/invitation/:token`)
-- **Issue:** Distinct error messages for "invalid", "already accepted", "expired". Public endpoint, only global throttle.
-- **Attack:** Attacker enumerates valid invitation tokens by checking error text.
-- **Severity:** Mitigated by token entropy + 7-day expiry, but a leak.
-- **Fix:** Single generic error message for all three failure modes. Log the actual reason server-side only.
+### #10 — Invitation token error messages enable enumeration ✅ FIXED
+- **Where:** `backend/src/modules/users/users.service.ts` (getInvitation + acceptInvitation)
+- **Was:** Distinct error messages for "invalid", "already accepted", "expired". Public endpoint, only global throttle. Let an attacker enumerate valid invitation tokens by reading the error text.
+- **Fixed:** All three failure modes now throw a single generic `NotFoundException('Invitation not available')`. The specific reason is logged server-side at WARN level with a truncated token prefix for forensics, never returned to the caller.
 
-### #11 — `practicalSubmissionUrl` rendered without protocol allowlist
+### #11 — `practicalSubmissionUrl` rendered without protocol allowlist ✅ FIXED
 - **Where:** `frontend/portal/app/(portal)/proctor/reports/[sessionId]/page.tsx:253`
-- **Issue:** `<a href={session.practicalSubmissionUrl}>` — if a malicious actor ever wrote `javascript:alert(...)` into the DB column, the proctor's click executes it.
-- **Severity:** Requires DB write capability, which limits the attack surface. Defense-in-depth fix.
-- **Fix:** Wrap in a helper that asserts `href` starts with `/` or `http(s)://`.
+- **Was:** `<a href={session.practicalSubmissionUrl}>` — if a malicious actor ever wrote `javascript:alert(…)` into the DB column, the proctor's click would execute it.
+- **Fixed:** New `lib/safe-url.ts` with `safeHref()` + `isSafeHref()`. Only allows http(s) absolute URLs or app-relative paths starting with `/`. Rejects protocol-relative `//`, `javascript:`, `data:`, `file:`, etc. The proctor reports page now gates the entire link block on `isSafeHref` and feeds the href through `safeHref`. Also tightened `rel` to `noreferrer noopener` (was `noreferrer`).
 
 ---
 

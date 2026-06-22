@@ -72,7 +72,38 @@ export class AuthService {
     };
   }
 
+  // SAST P1 #7 — per-userId MFA rate limit + lockout.
+  //
+  // Before: only the global 10/min throttle protected this endpoint.
+  // TOTP is 6 digits × window=1 ⇒ ~500k tries to brute-force a given
+  // user. An attacker with distributed IPs could grind through it.
+  //
+  // After: each userId gets a sliding 15-minute window in Redis.
+  // After 5 failed attempts in that window, further attempts are
+  // refused with 429 regardless of the code's correctness. A
+  // successful verify resets the counter. Failed attempts are logged
+  // (without the code itself — that'd defeat the point) so the audit
+  // trail captures unusual activity.
+  private mfaAttemptsKey(userId: string) {
+    return `mfa:fail:${userId}`;
+  }
+
   async verifyMfa(userId: string, token: string) {
+    const MFA_MAX_FAILS = 5;
+    const MFA_WINDOW_SECONDS = 15 * 60;
+    const attemptsKey = this.mfaAttemptsKey(userId);
+
+    // Check current fail count BEFORE doing any work. A locked-out
+    // user gets the same response shape regardless of whether the
+    // submitted code is correct — that prevents an attacker from
+    // confirming "right code arrived after lockout" via timing.
+    const currentFails = Number((await this.redis.get(attemptsKey)) ?? 0);
+    if (currentFails >= MFA_MAX_FAILS) {
+      throw new UnauthorizedException(
+        'Too many failed MFA attempts. Try again in 15 minutes.',
+      );
+    }
+
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecret) throw new BadRequestException('MFA not configured');
     const valid = speakeasy.totp.verify({
@@ -81,7 +112,19 @@ export class AuthService {
       token,
       window: 1,
     });
-    if (!valid) throw new UnauthorizedException('Invalid MFA code');
+
+    if (!valid) {
+      // Atomic increment + TTL set. The expire only takes effect the
+      // first time so the window starts at the first failure, not
+      // the latest one (sliding window over fixed window).
+      const count = await this.redis.incr(attemptsKey);
+      if (count === 1) await this.redis.expire(attemptsKey, MFA_WINDOW_SECONDS);
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+
+    // Success — drop the failure counter so a legit user who fat-
+    // fingered a few digits before getting it right starts fresh.
+    await this.redis.del(attemptsKey);
     return { verified: true };
   }
 

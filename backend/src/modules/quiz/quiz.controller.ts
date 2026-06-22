@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { QuizService } from './quiz.service';
+import { SubmitQuizDto } from './dto/submit-quiz.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -72,8 +73,12 @@ export class QuizPublicController {
     return this.quiz.getQuestions(token);
   }
 
+  // SAST P1 #8 — was @Body() body: any. Now validated by SubmitQuizDto
+  // via the global ValidationPipe (whitelist + transform). Malformed
+  // input is rejected with a clean 400 instead of crashing deeper
+  // and leaking a stack trace.
   @Post(':token/submit')
-  async submit(@Param('token') token: string, @Body() body: any) {
+  async submit(@Param('token') token: string, @Body() body: SubmitQuizDto) {
     return this.quiz.submit(token, body);
   }
 

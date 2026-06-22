@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle, FileText, Download, Play, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+import { safeHref, isSafeHref } from '@/lib/safe-url'
 
 // Values match the Prisma PracticalQuality enum. Labels are display-only.
 const PRACTICAL_VERDICTS = [
@@ -246,11 +247,16 @@ function ReportReviewContent() {
             )}
           </div>
 
-          {/* Practical Submission */}
-          {session?.practicalSubmissionUrl && (
+          {/* Practical Submission. SAST P1 #11 — practicalSubmissionUrl
+              is rendered straight into href; if a malicious value
+              (e.g. javascript:…) is ever written to the column, the
+              proctor's click would execute it. safeHref refuses anything
+              that isn't http(s) or app-relative; isSafeHref decides
+              whether to render the link block at all. */}
+          {session?.practicalSubmissionUrl && isSafeHref(session.practicalSubmissionUrl) && (
             <div className="glass-card" style={{ padding: '20px' }}>
               <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>Practical Submission</h3>
-              <a href={session.practicalSubmissionUrl} target="_blank" rel="noreferrer"
+              <a href={safeHref(session.practicalSubmissionUrl)} target="_blank" rel="noreferrer noopener"
                 style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px', textDecoration: 'none', color: 'var(--cyan)', fontSize: '13px' }}>
                 <Download size={14} /> Download Submitted File
               </a>
