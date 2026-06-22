@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
-import { SalesController } from './sales.controller';
+import { SalesController, SalesPublicController } from './sales.controller';
 import { SalesService } from './sales.service';
 
 @Module({
-  controllers: [SalesController],
+  // SalesPublicController serves the unauthenticated POST /sales/leads
+  // (marketing contact form). SalesController serves the admin/auth
+  // routes (list / update). Both share the same SalesService.
+  controllers: [SalesPublicController, SalesController],
   providers: [SalesService],
   exports: [SalesService],
 })

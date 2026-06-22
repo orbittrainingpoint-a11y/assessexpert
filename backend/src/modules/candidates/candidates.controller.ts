@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateCandidateDto, UpdateCandidateDto } from './dto/candidate.dto';
 
 @ApiTags('candidates')
 @ApiBearerAuth()
@@ -27,25 +28,28 @@ export class CandidatesController {
     return this.candidatesService.getCandidate(id, req.user.organizationId);
   }
 
+  // SAST P2 #15 — DTO replaces @Body() any. The global ValidationPipe
+  // (whitelist + transform) rejects unknown fields and validates
+  // shape before the handler runs.
   @Post()
   @Roles('HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN')
-  async createCandidate(@Body() body: any, @Req() req: any) {
+  async createCandidate(@Body() body: CreateCandidateDto, @Req() req: any) {
     // For SUPER_ADMIN, organizationId must be provided in body
     // For others, use their organizationId
-    const organizationId = req.user.role === 'SUPER_ADMIN' 
-      ? body.organizationId 
+    const organizationId = req.user.role === 'SUPER_ADMIN'
+      ? body.organizationId
       : req.user.organizationId;
-    
+
     if (!organizationId) {
       throw new BadRequestException('Organization ID is required');
     }
-    
+
     return this.candidatesService.createCandidate(body, organizationId);
   }
 
   @Put(':id')
   @Roles('HR_MANAGER', 'ORG_ADMIN')
-  async updateCandidate(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+  async updateCandidate(@Param('id') id: string, @Body() body: UpdateCandidateDto, @Req() req: any) {
     return this.candidatesService.updateCandidate(id, body, req.user.organizationId);
   }
 

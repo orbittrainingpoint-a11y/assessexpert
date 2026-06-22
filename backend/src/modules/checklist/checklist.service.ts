@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CandidateSessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const CHECKLIST_ITEMS = [
@@ -135,9 +136,9 @@ export class ChecklistService {
           where: {
             sessionId,
             candidateId: cId,
-            status: { in: ['PENDING' as any, 'JOINED' as any, 'VERIFYING' as any] },
+            status: { in: [CandidateSessionStatus.PENDING, CandidateSessionStatus.JOINED, CandidateSessionStatus.VERIFYING] },
           },
-          data: { status: 'VERIFIED' as any, verifiedAt: new Date() },
+          data: { status: CandidateSessionStatus.VERIFIED, verifiedAt: new Date() },
         });
       } catch {
         // SessionCandidate row may not exist for very old single-candidate

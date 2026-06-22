@@ -171,7 +171,16 @@ export class ExamDeliveryController {
   }
 
   @Post('practical/submit')
-  @UseInterceptors(FileInterceptor('file'))
+  // SAST P2 #14 — hard cap on practical upload size. Was unbounded
+  // (multer defaults to no limit), which means a malicious candidate
+  // could upload a multi-GB file and exhaust disk on the storage
+  // volume. 50MB is a generous cap for practical work (drawings,
+  // small project bundles, code zips) and an order of magnitude
+  // below the storage-exhaustion threshold. Override via the
+  // PRACTICAL_UPLOAD_MAX_MB env if a customer genuinely needs more.
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: (Number(process.env.PRACTICAL_UPLOAD_MAX_MB) || 50) * 1024 * 1024 },
+  }))
   async submitPractical(
     @Query('token') token: string,
     @UploadedFile() file: Express.Multer.File,

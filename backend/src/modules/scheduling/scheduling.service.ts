@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { CandidateSessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RemindersService } from '../notifications/reminders.service';
@@ -248,7 +249,7 @@ export class SchedulingService {
                     data: {
                       sessionId: existingSlot.id,
                       candidateId: existingSlot.candidateId,
-                      status: 'PENDING' as any,
+                      status: CandidateSessionStatus.PENDING,
                     },
                   }),
                 ]),
@@ -256,7 +257,7 @@ export class SchedulingService {
         }
 
         await this.prisma.sessionCandidate.create({
-          data: { sessionId: existingSlot.id, candidateId: data.candidateId, status: 'PENDING' as any },
+          data: { sessionId: existingSlot.id, candidateId: data.candidateId, status: CandidateSessionStatus.PENDING },
         });
 
         // Email the new candidate the SAME magic link as the rest of the slot.
@@ -332,7 +333,7 @@ export class SchedulingService {
         mode: data.mode || 'PROCTORED',
         isMultiCandidate: true,
         sessionCandidates: {
-          create: [{ candidateId: data.candidateId, status: 'PENDING' as any }],
+          create: [{ candidateId: data.candidateId, status: CandidateSessionStatus.PENDING }],
         },
       },
       include: { candidate: true, assessmentType: true, organization: true },

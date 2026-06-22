@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateAssessmentTypeDto, UpdateAssessmentTypeDto } from './dto/assessment-type.dto';
 
 @ApiTags('assessments')
 @ApiBearerAuth()
@@ -22,15 +23,18 @@ export class AssessmentsController {
     return this.assessmentsService.getAssessmentType(id);
   }
 
+  // SAST P2 #15 — DTOs replace @Body() any. Whitelist + transform on
+  // the global ValidationPipe rejects unknown fields and validates
+  // ranges before they hit Prisma.
   @Post()
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
-  async createAssessmentType(@Body() body: any, @Req() req: any) {
+  async createAssessmentType(@Body() body: CreateAssessmentTypeDto, @Req() req: any) {
     return this.assessmentsService.createAssessmentType(body, req.user.id);
   }
 
   @Put(':id')
   @Roles('SUPER_ADMIN', 'MASTER_PROCTOR')
-  async updateAssessmentType(@Param('id') id: string, @Body() body: any) {
+  async updateAssessmentType(@Param('id') id: string, @Body() body: UpdateAssessmentTypeDto) {
     return this.assessmentsService.updateAssessmentType(id, body);
   }
 

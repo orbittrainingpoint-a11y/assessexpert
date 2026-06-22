@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import * as nodemailer from 'nodemailer';
@@ -220,8 +220,33 @@ export class UsersService {
     }
   }
 
+  // SAST P2 #13 — service-layer org defense. The controller currently
+  // enforces that a non-SUPER_ADMIN can only invite into their own
+  // org, but the service trusted `data.organizationId` blindly. If a
+  // future controller change drops the check (or a different caller
+  // wires this directly), the trust gap reopens. Defense-in-depth:
+  // the service now validates the inviter and refuses to invite into
+  // a different org unless the inviter is SUPER_ADMIN.
   async inviteUser(data: { email: string; role: string; organizationId?: string; firstName?: string; lastName?: string }, invitedBy: string) {
     this.logger.log(`Inviting user: ${data.email} with role: ${data.role}`);
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: invitedBy },
+      select: { role: true, organizationId: true },
+    });
+    if (!inviter) throw new NotFoundException('Inviter not found');
+
+    if (inviter.role !== 'SUPER_ADMIN') {
+      // Non-SUPER_ADMIN inviters can only invite into their own org.
+      // If they omitted organizationId we fill it in; if they tried
+      // to set a different one we refuse.
+      if (!data.organizationId) {
+        data.organizationId = inviter.organizationId || undefined;
+      } else if (data.organizationId !== inviter.organizationId) {
+        this.logger.warn(`Cross-org invite attempt blocked: ${invitedBy} → org ${data.organizationId}`);
+        throw new ForbiddenException('Cannot invite users into another organization');
+      }
+    }
 
     // Check if user already exists
     const existing = await this.prisma.user.findUnique({ where: { email: data.email } });

@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { randomBytes, createHash, randomInt } from 'crypto';
+import { SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -221,7 +222,7 @@ export class QuizService {
     if (session.status !== 'MCQ_IN_PROGRESS') {
       await this.prisma.examSession.update({
         where: { id: session.id },
-        data: { status: 'MCQ_IN_PROGRESS' as any, mcqStartedAt: new Date() },
+        data: { status: SessionStatus.MCQ_IN_PROGRESS, mcqStartedAt: new Date() },
       });
     }
 
@@ -324,7 +325,7 @@ export class QuizService {
             // REPORT_PUBLISHED — quiz mode is auto-published on submit, so
             // skip SUBMITTED/GRADING/PENDING_PROCTOR_REVIEW intermediate
             // states that only the proctored flow needs.
-            status: 'REPORT_PUBLISHED' as any,
+            status: SessionStatus.REPORT_PUBLISHED,
             mcqSubmittedAt: new Date(),
           },
         });
