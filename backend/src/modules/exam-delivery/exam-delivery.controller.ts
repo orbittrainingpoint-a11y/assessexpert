@@ -182,8 +182,25 @@ export class ExamDeliveryController {
     if (file) {
       const storagePath = process.env.PRACTICAL_FILES_PATH || './storage/practical-files';
       if (!fs.existsSync(storagePath)) fs.mkdirSync(storagePath, { recursive: true });
-      fileName = `${Date.now()}-${file.originalname}`;
+      // SAST P0 #5 — path traversal. Was `${Date.now()}-${file.originalname}`
+      // with originalname unfiltered. Multer's originalname can contain
+      // `..` and `/` (browsers don't strip them and crafty clients can
+      // set the header directly). `path.join('storage', '1234-../../etc/foo')`
+      // resolves the `..` segments and escapes the storage dir.
+      //
+      // Defence: take only the basename (drops any path segments) and
+      // strip everything except a conservative allowlist of characters,
+      // then resolve the final path and verify it's still under the
+      // storage root before writing. Belt and braces.
+      const rawName = path.basename(String(file.originalname || 'submission.bin'));
+      const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '_').slice(-180); // cap length
+      fileName = `${Date.now()}-${safeName}`;
       filePath = path.join(storagePath, fileName);
+      const resolvedRoot = path.resolve(storagePath);
+      const resolvedTarget = path.resolve(filePath);
+      if (!resolvedTarget.startsWith(resolvedRoot + path.sep) && resolvedTarget !== resolvedRoot) {
+        throw new BadRequestException('Invalid filename');
+      }
       fs.writeFileSync(filePath, file.buffer);
     }
 

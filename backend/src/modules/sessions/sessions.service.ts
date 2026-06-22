@@ -155,10 +155,32 @@ export class SessionsService {
     });
   }
 
+  // SAST P0 #4 — was `data: { status, ...data }`, spreading caller-
+  // controlled fields directly into Prisma update. A proctor could
+  // post `{ verifiedAt, mcqSubmittedAt, practicalScore, ... }` and
+  // forge exam-result timestamps or scores. Now only the small set of
+  // status-transition fields that legitimately accompany a status
+  // change are accepted; everything else is silently dropped.
+  //
+  // The score/result writes that actually need to happen go through
+  // dedicated methods (reports.service, exam-delivery.service) — they
+  // were never supposed to be writable from here.
   async updateCandidateStatus(sessionId: string, candidateId: string, status: string, data?: any) {
+    const ALLOWED = new Set([
+      'verifiedAt', 'mcqStartedAt', 'mcqSubmittedAt',
+      'practicalStartedAt', 'practicalSubmittedAt',
+      'practicalPaperSetId', 'practicalSubmissionUrl',
+      'disqualifiedAt', 'disqualifiedReason',
+    ]);
+    const safe: Record<string, unknown> = { status: status as any };
+    if (data && typeof data === 'object') {
+      for (const [k, v] of Object.entries(data)) {
+        if (ALLOWED.has(k)) safe[k] = v;
+      }
+    }
     return this.prisma.sessionCandidate.update({
       where: { sessionId_candidateId: { sessionId, candidateId } },
-      data: { status: status as any, ...data },
+      data: safe as any,
     });
   }
 

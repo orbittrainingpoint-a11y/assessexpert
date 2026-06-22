@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import * as path from 'path';
+import { randomInt } from 'crypto';
 
 @Injectable()
 export class PracticalSetsService {
@@ -232,7 +233,12 @@ export class PracticalSetsService {
       return { assigned: false, reason: 'no_active_sets', assignments: [] };
     }
 
-    const pickRandom = () => sets[Math.floor(Math.random() * sets.length)];
+    // SAST P1 #6 — was Math.random(), which is a pseudo-RNG and is
+    // predictable enough that a candidate who knew the set count and
+    // an approximate scheduling timestamp could narrow which paper
+    // they'd receive. crypto.randomInt is CSPRNG-sourced and
+    // unbiased.
+    const pickRandom = () => sets[randomInt(0, sets.length)];
     const assignments: Array<{ candidateId: string; setId: string; setName: string }> = [];
 
     // Always include the primary candidate even if no SessionCandidate

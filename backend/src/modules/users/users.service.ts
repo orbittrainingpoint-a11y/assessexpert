@@ -63,15 +63,50 @@ export class UsersService {
     return user;
   }
 
+  // SAST P0 #1, #2, #3 — explicit field allowlist instead of `...rest`
+  // spread. Without this an authenticated SUPER_ADMIN (the only role
+  // that can hit these endpoints) could create or escalate any user to
+  // any role in any org by passing extra fields in the body, OR — by
+  // accident, via a buggy frontend — set fields that should be
+  // server-managed (mfaSecret, passwordResetToken, etc.).
+  //
+  // Hardcoded default password "TempPass123!" was removed at the same
+  // time: any user created without an explicit password was bcrypted
+  // from a known string, making them logged-in-as-able by anyone who
+  // saw the codebase. Now the create call refuses without a password.
+  private readonly USER_WRITABLE_FIELDS = new Set([
+    // Identity
+    'email', 'firstName', 'lastName',
+    // Role + tenancy — SUPER_ADMIN is the only caller, so they
+    // legitimately need to set these. They CANNOT set mfaSecret,
+    // passwordResetToken, status, audit timestamps, etc.
+    'role', 'organizationId',
+    // Proctor fields (only relevant when role = PROCTOR)
+    'certificationLevel', 'certificationDomains', 'languages', 'timezone',
+    'maxSessionsPerDay',
+  ]);
+
+  private allowlistUserFields(data: Record<string, unknown>): Record<string, unknown> {
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (this.USER_WRITABLE_FIELDS.has(k)) clean[k] = v;
+    }
+    return clean;
+  }
+
   async createUser(data: any) {
+    if (!data?.email) throw new BadRequestException('email is required');
+    if (!data?.password || typeof data.password !== 'string' || data.password.length < 8) {
+      throw new BadRequestException('password is required and must be at least 8 characters');
+    }
     const existing = await this.prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new ConflictException('Email already in use');
 
-    const passwordHash = await bcrypt.hash(data.password || 'TempPass123!', 12);
-    const { password, ...rest } = data;
+    const passwordHash = await bcrypt.hash(data.password, 12);
+    const allowed = this.allowlistUserFields(data);
 
     return this.prisma.user.create({
-      data: { ...rest, passwordHash },
+      data: { ...allowed, passwordHash } as any,
       select: {
         id: true, email: true, firstName: true, lastName: true,
         role: true, organizationId: true, status: true,
@@ -81,12 +116,14 @@ export class UsersService {
 
   async updateUser(id: string, data: any) {
     await this.getUser(id);
-    const { password, ...rest } = data;
-    const updateData: any = { ...rest };
-    if (password) updateData.passwordHash = await bcrypt.hash(password, 12);
+    const allowed = this.allowlistUserFields(data || {});
+    const updateData: Record<string, unknown> = { ...allowed };
+    if (typeof data?.password === 'string' && data.password.length >= 8) {
+      updateData.passwordHash = await bcrypt.hash(data.password, 12);
+    }
     return this.prisma.user.update({
       where: { id },
-      data: updateData,
+      data: updateData as any,
       select: { id: true, email: true, firstName: true, lastName: true, role: true, status: true },
     });
   }
