@@ -53,7 +53,6 @@
     "ioredis": "^5.3.2",
     "joi": "^17.12.1",
     "mime-types": "^2.1.35",
-    "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.10.1",
     "openai": "^4.28.0",
     "passport": "^0.7.0",
@@ -68,6 +67,10 @@
     "speakeasy": "^2.0.0",
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
+  },
+  "overrides": {
+    "multer": "^2.2.0",
+    "form-data": "^4.0.6"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.2",
