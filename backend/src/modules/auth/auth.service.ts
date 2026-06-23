@@ -53,7 +53,8 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = this.jwtService.sign(payload, {
       secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+      // Same cast as auth.module.ts — NestJS 11 jwt typing tightened.
+      expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any,
     });
 
     return {

@@ -14,7 +14,12 @@ import { UsersModule } from '../users/users.module';
       // main.ts crashes the process if JWT_SECRET is missing or too
       // short, so by the time this module loads we know it's set.
       secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '15m' },
+      // NestJS 11's @nestjs/jwt tightened the expiresIn type to
+      // jsonwebtoken's StringValue (template literal of `<n><unit>`).
+      // process.env reads return string | undefined which doesn't
+      // narrow to that template type, so we cast. Runtime behaviour
+      // unchanged — jsonwebtoken accepts the same string format.
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '15m') as any },
     }),
     UsersModule,
   ],
