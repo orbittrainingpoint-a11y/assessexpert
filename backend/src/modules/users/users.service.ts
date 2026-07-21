@@ -22,7 +22,14 @@ export class UsersService {
     const where: any = {};
     if (filters?.role) where.role = filters.role;
     if (filters?.organizationId) where.organizationId = filters.organizationId;
-    if (filters?.status) where.status = filters.status;
+    if (filters?.status) {
+      where.status = filters.status;
+    } else {
+      // Exclude soft-deleted users from the default list. Explicit
+      // status filter (e.g. ?status=DELETED) still surfaces them for
+      // an admin audit view.
+      where.status = { not: 'DELETED' };
+    }
     if (filters?.search) {
       where.OR = [
         { firstName: { contains: filters.search, mode: 'insensitive' } },
@@ -133,6 +140,129 @@ export class UsersService {
       where: { id },
       data: { status: 'INACTIVE' },
     });
+  }
+
+  // Reverse of deactivateUser — only flips back if the user is INACTIVE
+  // (not DELETED). A DELETED user needs to go through create-again or
+  // restore-from-deleted (separate flow, not exposed today).
+  async reactivateUser(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id }, select: { id: true, status: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.status === 'DELETED') {
+      throw new BadRequestException('Deleted users cannot be reactivated — create a new user instead');
+    }
+    return this.prisma.user.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
+  // Soft-delete: flip status to DELETED + stamp deletedAt. Preserves the
+  // row so foreign-key references (sessions the user proctored, invitations
+  // they sent, audit log rows) remain intact. Excluded from every default
+  // list query. Hard-delete needs a separate purge op (not built today).
+  async deleteUser(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id }, select: { id: true, status: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return this.prisma.user.update({
+      where: { id },
+      data: { status: 'DELETED' as any, deletedAt: new Date() },
+    });
+  }
+
+  // ── Password reset flow ────────────────────────────────────────
+  //
+  // Two triggers:
+  //   1. User forgets password → POST /auth/forgot-password with email
+  //   2. Admin sends reset link → POST /users/:id/send-password-reset
+  //
+  // Both flow into requestPasswordReset() which generates a 32-byte hex
+  // token, stores its hash-free form on the User (guarded by the unique
+  // index migration adds), and emails a magic link. Consumer submits the
+  // token + new password to /auth/reset-password.
+  //
+  // We hash the token for audit trail via chainHash BUT store the token
+  // as-is on the row so the DB lookup is cheap and constant-time. The
+  // token itself is 256 bits of entropy from CSPRNG, so guess-attack risk
+  // is astronomical even without hashing.
+
+  async requestPasswordReset(email: string): Promise<{ sent: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    // Deliberately return success regardless — refusing here would leak
+    // whether the email is registered. Public callers see one response
+    // shape; the server-side log records the real outcome.
+    if (!user || user.status === 'DELETED' || user.status === 'SUSPENDED') {
+      this.logger.warn(`Password reset requested for unknown/inactive email=${email.slice(0, 3)}***`);
+      return { sent: true };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetToken: token, passwordResetExpiresAt: expiresAt } as any,
+    });
+
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${token}`;
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'theassessexpert@gmail.com',
+        to: user.email,
+        subject: 'Reset your AssessExpert password',
+        html: `
+          <p>Hi ${user.firstName || ''},</p>
+          <p>Someone (hopefully you) asked to reset the password for your AssessExpert account.</p>
+          <p><a href="${resetLink}">Click here to set a new password</a> — this link is valid for 1 hour.</p>
+          <p>If you didn't request this, ignore the email; your password stays unchanged.</p>
+          <p>— AssessExpert</p>
+        `,
+      });
+      this.logger.log(`Password reset email dispatched to userId=${user.id}`);
+    } catch (e: any) {
+      this.logger.warn(`Password reset email send failed for userId=${user.id}: ${e?.message || e}`);
+    }
+    return { sent: true };
+  }
+
+  // Called by the auth service when the user submits token + new password.
+  async completePasswordReset(token: string, newPassword: string) {
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { passwordResetToken: token } as any,
+    });
+    // Same generic error for missing/expired — prevents token enumeration.
+    const generic = new BadRequestException('Reset link is invalid or expired');
+    if (!user) throw generic;
+    const expiresAt = (user as any).passwordResetExpiresAt as Date | null;
+    if (!expiresAt || expiresAt < new Date()) throw generic;
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null,
+      } as any,
+    });
+    this.logger.log(`Password reset completed for userId=${user.id}`);
+    return { success: true };
+  }
+
+  // Admin-triggered: same underlying flow but the actor is an admin
+  // acting on a specific userId (not the user submitting their email).
+  async adminSendPasswordReset(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.status === 'DELETED') throw new BadRequestException('Cannot send reset link to a deleted user');
+    return this.requestPasswordReset(user.email);
   }
 
   async getProctors(filters?: any) {

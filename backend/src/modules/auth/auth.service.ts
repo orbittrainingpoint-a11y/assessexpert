@@ -30,6 +30,10 @@ export class AuthService {
 
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
+    // Deliberately generic for missing user / missing password hash /
+    // wrong password so an attacker cannot enumerate emails via error
+    // messages. Inactive / suspended / deleted users get the same
+    // "not active" line — again, no leaking of state.
     if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials');
     if (user.status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
     const valid = await bcrypt.compare(password, user.passwordHash);

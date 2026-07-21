@@ -65,6 +65,12 @@ export const authApi = {
   sendOtp: (email: string, sessionToken: string) => api.post('/auth/otp/send', { email, sessionToken }),
   verifyOtp: (email: string, otp: string, sessionToken?: string) => api.post('/auth/otp/verify', { email, otp, sessionToken }),
   verifyMagicLink: (token: string) => api.post('/auth/magic-link/verify', { token }),
+  // Public forgot-password. Server always returns 200 to avoid
+  // leaking whether the email is registered.
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  // Public reset-password. Consumes the token from the emailed link
+  // + new password. 400 on invalid/expired token.
+  resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
 }
 
 // Admin
@@ -98,6 +104,12 @@ export const usersApi = {
   invite: (data: any) => api.post('/users/invite', data),
   update: (id: string, data: any) => api.put(`/users/${id}`, data),
   deactivate: (id: string) => api.post(`/users/${id}/deactivate`),
+  // Flips INACTIVE → ACTIVE. Refuses if the user is DELETED.
+  reactivate: (id: string) => api.post(`/users/${id}/reactivate`),
+  // Soft delete — status → DELETED, row preserved for FK integrity.
+  delete: (id: string) => api.delete(`/users/${id}`),
+  // Admin-triggered: emails the user a 1-hour reset link.
+  sendPasswordReset: (id: string) => api.post(`/users/${id}/send-password-reset`),
   suspend: (id: string, reason: string) => api.post(`/users/${id}/suspend`, { reason }),
   getProctors: () => api.get('/users/proctors'),
   getAvailability: (id: string) => api.get(`/users/${id}/availability`),

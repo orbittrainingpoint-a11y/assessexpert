@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, orgsApi, assessmentsApi } from '@/lib/api'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, KeyRound, RotateCcw, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const ROLES = ['SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER', 'SALES_AGENT', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER', 'PROCTOR']
@@ -52,6 +52,25 @@ export default function AdminUsersPage() {
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => usersApi.deactivate(id),
     onSuccess: () => { toast.success('User deactivated'); qc.invalidateQueries({ queryKey: ['users'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Deactivation failed'),
+  })
+
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => usersApi.reactivate(id),
+    onSuccess: () => { toast.success('User reactivated'); qc.invalidateQueries({ queryKey: ['users'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Reactivation failed'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => usersApi.delete(id),
+    onSuccess: () => { toast.success('User deleted'); qc.invalidateQueries({ queryKey: ['users'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Delete failed'),
+  })
+
+  const sendResetMutation = useMutation({
+    mutationFn: (id: string) => usersApi.sendPasswordReset(id),
+    onSuccess: () => toast.success('Password reset link emailed to the user (valid 1 hour)'),
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Could not send reset link'),
   })
 
   const users: any[] = data?.users || data || []
@@ -111,12 +130,40 @@ export default function AdminUsersPage() {
                 <td><span className={`badge ${u.status === 'ACTIVE' ? 'badge-pass' : 'badge-fail'}`}>{u.status}</span></td>
                 <td style={{ fontSize: '12px' }}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
                 <td>
-                  {u.status === 'ACTIVE' && (
-                    <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: '12px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
-                      onClick={() => { if (confirm(`Deactivate ${u.firstName}?`)) deactivateMutation.mutate(u.id) }}>
-                      Deactivate
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {u.status === 'ACTIVE' && (
+                      <>
+                        <button className="btn-ghost" title="Send a 1-hour password reset link to the user's email"
+                          style={{ padding: '5px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => { if (confirm(`Email a password reset link to ${u.email}?`)) sendResetMutation.mutate(u.id) }}
+                          disabled={sendResetMutation.isPending}>
+                          <KeyRound size={12} /> Reset link
+                        </button>
+                        <button className="btn-ghost" title="Deactivate — user can't log in until reactivated"
+                          style={{ padding: '5px 8px', fontSize: '11px', color: 'var(--amber)', borderColor: 'rgba(217,119,6,0.3)' }}
+                          onClick={() => { if (confirm(`Deactivate ${u.firstName}? They won't be able to log in until reactivated.`)) deactivateMutation.mutate(u.id) }}
+                          disabled={deactivateMutation.isPending}>
+                          Deactivate
+                        </button>
+                      </>
+                    )}
+                    {u.status === 'INACTIVE' && (
+                      <button className="btn-ghost" title="Reactivate — restore login access"
+                        style={{ padding: '5px 8px', fontSize: '11px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.3)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => reactivateMutation.mutate(u.id)}
+                        disabled={reactivateMutation.isPending}>
+                        <RotateCcw size={12} /> Reactivate
+                      </button>
+                    )}
+                    {u.status !== 'DELETED' && (
+                      <button className="btn-ghost" title="Soft-delete — row preserved for audit but user is gone"
+                        style={{ padding: '5px 8px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => { if (confirm(`Delete ${u.firstName} ${u.lastName}?\n\nThis is a soft delete — the row is preserved for audit trail, but the user is removed from every list. Cannot be undone through the UI.`)) deleteMutation.mutate(u.id) }}
+                        disabled={deleteMutation.isPending}>
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, UseGuards, HttpCode, Param, Inject } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, UseGuards, HttpCode, Param, Inject, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
@@ -89,6 +89,27 @@ export class AuthController {
     // Token invalidation is handled client-side (clear localStorage)
     // No guard needed — logout must work even with expired tokens
     return { success: true };
+  }
+
+  // Public forgot-password. Deliberately returns 200 always (even for
+  // unknown emails) so an attacker cannot enumerate registered emails
+  // via the response shape. Actual dispatch outcome is logged
+  // server-side only.
+  @Post('forgot-password')
+  @HttpCode(200)
+  async forgotPassword(@Body() body: { email: string }) {
+    if (!body?.email) throw new BadRequestException('email required');
+    return this.usersService.requestPasswordReset(body.email);
+  }
+
+  // Public reset-password. Verifies token + expiry + sets new hash.
+  // Constant-shape error message for invalid/expired to prevent
+  // token enumeration.
+  @Post('reset-password')
+  @HttpCode(200)
+  async resetPassword(@Body() body: { token: string; password: string }) {
+    if (!body?.token || !body?.password) throw new BadRequestException('token and password required');
+    return this.usersService.completePasswordReset(body.token, body.password);
   }
 
   @Get('invitation/:token')

@@ -18,6 +18,7 @@ const APP_DISALLOW = [
   '/login', '/exam', '/tech-check', '/cms', '/admin', '/hr',
   '/proctor', '/master-proctor', '/exam-setup', '/sales',
   '/accept-invitation', '/quiz', '/interview',
+  '/forgot-password', '/reset-password',
 ]
 
 export default function robots(): MetadataRoute.Robots {

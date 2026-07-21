@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -70,6 +70,34 @@ export class UsersController {
   @Post(':id/deactivate')
   deactivateUser(@Param('id') id: string) {
     return this.usersService.deactivateUser(id);
+  }
+
+  // Reverse of deactivate. Flips an INACTIVE user back to ACTIVE.
+  // Refuses if the user is already DELETED.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post(':id/reactivate')
+  reactivateUser(@Param('id') id: string) {
+    return this.usersService.reactivateUser(id);
+  }
+
+  // Soft delete — status → DELETED, deletedAt stamped. Row is preserved
+  // for FK integrity; excluded from default queries.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Delete(':id')
+  deleteUser(@Param('id') id: string) {
+    return this.usersService.deleteUser(id);
+  }
+
+  // Admin-triggered password reset for a specific user. Same underlying
+  // flow as the public POST /auth/forgot-password but the actor is an
+  // admin, not the user. Sends a 1-hour reset link to the user's email.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post(':id/send-password-reset')
+  sendPasswordReset(@Param('id') id: string) {
+    return this.usersService.adminSendPasswordReset(id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
