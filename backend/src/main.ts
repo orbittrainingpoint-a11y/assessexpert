@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -10,7 +10,48 @@ import * as path from 'path';
 import helmet from 'helmet';
 import * as compression from 'compression';
 
+// Sentry error monitoring — opt-in via SENTRY_DSN env var.
+//
+// If SENTRY_DSN is set, we init the SDK BEFORE Nest boots so the
+// initial DI errors are captured. If it's unset (dev, or a customer
+// who hasn't wired Sentry yet) init is skipped silently — no crash,
+// no noise. We import the SDK dynamically to avoid loading it in
+// the common case; the dep is added to package.json but the module
+// only executes when the DSN is present.
+async function initSentryIfConfigured() {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Sentry = await import('@sentry/node');
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV || 'production',
+      // Cap sample rates to protect the free-tier quota. Bump when
+      // you have a paid plan.
+      tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE) || 0.1,
+      // Never send secrets/PII by default. Sensitive routes are
+      // already scrubbed by AuditLogInterceptor before hitting Sentry.
+      sendDefaultPii: false,
+      // Ignore noisy expected errors so quota doesn't burn on them.
+      ignoreErrors: [
+        'UnauthorizedException',
+        'BadRequestException',
+        'NotFoundException',
+        'ForbiddenException',
+      ],
+      release: process.env.SENTRY_RELEASE, // optional — set from CI to tag deploys
+    });
+    new Logger('Sentry').log(`Sentry initialised for ${process.env.NODE_ENV || 'production'}`);
+  } catch (e: any) {
+    new Logger('Sentry').warn(`Sentry init failed: ${e?.message || e}. Continuing without.`);
+  }
+}
+
 async function bootstrap() {
+  // Sentry BEFORE Nest — captures the JWT_SECRET guard crashes below.
+  await initSentryIfConfigured();
+
   // Refuse to boot without a real JWT_SECRET. The previous behaviour
   // silently fell back to the literal string 'fallback-secret' when the
   // env var was missing — anyone reading the repo could forge admin
