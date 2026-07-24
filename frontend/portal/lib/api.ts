@@ -81,6 +81,12 @@ export const authApi = {
   // Authenticated — regenerate the 10 backup codes. Returns them
   // plaintext ONCE; old codes are invalidated.
   regenerateBackupCodes: () => api.post('/auth/mfa/backup-codes/regenerate'),
+  // GDPR §7 — self-service data export (right to data portability).
+  // Server sends application/json with Content-Disposition attachment.
+  exportMyData: () => api.get('/auth/me/export', { responseType: 'blob' }),
+  // GDPR §7 — self-delete. Soft delete + PII scrub. Refuses if the
+  // caller is the last active SUPER_ADMIN.
+  selfDelete: () => api.post('/auth/me/delete'),
 }
 
 // Admin

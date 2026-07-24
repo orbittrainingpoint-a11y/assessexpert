@@ -177,6 +177,134 @@ export class AuthService {
     return { sent: true };
   }
 
+  // GDPR §7 — self-service data export (right to data portability).
+  //
+  // Assembles every row the user directly owns or authored into a
+  // single JSON blob. Not exhaustive of "every trace" — that'd
+  // include audit log entries where they're referenced by ID, which
+  // we treat as pseudonymised operational data. The blob is meant
+  // to answer "what personal data do you hold about me?" honestly,
+  // not "give me the whole database".
+  //
+  // Callers are always the authed user themselves (req.user.id).
+  async exportUserData(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      // Explicit select — no password hash, no MFA secret, no backup
+      // code hashes (those are OUR security-critical data, not the
+      // user's personal data in a GDPR sense).
+      select: {
+        id: true, email: true, firstName: true, lastName: true,
+        phone: true, jobTitle: true, profilePhoto: true,
+        role: true, organizationId: true, status: true,
+        timezone: true, preferredLanguage: true,
+        mfaEnabled: true, lastLoginAt: true, lastLoginIp: true,
+        certificationLevel: true, certificationDomains: true,
+        languages: true, maxSessionsPerDay: true,
+        region: true, specialistDomains: true,
+        emailVerifiedAt: true, createdAt: true, updatedAt: true,
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Sessions the user proctored (metadata only — no candidate PII
+    // beyond ids). Candidate rows are separate persons; their data
+    // belongs in THEIR export, not this one.
+    const proctoredSessions = await this.prisma.examSession.findMany({
+      where: { proctorId: userId },
+      select: {
+        id: true, scheduledAt: true, status: true,
+        candidateId: true, assessmentTypeId: true, organizationId: true,
+        createdAt: true, updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1000, // hard cap so we don't OOM on a big export
+    });
+
+    // Audit log entries where the user was the actor. Payload is
+    // already scrubbed (see audit-log.interceptor.ts SCRUB_FIELDS).
+    const auditEvents = await this.prisma.auditLog.findMany({
+      where: { userId: userId },
+      select: {
+        id: true, eventType: true, target: true, targetId: true,
+        payload: true, ipAddress: true, createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+
+    return {
+      exportedAt: new Date().toISOString(),
+      exportVersion: 1,
+      user,
+      proctoredSessions,
+      auditEvents,
+      notes: {
+        recordsIncluded: 'Fields the user owns or authored. Password hashes, MFA secrets, and backup-code hashes are excluded — those are platform-side security data, not personal data.',
+        candidatesNote: 'Candidates the user scheduled are separate persons whose data is exported to them individually, not aggregated here.',
+      },
+    };
+  }
+
+  // GDPR §7 — self-delete (right to erasure).
+  //
+  // Soft-delete the caller's own account: sets status=DELETED +
+  // deletedAt, AND blanks out PII on the row so it can't be
+  // reconstructed. The row itself is preserved to keep FK integrity
+  // (sessions this user proctored still point at a valid User row so
+  // reports don't 500 on load).
+  //
+  // Refuses if the caller is the LAST active SUPER_ADMIN — we won't
+  // let an org lock itself out.
+  async selfDeleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.status === 'DELETED') return { success: true }; // idempotent
+
+    if (user.role === 'SUPER_ADMIN') {
+      const otherAdmins = await this.prisma.user.count({
+        where: {
+          role: 'SUPER_ADMIN',
+          status: 'ACTIVE',
+          id: { not: userId },
+        },
+      });
+      if (otherAdmins === 0) {
+        throw new BadRequestException(
+          'Cannot delete the last active SUPER_ADMIN. Promote another user first, then retry.',
+        );
+      }
+    }
+
+    // Blank the PII fields. Prefix email with `deleted-<id>-` so the
+    // unique index still holds and the row remains addressable in
+    // the DB, but the original address is irrecoverable.
+    const anonymisedEmail = `deleted-${userId}-${Date.now()}@deleted.local`;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'DELETED' as any,
+        deletedAt: new Date(),
+        email: anonymisedEmail,
+        firstName: 'Deleted',
+        lastName: 'User',
+        phone: null,
+        jobTitle: null,
+        profilePhoto: null,
+        passwordHash: null,
+        mfaSecret: null,
+        mfaEnabled: false,
+        mfaBackupCodes: [] as any,
+        passwordResetToken: null,
+        emailVerificationToken: null,
+        lockedUntil: null,
+      },
+    });
+
+    this.logger.log(`Self-delete completed for userId=${userId} (was ${user.email.slice(0, 3)}***)`);
+    return { success: true };
+  }
+
   async completeEmailVerification(token: string) {
     const user = await this.prisma.user.findFirst({
       where: { emailVerificationToken: token } as any,

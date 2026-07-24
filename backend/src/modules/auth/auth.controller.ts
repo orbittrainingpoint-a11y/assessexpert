@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Body, Req, UseGuards, HttpCode, Param, Inject, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode, Param, Inject, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -74,6 +75,31 @@ export class AuthController {
   @ApiBearerAuth()
   async getMe(@Req() req: any) {
     return this.authService.getMe(req.user.id);
+  }
+
+  // GDPR §7 — self-service data export. Returns a JSON blob the
+  // caller can download; frontend triggers file save via
+  // Content-Disposition. Big enough that we don't cache — issue on
+  // request only.
+  @Get('me/export')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async exportMyData(@Req() req: any, @Res() res: Response) {
+    const data = await this.authService.exportUserData(req.user.id);
+    const filename = `assessexpert-data-export-${req.user.id}-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(data, null, 2));
+  }
+
+  // GDPR §7 — self-service account delete. Soft delete + PII scrub.
+  // Refuses if this is the last active SUPER_ADMIN.
+  @Post('me/delete')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(200)
+  async selfDelete(@Req() req: any) {
+    return this.authService.selfDeleteAccount(req.user.id);
   }
 
   @Post('change-password')
