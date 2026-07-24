@@ -126,6 +126,10 @@ export const usersApi = {
   delete: (id: string) => api.delete(`/users/${id}`),
   // Admin-triggered: emails the user a 1-hour reset link.
   sendPasswordReset: (id: string) => api.post(`/users/${id}/send-password-reset`),
+  // Admin panel — invitation lifecycle
+  listInvitations: (filters?: any) => api.get('/users/invitations/list', { params: filters }),
+  resendInvitation: (id: string) => api.post(`/users/invitations/${id}/resend`),
+  revokeInvitation: (id: string) => api.delete(`/users/invitations/${id}`),
   suspend: (id: string, reason: string) => api.post(`/users/${id}/suspend`, { reason }),
   getProctors: () => api.get('/users/proctors'),
   getAvailability: (id: string) => api.get(`/users/${id}/availability`),

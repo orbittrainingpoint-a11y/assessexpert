@@ -100,6 +100,35 @@ export class UsersController {
     return this.usersService.adminSendPasswordReset(id);
   }
 
+  // Admin panel — see every invitation with its status (PENDING /
+  // ACCEPTED / EXPIRED). Powers the pending-invitations table on
+  // /admin/users.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN')
+  @Get('invitations/list')
+  async listInvitations(@Req() req: any, @Query() query: any) {
+    // ORG_ADMIN is scoped to their own org; SUPER_ADMIN sees all
+    // unless they explicitly filter.
+    const organizationId = req.user.role === 'SUPER_ADMIN'
+      ? query.organizationId
+      : req.user.organizationId;
+    return this.usersService.listInvitations({ organizationId, limit: query.limit });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN')
+  @Post('invitations/:id/resend')
+  resendInvitation(@Param('id') id: string, @Req() req: any) {
+    return this.usersService.resendInvitation(id, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN')
+  @Delete('invitations/:id')
+  revokeInvitation(@Param('id') id: string) {
+    return this.usersService.revokeInvitation(id);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('PROCTOR', 'MASTER_PROCTOR', 'SUPER_ADMIN')
   @Get(':id/availability')

@@ -496,6 +496,90 @@ export class UsersService {
   // exists. An attacker can grind tokens and read the response text
   // to enumerate valid ones. Now: one generic 404 for all three
   // failure modes; the specific reason is logged server-side only.
+  // Admin-facing list of every invitation ever sent, with computed
+  // status. Powers the "Pending invitations" panel on /admin/users so
+  // an admin can see who was invited, whether it's still active, and
+  // whether they need to resend.
+  //
+  // Status computation:
+  //   ACCEPTED — invitation.acceptedAt is set
+  //   EXPIRED  — expiresAt is in the past AND not accepted
+  //   PENDING  — everything else (accepted=false, expires in the future)
+  async listInvitations(filters?: { organizationId?: string; limit?: number }) {
+    const where: any = {};
+    if (filters?.organizationId) where.organizationId = filters.organizationId;
+    const rows = await this.prisma.userInvitation.findMany({
+      where,
+      select: {
+        id: true, email: true, role: true, organizationId: true,
+        invitedBy: true, expiresAt: true, acceptedAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(filters?.limit || 100, 500),
+    });
+    // UserInvitation has organizationId but no Prisma relation to
+    // Organization (see schema). Look up org names in a single batch
+    // so the frontend doesn't have to resolve them itself.
+    const orgIds = Array.from(new Set(rows.map(r => r.organizationId).filter(Boolean))) as string[];
+    const orgs = orgIds.length
+      ? await this.prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } })
+      : [];
+    const orgMap = new Map(orgs.map(o => [o.id, o]));
+    const now = new Date();
+    return rows.map((r) => ({
+      ...r,
+      organization: r.organizationId ? orgMap.get(r.organizationId) || null : null,
+      status: r.acceptedAt ? 'ACCEPTED'
+        : r.expiresAt < now ? 'EXPIRED'
+        : 'PENDING',
+    }));
+  }
+
+  // Resend an invitation — refreshes the token + expiresAt and re-emails.
+  // Refuses if the invitation was already accepted (nothing to resend).
+  async resendInvitation(invitationId: string, invitedBy: string) {
+    const invitation = await this.prisma.userInvitation.findUnique({
+      where: { id: invitationId },
+    });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    if (invitation.acceptedAt) throw new BadRequestException('Invitation already accepted');
+
+    const newToken = randomBytes(32).toString('hex');
+    const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await this.prisma.userInvitation.update({
+      where: { id: invitationId },
+      data: { token: newToken, expiresAt: newExpiresAt, invitedBy },
+    });
+
+    const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/accept-invitation?token=${newToken}`;
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'theassessexpert@gmail.com',
+        to: invitation.email,
+        subject: 'AssessExpert invitation resent',
+        html: `<p>Your invitation to join AssessExpert has been resent.</p><p><a href="${inviteLink}">Click here to accept</a> — link valid for 7 days.</p>`,
+      });
+    } catch (e: any) {
+      this.logger.warn(`Invitation resend email failed for id=${invitationId}: ${e?.message || e}`);
+      return { sent: false };
+    }
+    return { sent: true };
+  }
+
+  // Revoke an unaccepted invitation. If the user hasn't clicked the
+  // link yet, this removes the row entirely. Refuses if it was already
+  // accepted (then the invitation is a historical audit record).
+  async revokeInvitation(invitationId: string) {
+    const invitation = await this.prisma.userInvitation.findUnique({
+      where: { id: invitationId },
+    });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    if (invitation.acceptedAt) throw new BadRequestException('Cannot revoke an already-accepted invitation');
+    await this.prisma.userInvitation.delete({ where: { id: invitationId } });
+    return { revoked: true };
+  }
+
   async getInvitation(token: string) {
     const invitation = await this.prisma.userInvitation.findUnique({ where: { token } });
     const generic = new NotFoundException('Invitation not available');

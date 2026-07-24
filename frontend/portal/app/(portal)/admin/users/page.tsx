@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, orgsApi, assessmentsApi } from '@/lib/api'
-import { Plus, Search, KeyRound, RotateCcw, Trash2 } from 'lucide-react'
+import { Plus, Search, KeyRound, RotateCcw, Trash2, Pencil, Mail, X as XIcon, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const ROLES = ['SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER', 'SALES_AGENT', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER', 'PROCTOR']
@@ -73,6 +73,55 @@ export default function AdminUsersPage() {
     onError: (e: any) => toast.error(e.response?.data?.message || 'Could not send reset link'),
   })
 
+  // Edit modal state — populated when user clicks Edit on a row. Uses
+  // the same field shape as the create form; only editable fields
+  // that the backend allowlist accepts (see users.service
+  // USER_WRITABLE_FIELDS from SAST P0 #2).
+  const [editingUser, setEditingUser] = useState<any>(null)
+  const [editForm, setEditForm] = useState({
+    email: '', firstName: '', lastName: '', role: 'HR_MANAGER',
+    organizationId: '', certificationLevel: '', maxSessionsPerDay: 4,
+  })
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => usersApi.update(id, data),
+    onSuccess: () => {
+      toast.success('User updated')
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setEditingUser(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Update failed'),
+  })
+
+  // Invitations panel — separate query so we can refresh independently
+  // of the users list.
+  const { data: invitations } = useQuery({
+    queryKey: ['invitations'],
+    queryFn: () => usersApi.listInvitations({ limit: 50 }).then(r => r.data),
+  })
+  const resendMutation = useMutation({
+    mutationFn: (id: string) => usersApi.resendInvitation(id),
+    onSuccess: () => { toast.success('Invitation resent'); qc.invalidateQueries({ queryKey: ['invitations'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Resend failed'),
+  })
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => usersApi.revokeInvitation(id),
+    onSuccess: () => { toast.success('Invitation revoked'); qc.invalidateQueries({ queryKey: ['invitations'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Revoke failed'),
+  })
+
+  const openEdit = (u: any) => {
+    setEditForm({
+      email: u.email || '',
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      role: u.role || 'HR_MANAGER',
+      organizationId: u.organizationId || '',
+      certificationLevel: u.certificationLevel || '',
+      maxSessionsPerDay: u.maxSessionsPerDay || 4,
+    })
+    setEditingUser(u)
+  }
+
   const users: any[] = data?.users || data || []
   const orgList: any[] = orgs?.organizations || orgs || []
   const atList: any[] = atData?.assessmentTypes || atData || []
@@ -131,6 +180,13 @@ export default function AdminUsersPage() {
                 <td style={{ fontSize: '12px' }}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
                 <td>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {u.status !== 'DELETED' && (
+                      <button className="btn-ghost" title="Edit user profile"
+                        style={{ padding: '5px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => openEdit(u)}>
+                        <Pencil size={12} /> Edit
+                      </button>
+                    )}
                     {u.status === 'ACTIVE' && (
                       <>
                         <button className="btn-ghost" title="Send a 1-hour password reset link to the user's email"
@@ -328,6 +384,126 @@ export default function AdminUsersPage() {
           </div>
         </div>
       )}
+
+      {/* EDIT USER MODAL — subset of fields the SAST P0 #2 allowlist
+          accepts. shortCode-style fields not present because User has
+          no immutable-once-set identifier. */}
+      {editingUser && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '20px' }}>
+          <div className="glass-card" style={{ width: '520px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Edit User</h2>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--text-muted)' }}>{editingUser.firstName} {editingUser.lastName} · {editingUser.email}</p>
+            <form onSubmit={e => { e.preventDefault(); editMutation.mutate({ id: editingUser.id, data: editForm }) }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Role</label>
+                <select className="form-input" value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}>
+                  {ROLES.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>First Name</label>
+                  <input className="form-input" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Last Name</label>
+                  <input className="form-input" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Email</label>
+                <input className="form-input" type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              {['ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER'].includes(editForm.role) && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Organization</label>
+                  <select className="form-input" value={editForm.organizationId} onChange={e => setEditForm(f => ({ ...f, organizationId: e.target.value }))}>
+                    <option value="">Select organization...</option>
+                    {orgList.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                </div>
+              )}
+              {editForm.role === 'PROCTOR' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Certification Level</label>
+                    <select className="form-input" value={editForm.certificationLevel} onChange={e => setEditForm(f => ({ ...f, certificationLevel: e.target.value }))}>
+                      <option value="">—</option>
+                      {CERT_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Max Sessions/Day</label>
+                    <input className="form-input" type="number" min={1} max={10} value={editForm.maxSessionsPerDay} onChange={e => setEditForm(f => ({ ...f, maxSessionsPerDay: parseInt(e.target.value) }))} />
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button type="button" className="btn-ghost" onClick={() => setEditingUser(null)} style={{ flex: 1 }}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={editMutation.isPending} style={{ flex: 1 }}>
+                  {editMutation.isPending ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* INVITATIONS PANEL — visible below the users list. Shows every
+          invitation the admin has sent with computed status. Resend
+          for pending/expired; revoke removes unaccepted rows. */}
+      <div style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>Invitations</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
+            {Array.isArray(invitations) ? `${invitations.length} sent` : ''}
+          </p>
+        </div>
+        <div className="glass-card" style={{ overflow: 'hidden' }}>
+          <table className="data-table">
+            <thead>
+              <tr><th>Email</th><th>Role</th><th>Organization</th><th>Sent</th><th>Expires</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {!Array.isArray(invitations) || invitations.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '13px' }}>No invitations sent yet.</td></tr>
+              ) : invitations.map((inv: any) => (
+                <tr key={inv.id}>
+                  <td style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{inv.email}</td>
+                  <td><span className="badge badge-live" style={{ fontSize: '11px' }}>{inv.role.replace(/_/g, ' ')}</span></td>
+                  <td style={{ fontSize: '13px' }}>{inv.organization?.name || '—'}</td>
+                  <td style={{ fontSize: '12px' }}>{new Date(inv.createdAt).toLocaleDateString()}</td>
+                  <td style={{ fontSize: '12px' }}>{new Date(inv.expiresAt).toLocaleDateString()}</td>
+                  <td>
+                    <span className={`badge ${inv.status === 'ACCEPTED' ? 'badge-pass' : inv.status === 'EXPIRED' ? 'badge-fail' : 'badge-draft'}`}>
+                      {inv.status === 'ACCEPTED' ? <><ShieldCheck size={10} style={{ verticalAlign: -1, marginRight: 3 }} />ACCEPTED</> : inv.status}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {inv.status !== 'ACCEPTED' && (
+                        <>
+                          <button className="btn-ghost" title="Resend the invitation email + refresh the token"
+                            style={{ padding: '5px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => resendMutation.mutate(inv.id)} disabled={resendMutation.isPending}>
+                            <Mail size={12} /> Resend
+                          </button>
+                          <button className="btn-ghost" title="Delete this invitation — the emailed link stops working"
+                            style={{ padding: '5px 8px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => { if (confirm(`Revoke invitation to ${inv.email}?`)) revokeMutation.mutate(inv.id) }}
+                            disabled={revokeMutation.isPending}>
+                            <XIcon size={12} /> Revoke
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
