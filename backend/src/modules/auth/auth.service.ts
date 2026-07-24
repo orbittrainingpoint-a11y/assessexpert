@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -10,6 +10,7 @@ import { randomBytes, randomInt } from 'crypto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private transporter: nodemailer.Transporter;
 
   constructor(
@@ -28,8 +29,31 @@ export class AuthService {
     });
   }
 
+  // Login rate limit — Redis-backed sliding 15-min window per email.
+  // After 5 failed password attempts, the User row's lockedUntil is set
+  // to now + 15min and further attempts (right OR wrong password) are
+  // refused with a lockout error. Success resets the counter.
+  private loginFailKey(email: string) {
+    return `login:fail:${email.toLowerCase()}`;
+  }
+
   async validateUser(email: string, password: string) {
+    const LOGIN_MAX_FAILS = 5;
+    const LOGIN_WINDOW_SECONDS = 15 * 60;
+    const key = this.loginFailKey(email);
+
     const user = await this.prisma.user.findUnique({ where: { email } });
+
+    // If the user is currently locked, refuse regardless of password
+    // correctness. Same generic message so we don't confirm "correct
+    // password but you're locked" (that'd let an attacker verify
+    // creds mid-lockout).
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      throw new UnauthorizedException(
+        'Too many failed attempts. Try again in 15 minutes.',
+      );
+    }
+
     // Deliberately generic for missing user / missing password hash /
     // wrong password so an attacker cannot enumerate emails via error
     // messages. Inactive / suspended / deleted users get the same
@@ -37,8 +61,135 @@ export class AuthService {
     if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials');
     if (user.status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+
+    if (!valid) {
+      // Increment the fail counter atomically; set TTL on first fail
+      // so the window slides from the first bad attempt, not the last.
+      const count = await this.redis.incr(key);
+      if (count === 1) await this.redis.expire(key, LOGIN_WINDOW_SECONDS);
+
+      // On the Nth fail, stamp lockedUntil on the User row so the
+      // check at the top of this function refuses the next request
+      // instantly (without waiting for a Redis roundtrip). Also gives
+      // a persistent audit trail visible to admins.
+      if (count >= LOGIN_MAX_FAILS) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { lockedUntil: new Date(Date.now() + LOGIN_WINDOW_SECONDS * 1000) },
+        });
+        await this.redis.del(key); // reset — lockedUntil is the source of truth now
+      }
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Success — clear the counter + any residual lockout stamp.
+    await this.redis.del(key);
+    if (user.lockedUntil) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { lockedUntil: null },
+      });
+    }
     return user;
+  }
+
+  // SAST §1.3 gap — MFA backup codes.
+  //
+  // Generate 10 single-use recovery codes when the user first enables
+  // MFA (or asks to regenerate). Each code is 8 hex chars; the plaintext
+  // is returned ONCE — we store only bcrypt hashes so a DB leak doesn't
+  // yield usable codes. If a user loses their TOTP device they can
+  // consume one of these codes via /auth/mfa/verify-backup instead of
+  // being locked out permanently.
+  async generateMfaBackupCodes(userId: string): Promise<string[]> {
+    const codes: string[] = [];
+    const hashes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const raw = randomBytes(4).toString('hex'); // 8 hex chars
+      codes.push(raw);
+      hashes.push(await bcrypt.hash(raw, 10));
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { mfaBackupCodes: hashes as any },
+    });
+    return codes;
+  }
+
+  // Verify a backup code AND consume it (single-use). Returns true on
+  // successful match, false otherwise. On success the matched hash is
+  // removed from the array so the code can't be replayed.
+  async verifyMfaBackupCode(userId: string, code: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { mfaBackupCodes: true } as any,
+    });
+    const hashes: string[] = ((user as any)?.mfaBackupCodes || []);
+    for (let i = 0; i < hashes.length; i++) {
+      if (await bcrypt.compare(code, hashes[i])) {
+        // Consume the matched code
+        const remaining = hashes.filter((_, idx) => idx !== i);
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { mfaBackupCodes: remaining as any },
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Email verification — issue token + email link.
+  //
+  // Called at user creation (invitation accept, admin create) OR
+  // whenever an admin toggles a "resend verification" on the user page.
+  // Verification is NOT blocking today (users can log in unverified)
+  // but downstream features (e.g. GDPR export) may gate on it.
+  async sendEmailVerification(userId: string): Promise<{ sent: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.emailVerifiedAt) return { sent: false }; // already verified
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { emailVerificationToken: token } as any,
+    });
+
+    const link = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${token}`;
+    try {
+      await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || 'theassessexpert@gmail.com',
+        to: user.email,
+        subject: 'Verify your AssessExpert email',
+        html: `
+          <p>Hi ${user.firstName || ''},</p>
+          <p>Confirm your email so we know we can reach you when it matters.</p>
+          <p><a href="${link}">Click here to verify</a> — this link doesn't expire.</p>
+          <p>If you didn't sign up for AssessExpert, ignore this message.</p>
+          <p>— AssessExpert</p>
+        `,
+      });
+    } catch (e: any) {
+      this.logger.warn(`Email verification send failed for userId=${userId}: ${e?.message || e}`);
+      return { sent: false };
+    }
+    return { sent: true };
+  }
+
+  async completeEmailVerification(token: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { emailVerificationToken: token } as any,
+    });
+    if (!user) throw new BadRequestException('Verification link is invalid');
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerifiedAt: new Date(),
+        emailVerificationToken: null,
+      } as any,
+    });
+    return { verified: true, email: user.email };
   }
 
   async login(user: any, ip: string) {

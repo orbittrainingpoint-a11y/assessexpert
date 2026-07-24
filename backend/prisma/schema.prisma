@@ -295,6 +295,21 @@ model User {
   // integrity (sessions, invitations, audit log) but excluded from
   // every default query. Hard-delete needs a separate "purge" op.
   deletedAt         DateTime?
+  // Email verification — set when user confirms via link. Users can
+  // log in without verifying, but critical actions may gate on it.
+  emailVerifiedAt   DateTime?
+  emailVerificationToken String? @unique
+  // Login lockout — after N failed password attempts within a window,
+  // lockedUntil is set to a future timestamp. validateUser refuses
+  // login while `lockedUntil > now`. Counters live in Redis so the
+  // DB doesn't churn on every attempt; only the lockout stamp lands
+  // here for audit visibility.
+  lockedUntil       DateTime?
+  // MFA backup codes — hashed with bcrypt so a DB leak doesn't
+  // expose usable codes. Stored as a String[] of hashes. When a user
+  // consumes a code we splice it out; the count remaining is what the
+  // UI shows.
+  mfaBackupCodes    String[]  @default([])
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 }

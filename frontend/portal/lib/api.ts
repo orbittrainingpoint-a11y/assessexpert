@@ -71,6 +71,16 @@ export const authApi = {
   // Public reset-password. Consumes the token from the emailed link
   // + new password. 400 on invalid/expired token.
   resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
+  // Public email verification — consumes the token from the emailed
+  // link, sets emailVerifiedAt on the User.
+  verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),
+  // MFA backup code — alternative to TOTP when the user has lost
+  // their authenticator device. Single-use.
+  verifyMfaBackup: (userId: string, code: string) =>
+    api.post('/auth/mfa/verify-backup', { userId, code }),
+  // Authenticated — regenerate the 10 backup codes. Returns them
+  // plaintext ONCE; old codes are invalidated.
+  regenerateBackupCodes: () => api.post('/auth/mfa/backup-codes/regenerate'),
 }
 
 // Admin

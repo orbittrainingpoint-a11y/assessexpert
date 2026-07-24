@@ -112,6 +112,40 @@ export class AuthController {
     return this.usersService.completePasswordReset(body.token, body.password);
   }
 
+  // Public email verification. Consumed by the user clicking the
+  // emailed link. Sets emailVerifiedAt + clears the token.
+  @Post('verify-email')
+  @HttpCode(200)
+  async verifyEmail(@Body() body: { token: string }) {
+    if (!body?.token) throw new BadRequestException('token required');
+    return this.authService.completeEmailVerification(body.token);
+  }
+
+  // MFA backup code verify — alternative to TOTP when the user has
+  // lost their authenticator device. Same 200 shape as verifyMfa.
+  // Consumes the code on success (single-use).
+  @Post('mfa/verify-backup')
+  @HttpCode(200)
+  async verifyMfaBackup(@Body() body: { userId: string; code: string }) {
+    if (!body?.userId || !body?.code) throw new BadRequestException('userId and code required');
+    const ok = await this.authService.verifyMfaBackupCode(body.userId, body.code);
+    if (!ok) throw new BadRequestException('Invalid or already-used backup code');
+    return { verified: true };
+  }
+
+  // Authenticated — regenerate the 10 backup codes. Returns them
+  // plaintext ONCE. The old codes are invalidated.
+  @Post('mfa/backup-codes/regenerate')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async regenerateBackupCodes(@Req() req: any) {
+    const codes = await this.authService.generateMfaBackupCodes(req.user.id);
+    return {
+      codes,
+      warning: 'Save these somewhere safe — they will not be shown again.',
+    };
+  }
+
   @Get('invitation/:token')
   @HttpCode(200)
   async getInvitation(@Param('token') token: string) {
