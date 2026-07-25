@@ -13,7 +13,13 @@ import { SITE } from '@/lib/marketing-content'
 // To restrict training but allow search citation, swap the GPTBot /
 // anthropic-ai entries to disallow while keeping OAI-SearchBot /
 // PerplexityBot / ChatGPT-User allowed.
-const PUBLIC_ALLOW = ['/', '/services/', '/about', '/contact', '/blog/']
+// Note `/md/` and `/llms-full.txt` are called out explicitly so AI
+// crawlers see them promoted to first-class citizens alongside the
+// HTML routes. `/llms.txt` is the machine-readable index.
+const PUBLIC_ALLOW = [
+  '/', '/services/', '/about', '/contact', '/blog/',
+  '/md/', '/llms.txt', '/llms-full.txt',
+]
 const APP_DISALLOW = [
   '/login', '/exam', '/tech-check', '/cms', '/admin', '/hr',
   '/proctor', '/master-proctor', '/exam-setup', '/sales',
