@@ -337,18 +337,43 @@ function ExamContent() {
   }, [resendTimer])
 
   // Camera permission pre-check — actual publishing happens via LiveKit later.
-  // We only do this to verify the browser permission state before entering the waiting room.
+  // We only do this to verify the browser permission state before entering the
+  // waiting room. Surface the specific failure so the candidate knows what to
+  // fix, and mirror it into a state var so the UI can render a persistent
+  // banner (a toast disappears in 4s — not enough if the user is looking for
+  // the browser's permission prompt).
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       // Stop these temporary tracks — LiveKit will acquire its own via setCameraEnabled.
       stream.getTracks().forEach(t => t.stop())
+      setCameraPermError(null)
       return true
-    } catch {
-      toast.error('Camera access required. Please allow camera access and try again.')
+    } catch (e: any) {
+      const name: string = e?.name || ''
+      const msg =
+        name === 'NotAllowedError' || name === 'SecurityError'
+          ? 'Permission denied. Click the camera icon in your browser address bar and choose "Allow", then retry.'
+          : name === 'NotFoundError' || name === 'OverconstrainedError'
+            ? 'No camera detected. Plug one in, or open Windows → Settings → Privacy → Camera and enable it, then retry.'
+            : name === 'NotReadableError' || name === 'TrackStartError'
+              ? 'Camera is in use by another app (Zoom / Teams / Meet / OBS). Close it, then retry.'
+              : name === 'AbortError'
+                ? 'Camera start was interrupted. Retry.'
+                : (e?.message || 'Camera unavailable — retry, or restart the browser.')
+      toast.error(msg)
+      setCameraPermError(msg)
       return false
     }
   }, [])
+
+  // Persistent camera-permission error banner (toast is too short).
+  const [cameraPermError, setCameraPermError] = useState<string | null>(null)
+  const retryCamera = useCallback(async () => {
+    setCameraPermError(null)
+    const ok = await startCamera()
+    if (ok) toast.success('Camera access granted — proceeding')
+  }, [startCamera])
 
   // Timer sync. When the countdown reaches zero we now also POST a
   // notify-timer-expired call so the backend records the auto-submit
@@ -633,28 +658,42 @@ function ExamContent() {
     return () => clearInterval(poll)
   }, [phase, token])
 
-  // Checklist Polling — uses public by-token endpoint (no JWT needed)
-  // Polls during verification as fallback; real-time updates come via socket
+  // Checklist Polling — uses public by-token endpoint (no JWT needed).
+  // Polls during verification as fallback; real-time updates come via socket.
+  //
+  // Failure surfacing: if the poll fails 3 times in a row (~10s of silence)
+  // we flip a `checklistStale` flag so the UI can warn the candidate that
+  // proctor updates may not be flowing. Previously errors were swallowed
+  // silently and the candidate would stare at a frozen checklist thinking
+  // the proctor had ghosted them.
+  const [checklistStale, setChecklistStale] = useState(false)
   useEffect(() => {
     if (phase !== 'verification') return
+    let consecutiveFailures = 0
     const poll = async () => {
       try {
         const cid = sessionState?.candidate?.id
         const { data } = await api.get(`/checklist/by-token?token=${token}${cid ? `&candidateId=${encodeURIComponent(cid)}` : ''}`)
         const items = data.items || []
-        // Normalise to { key, status, title } shape so layout renders correctly
         const normalised = items.map((i: any) => ({
           key: i.key,
           title: i.label || i.title || i.key.replace(/_/g, ' '),
           status: i.completed ? 'done' : (i.status || 'pending'),
         }))
         setChecklist(normalised)
-      } catch {}
+        if (consecutiveFailures > 0) {
+          consecutiveFailures = 0
+          setChecklistStale(false)
+        }
+      } catch {
+        consecutiveFailures++
+        if (consecutiveFailures >= 3) setChecklistStale(true)
+      }
     }
     const interval = setInterval(poll, 3000)
     poll()
-    return () => clearInterval(interval)
-  }, [phase, token])
+    return () => { clearInterval(interval); setChecklistStale(false) }
+  }, [phase, token, sessionState?.candidate?.id])
 
   const requestScreenShare = async () => {
     const ok = await lkStartScreenShare()
@@ -1130,7 +1169,24 @@ function ExamContent() {
     </div>
   )
 
-  if (phase === 'camera') return (
+  if (phase === 'camera') {
+    // Reflect actual device state instead of hard-coded "Active" strings.
+    // The camera preview above shows a real stream, but the four rows
+    // below used to lie regardless of reality — a candidate with a
+    // failed webcam would see "Camera Active" and be confused when
+    // the proctor said their video was black.
+    const _camTracks = cameraStreamRef.current?.getVideoTracks() || []
+    const _micTracks = cameraStreamRef.current?.getAudioTracks() || []
+    const _camLive = _camTracks.some(t => t.readyState === 'live' && !t.muted)
+    const _micLive = _micTracks.some(t => t.readyState === 'live' && !t.muted)
+    const _fsSupported = typeof document !== 'undefined' && !!document.documentElement.requestFullscreen
+    const _rows = [
+      { label: 'Camera',     ok: _camLive,      okText: 'Active',    failText: 'No signal - check permissions' },
+      { label: 'Microphone', ok: _micLive,      okText: 'Active',    failText: 'No signal - check permissions' },
+      { label: 'Internet',   ok: isOnline,      okText: 'Connected', failText: 'Offline - reconnect and retry' },
+      { label: 'Fullscreen', ok: _fsSupported,  okText: 'Supported', failText: 'Browser does not expose Fullscreen API' },
+    ]
+    return (
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div className="glass-card" style={{ padding: '28px' }}>
@@ -1140,16 +1196,23 @@ function ExamContent() {
             autoPlay muted playsInline
             style={{ width: '100%', borderRadius: '8px', background: '#000', marginBottom: '16px', aspectRatio: '16/9', objectFit: 'cover' }}
           />
+          {cameraPermError && (
+            <div style={{ padding: '12px 14px', marginBottom: '14px', borderRadius: '6px', background: 'rgba(225,29,72,0.12)', border: '1px solid var(--rose)', color: 'var(--rose)', fontSize: '13px', lineHeight: '1.5' }}>
+              <strong>Camera problem:</strong> {cameraPermError}
+              <button
+                onClick={retryCamera}
+                className="btn-ghost"
+                style={{ marginTop: '10px', display: 'inline-block', padding: '6px 12px', fontSize: '12px' }}
+              >
+                Retry camera access
+              </button>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-            {[
-              { label: 'ðŸ“· Camera', status: 'âœ… Active' },
-              { label: 'ðŸŽ™ï¸ Microphone', status: 'âœ… Active' },
-              { label: 'ðŸŒ Internet', status: 'âœ… Connected' },
-              { label: 'â›¶ Fullscreen', status: 'âœ… Supported' },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '6px', fontSize: '14px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                <span style={{ color: 'var(--emerald)' }}>{item.status}</span>
+            {_rows.map(row => (
+              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '6px', fontSize: '14px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>{row.label}</span>
+                <span style={{ color: row.ok ? 'var(--emerald)' : 'var(--rose)' }}>{row.ok ? '✓ ' + row.okText : '✗ ' + row.failText}</span>
               </div>
             ))}
           </div>
@@ -1175,9 +1238,15 @@ function ExamContent() {
       </div>
     </div>
   )
+  }
 
   if (phase === 'verification') return (
     <>
+      {checklistStale && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: 'var(--amber)', color: '#000', padding: '8px 16px', textAlign: 'center', zIndex: 1000, fontSize: '13px', fontWeight: 600 }}>
+          Connection to proctor server is unstable — checklist updates may be delayed. Check your internet and wait a moment.
+        </div>
+      )}
       <CandidateVerificationLayout
         sessionId={sessionState?.id || ''}
         candidateId={sessionState?.candidate?.id || ''}
