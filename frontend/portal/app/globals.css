@@ -279,6 +279,34 @@ html, body {
   padding: 72px 24px 40px;
 }
 
+/* Sticky-footer layout.
+ *
+ * Every marketing page wraps its content in `<div style={{ minHeight:
+ * '100vh', ... }}> SiteNav / sections / SiteFooter </div>`. When the
+ * page's natural content is shorter than the viewport (short pages,
+ * tall monitors), the outer div stretched to 100vh but the footer
+ * still sat at content height — leaving a big empty band of page
+ * background below it.
+ *
+ * Fix: make body a flex column and the first page-shell div grow to
+ * fill it, then push the footer to the bottom via `margin-top: auto`.
+ * `react-hot-toast` renders position: fixed, so it doesn't participate
+ * in the flex layout and isn't affected by these rules.
+ */
+body {
+  display: flex;
+  flex-direction: column;
+}
+body > div:first-of-type {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+body > div:first-of-type > .web-footer,
+body > div:first-of-type > footer {
+  margin-top: auto;
+}
+
 .web-grid-bg {
   background-image:
     radial-gradient(circle at 50% 8%, rgba(33,115,255,0.2), transparent 42%),
