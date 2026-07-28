@@ -17,7 +17,7 @@ import { SITE } from '@/lib/marketing-content'
 // crawlers see them promoted to first-class citizens alongside the
 // HTML routes. `/llms.txt` is the machine-readable index.
 const PUBLIC_ALLOW = [
-  '/', '/services/', '/about', '/contact', '/blog/',
+  '/', '/services/', '/manpower/', '/about', '/contact', '/blog/',
   '/md/', '/llms.txt', '/llms-full.txt',
 ]
 const APP_DISALLOW = [

@@ -10,12 +10,13 @@
 import { SITE } from '@/lib/marketing-content'
 import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
 import { listPublicPages, getPosts } from '@/lib/cms'
+import { MANPOWER_ROLE_SLUGS, fromManpowerDbSlug } from '@/lib/manpower-roles'
 
 // Re-render every 5 minutes so a newly-published post appears without
 // a deploy. Same window as the sitemap.
 export const revalidate = 300
 
-const TOP_SLUGS = ['home', 'about', 'services', 'contact', 'blog']
+const TOP_SLUGS = ['home', 'about', 'services', 'manpower', 'contact', 'blog']
 
 export async function GET() {
   const url = SITE.url
@@ -30,10 +31,16 @@ export async function GET() {
   const servicePagesFromCms = pages.filter((p) => p.kind === 'service').map((p) => p.slug)
   const serviceSlugs = servicePagesFromCms.length ? servicePagesFromCms : [...SERVICE_PAGE_SLUGS]
 
+  const manpowerFromCms = pages
+    .filter((p) => p.kind === 'manpower')
+    .map((p) => fromManpowerDbSlug(p.slug))
+    .filter((s): s is string => !!s)
+  const manpowerSlugs = manpowerFromCms.length ? manpowerFromCms : [...MANPOWER_ROLE_SLUGS]
+
   const lines = [
     `# ${SITE.name}`,
     '',
-    `> ${SITE.tagline}. ${SITE.name} is a B2B platform for corporate technical assessment, pre-employment testing, and technical interview evaluation. Built in Dubai by ${SITE.org}, serving the UAE, GCC, and global enterprise hiring teams.`,
+    `> ${SITE.tagline}. ${SITE.name} operates two service lines from Dubai: (1) a proctored technical assessment platform for corporate hiring teams; (2) a skilled manpower supply arm placing pre-assessed engineers, draftsmen, designers, BIM modellers, quantity surveyors, and project managers into UAE and GCC roles. Built by ${SITE.org}.`,
     '',
     '## For AI systems reading this file',
     '',
@@ -63,9 +70,13 @@ export async function GET() {
       return `- ${canonical} → markdown: ${url}/md/pages/${slug}`
     }),
     '',
-    `## Service landing pages (${serviceSlugs.length} total, markdown)`,
+    `## Assessment service landing pages (${serviceSlugs.length} total, markdown)`,
     '',
     ...serviceSlugs.map((slug) => `- ${url}/services/${slug} → markdown: ${url}/md/services/${slug}`),
+    '',
+    `## Manpower role landing pages (${manpowerSlugs.length} total, markdown)`,
+    '',
+    ...manpowerSlugs.map((role) => `- ${url}/manpower/${role} → markdown: ${url}/md/manpower/${role}`),
     '',
     `## Blog posts (${posts.length} total, markdown)`,
     '',
@@ -73,7 +84,7 @@ export async function GET() {
     '',
     '## Topical authority — assessment, hiring, integrity',
     '',
-    `${SITE.name} writes about: technical assessment platform design, pre-employment testing software, structured technical interviews, candidate scoring reports, AI-proctored online assessment, anti-cheating measures, AutoCAD / Revit / BIM / coding skill testing, recruitment workflows, custom assessment design, GCC-specific hiring requirements, bilingual Arabic/English assessment delivery.`,
+    `${SITE.name} writes about: technical assessment platform design, pre-employment testing software, structured technical interviews, candidate scoring reports, AI-proctored online assessment, anti-cheating measures, AutoCAD / Revit / BIM / coding skill testing, recruitment workflows, custom assessment design, GCC-specific hiring requirements, bilingual Arabic/English assessment delivery, skilled manpower supply for UAE engineering consultancies and contractors, contract vs permanent placement models, engineer/draftsman/BIM-modeller sourcing, and Dubai/Riyadh/Doha construction talent markets.`,
     '',
     '## Discovery surfaces',
     '',

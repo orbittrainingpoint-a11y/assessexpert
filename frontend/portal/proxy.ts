@@ -71,10 +71,13 @@ function markdownTwin(pathname: string): string | null {
   if (pathname === '/') return '/md/pages/home'
   if (pathname === '/about') return '/md/pages/about'
   if (pathname === '/services') return '/md/pages/services'
+  if (pathname === '/manpower') return '/md/pages/manpower'
   if (pathname === '/contact') return '/md/pages/contact'
   if (pathname === '/blog') return '/md/pages/blog'
   const svc = pathname.match(/^\/services\/([^/]+)\/?$/)
   if (svc) return `/md/services/${svc[1]}`
+  const mp = pathname.match(/^\/manpower\/([^/]+)\/?$/)
+  if (mp) return `/md/manpower/${mp[1]}`
   const post = pathname.match(/^\/blog\/([^/]+)\/?$/)
   if (post) return `/md/blog/${post[1]}`
   return null

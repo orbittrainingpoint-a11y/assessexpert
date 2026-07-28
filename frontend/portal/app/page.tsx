@@ -140,6 +140,67 @@ export default async function HomePage() {
         <MarqueeStrip items={MARQUEE_ITEMS} />
       </section>
 
+      {/* ════════════════════ TWO SERVICE LINES ════════════════════ */}
+      <section aria-label="Two service lines" style={{ padding: '110px 24px', maxWidth: '1280px', margin: '0 auto' }}>
+        <Reveal style={{ textAlign: 'center', marginBottom: '56px' }}>
+          <div className="web-label" style={{ marginBottom: '16px' }}>What We Do</div>
+          <h2 style={{ fontSize: 'clamp(30px,5vw,44px)', fontWeight: 800, color: 'var(--web-text)', margin: '0 0 12px', letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>
+            Two service lines, one hiring outcome
+          </h2>
+          <p style={{ fontSize: '16px', color: 'var(--web-text-secondary)', maxWidth: '640px', margin: '0 auto', lineHeight: 1.7 }}>
+            Assess candidates on our proctored platform — or hire the skilled engineers, designers, and construction professionals we have already assessed and vetted.
+          </p>
+        </Reveal>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+          <Reveal>
+            <article className="web-card web-tilt" style={{ position: 'relative', overflow: 'hidden', height: '100%', padding: '32px' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, #3B82F6, transparent)' }} />
+              <div className="web-icon-tile" style={{ width: 52, height: 52, background: '#3B82F618', border: '1px solid #3B82F630', marginBottom: 20 }}>
+                <Icon name="clipboard" size={24} color="#3B82F6" />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '22px', fontWeight: 700, color: 'var(--web-text)', letterSpacing: '-0.01em' }}>Assessment Platform</h3>
+              <p style={{ margin: '0 0 20px', fontSize: '14px', color: 'var(--web-text-secondary)', lineHeight: 1.7 }}>
+                Vet your own applicants. Role-specific MCQ + practical assessments with AI proctoring and human-reviewed reports. 12 service categories, 67+ role banks, custom types on 2–3 week turnaround.
+              </p>
+              <ul style={{ margin: '0 0 24px', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {['500-question banks per role', '30-min MCQ + 60-min practical', 'AI proctoring + certified human review', 'Manager-ready structured reports'].map(item => (
+                  <li key={item} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--web-text-secondary)' }}>
+                    <Icon name="check" size={14} color="#3B82F6" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/services" className="btn-web-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                Explore assessment services <ArrowRight size={14} />
+              </Link>
+            </article>
+          </Reveal>
+          <Reveal delay={80}>
+            <article className="web-card web-tilt" style={{ position: 'relative', overflow: 'hidden', height: '100%', padding: '32px' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, #059669, transparent)' }} />
+              <div className="web-icon-tile" style={{ width: 52, height: 52, background: '#05966918', border: '1px solid #05966930', marginBottom: 20 }}>
+                <Icon name="building" size={24} color="#059669" />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '22px', fontWeight: 700, color: 'var(--web-text)', letterSpacing: '-0.01em' }}>Skilled Manpower Supply</h3>
+              <p style={{ margin: '0 0 20px', fontSize: '14px', color: 'var(--web-text-secondary)', lineHeight: 1.7 }}>
+                Hire pre-assessed engineers, draftsmen, designers, BIM modellers, and construction professionals across the UAE and GCC. Contract, permanent, or project-outsourced.
+              </p>
+              <ul style={{ margin: '0 0 24px', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {['12 role catalogues — engineering, design, construction', 'Every CV has a proctored assessment score', '5-day shortlist SLA (48h for hot list)', 'Contract / permanent / project outsourcing'].map(item => (
+                  <li key={item} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--web-text-secondary)' }}>
+                    <Icon name="check" size={14} color="#059669" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/manpower" className="btn-web-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                Explore manpower services <ArrowRight size={14} />
+              </Link>
+            </article>
+          </Reveal>
+        </div>
+      </section>
+
       {/* ════════════════════ ANIMATED STATS ════════════════════ */}
       <section aria-label="Key statistics" style={{ padding: '80px 24px', background: 'rgba(33,115,255,0.045)' }}>
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '48px' }}>

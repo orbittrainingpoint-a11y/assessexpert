@@ -97,12 +97,20 @@ export class CmsService {
     });
     return pages.map((p) => {
       const c = (p.content || {}) as Record<string, unknown>;
-      const isService = !TOP_LEVEL.has(p.slug) && typeof c.intro === 'string' && Array.isArray(c.sections);
+      const isServiceShape = typeof c.intro === 'string' && Array.isArray(c.sections);
+      // Manpower role pages share the service content shape but live under
+      // /manpower/<role> instead of /services/<slug>. Distinguished by the
+      // `manpower-` slug prefix stored in the DB.
+      const isManpower = p.slug.startsWith('manpower-') && isServiceShape;
+      const isService = !TOP_LEVEL.has(p.slug) && isServiceShape && !isManpower;
+      const kind = isManpower ? ('manpower' as const)
+        : isService ? ('service' as const)
+        : ('top' as const);
       return {
         slug: p.slug,
         title: p.title,
         updatedAt: p.updatedAt,
-        kind: isService ? ('service' as const) : ('top' as const),
+        kind,
       };
     });
   }

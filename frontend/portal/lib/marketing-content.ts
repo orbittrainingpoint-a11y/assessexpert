@@ -73,7 +73,7 @@ const SITE_URL = RAW_SITE_URL.replace(/\/+$/, '')
 export const SITE = {
   name: 'AssessExpert',
   brand: 'assessexpert',
-  tagline: 'AI-Proctored Pre-Employment Assessment Platform',
+  tagline: 'Assessment Platform + Skilled Manpower Supply for GCC Hiring Teams',
   url: SITE_URL,
   email: 'enquiry@assessexpert.com',
   phone: '+971 58 545 0455',
@@ -100,7 +100,8 @@ export const SITE = {
 
 export const NAV_LINKS = [
   { href: '/', label: 'Home' },
-  { href: '/services', label: 'Services' },
+  { href: '/services', label: 'Assessment' },
+  { href: '/manpower', label: 'Manpower' },
   { href: '/about', label: 'About Us' },
   { href: '/blog', label: 'Blog' },
   { href: '/contact', label: 'Contact' },
@@ -156,7 +157,7 @@ export const HOME: HomeContent = {
   ctaSubtitle: 'No self-signup. No payment page. Every client relationship starts with a conversation with our team.',
 }
 
-export const PAGE_CONTENT: Record<'about' | 'services' | 'contact' | 'blog', MarketingPageContent> = {
+export const PAGE_CONTENT: Record<'about' | 'services' | 'contact' | 'blog' | 'manpower', MarketingPageContent> = {
   about: {
     heroBadge: 'Our Story',
     heroTitle: 'About',
@@ -187,6 +188,14 @@ export const PAGE_CONTENT: Record<'about' | 'services' | 'contact' | 'blog', Mar
     heroTitle: 'The',
     heroHighlight: 'Blog',
     heroSubtitle: 'Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline.',
+  },
+  manpower: {
+    heroBadge: 'Skilled Manpower Supply',
+    heroTitle: 'Engineering, Design &',
+    heroHighlight: 'Construction Talent',
+    heroSubtitle: 'Contract and permanent placement of pre-assessed engineers, draftsmen, designers, BIM modellers, and construction professionals across the UAE and wider GCC. Every CV comes with a proctored technical assessment score.',
+    ctaTitle: 'Need talent this week?',
+    ctaSubtitle: 'Share a role brief and receive a 3-5 candidate shortlist inside 5 business days, each with a verified assessment score attached.',
   },
 }
 
@@ -220,5 +229,16 @@ export const PAGE_META: Record<string, PageMeta> = {
     metaDescription:
       'Insights on pre-employment assessment, proctoring, candidate integrity, and building a verified hiring pipeline from the AssessExpert team.',
     keywords: ['hiring blog', 'assessment insights', 'proctoring', 'recruitment', 'candidate screening'],
+  },
+  manpower: {
+    metaTitle: 'Skilled Manpower Supply — Engineers, Draftsmen, BIM Modellers | AssessExpert',
+    metaDescription:
+      'Skilled manpower supply across the UAE and GCC — civil, mechanical, electrical, MEP, and structural engineers, architects, CAD draftsmen, BIM modellers, quantity surveyors, and project managers. Every candidate pre-assessed on the AssessExpert platform.',
+    keywords: [
+      'manpower supply dubai', 'manpower supply uae', 'skilled manpower gcc',
+      'engineer supply dubai', 'draftsman supply uae', 'bim modeller supply',
+      'contract staffing dubai', 'permanent placement uae', 'engineering recruitment gcc',
+      'construction manpower', 'orbit training manpower',
+    ],
   },
 }

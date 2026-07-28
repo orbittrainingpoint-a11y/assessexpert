@@ -178,7 +178,7 @@ export interface PublicPageEntry {
   slug: string
   title: string
   updatedAt: string
-  kind: 'top' | 'service'
+  kind: 'top' | 'service' | 'manpower'
 }
 
 export async function listPublicPages(): Promise<PublicPageEntry[]> {
@@ -213,4 +213,17 @@ export async function getServicePage(slug: string): Promise<ServicePage | null> 
       ctaSubtitle: c.ctaSubtitle || '',
     },
   }
+}
+
+/**
+ * Fetch a manpower role page. `roleSlug` is the URL-visible segment
+ * (e.g. `civil-engineer`); the CMS row is stored under `manpower-` +
+ * that slug (e.g. `manpower-civil-engineer`).
+ *
+ * Reuses the ServicePage shape since the content structure is
+ * identical to a service page — the difference is purely URL routing
+ * and how the classifier reports the `kind`.
+ */
+export async function getManpowerPage(roleSlug: string): Promise<ServicePage | null> {
+  return getServicePage(`manpower-${roleSlug}`)
 }

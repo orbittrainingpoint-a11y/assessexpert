@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { getPosts, listPublicPages } from '@/lib/cms'
 import { SITE } from '@/lib/marketing-content'
+import { MANPOWER_ROLE_SLUGS, fromManpowerDbSlug } from '@/lib/manpower-roles'
 
 // Fully dynamic sitemap — every entry is data-driven, nothing
 // hardcoded. Top-level routes, service landing pages, and blog posts
@@ -22,7 +23,7 @@ export const revalidate = 300
 // known top-level marketing routes so the sitemap is never empty on a
 // transient backend outage. The CMS-driven list takes priority on
 // success.
-const FALLBACK_TOP = ['home', 'about', 'services', 'contact', 'blog'] as const
+const FALLBACK_TOP = ['home', 'about', 'services', 'manpower', 'contact', 'blog'] as const
 
 function topLevelUrl(base: string, slug: string): string {
   return slug === 'home' ? `${base}/` : `${base}/${slug}`
@@ -52,6 +53,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const topPriority: Record<string, { p: number; cf: MetadataRoute.Sitemap[number]['changeFrequency'] }> = {
     home: { p: 1, cf: 'weekly' },
     services: { p: 0.9, cf: 'monthly' },
+    manpower: { p: 0.9, cf: 'monthly' },
     blog: { p: 0.8, cf: 'weekly' },
     about: { p: 0.7, cf: 'monthly' },
     contact: { p: 0.6, cf: 'yearly' },
@@ -95,5 +97,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   })
 
-  return [...topRoutes, ...serviceRoutes, ...postRoutes]
+  // Manpower role landing pages. Prefer live CMS rows so newly seeded
+  // roles appear immediately; fall back to the compiled catalogue on
+  // cold start / backend outage so the sitemap never loses the whole
+  // service line.
+  const manpowerFromCms = pages
+    .filter((p) => p.kind === 'manpower')
+    .map((p) => ({ role: fromManpowerDbSlug(p.slug), updatedAt: p.updatedAt }))
+    .filter((r): r is { role: string; updatedAt: string } => !!r.role)
+  const manpowerEntries = manpowerFromCms.length > 0
+    ? manpowerFromCms
+    : MANPOWER_ROLE_SLUGS.map((role) => ({ role, updatedAt: now.toISOString() }))
+  const manpowerRoutes: MetadataRoute.Sitemap = manpowerEntries.map((r) => ({
+    url: `${base}/manpower/${r.role}`,
+    lastModified: r.updatedAt ? new Date(r.updatedAt) : now,
+    changeFrequency: 'monthly',
+    priority: 0.85,
+  }))
+
+  return [...topRoutes, ...serviceRoutes, ...manpowerRoutes, ...postRoutes]
 }

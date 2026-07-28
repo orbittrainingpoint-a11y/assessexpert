@@ -1,18 +1,20 @@
 // Seeds the CMS with the full marketing content load:
 //   - 30 blog posts (from blog-posts.ts)
-//   - 12 service pages (from service-pages.ts)
+//   - 12 assessment-service pages (from service-pages.ts)
+//   - 12 manpower-supply role pages (from manpower-pages.ts)
 //
 // Idempotent — re-running updates existing rows in place rather than
 // duplicating. Service pages use their natural slug
 // (e.g. `technical-assessment-platform`) — none collide with the
 // top-level pages seeded by seed-cms.ts (home, about, services,
-// contact, blog).
+// contact, blog). Manpower pages carry a `manpower-` slug prefix.
 //
 // Run:
 //   cd backend && npx ts-node prisma/cms-seed/run.ts
 import { PrismaClient } from '@prisma/client'
 import { BLOG_POSTS } from './blog-posts'
 import { SERVICE_PAGES } from './service-pages'
+import { MANPOWER_PAGES } from './manpower-pages'
 
 const prisma = new PrismaClient()
 
@@ -56,10 +58,10 @@ async function seedBlogPosts() {
   console.log(`  Blog posts: ${created} created, ${updated} updated (${BLOG_POSTS.length} total)`)
 }
 
-async function seedServicePages() {
+async function seedPages(pages: typeof SERVICE_PAGES, label: string) {
   let created = 0
   let updated = 0
-  for (const sp of SERVICE_PAGES) {
+  for (const sp of pages) {
     const slug = sp.slug
     const existing = await prisma.cmsPage.findUnique({ where: { slug } })
     const data = {
@@ -78,13 +80,14 @@ async function seedServicePages() {
       created++
     }
   }
-  console.log(`  Service pages: ${created} created, ${updated} updated (${SERVICE_PAGES.length} total)`)
+  console.log(`  ${label}: ${created} created, ${updated} updated (${pages.length} total)`)
 }
 
 async function main() {
   console.log('Seeding marketing CMS content...')
   await seedBlogPosts()
-  await seedServicePages()
+  await seedPages(SERVICE_PAGES, 'Service pages')
+  await seedPages(MANPOWER_PAGES, 'Manpower pages')
   console.log('Done.')
 }
 
