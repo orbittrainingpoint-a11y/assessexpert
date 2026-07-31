@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { CheckCircle, Circle, Camera, RotateCcw } from 'lucide-react'
 import { checklistApi, faceCaptureApi } from '@/lib/api'
+import { detectFaceInImage } from '@/lib/detectFaceInImage'
 import toast from 'react-hot-toast'
 
 export type ChecklistItemKey =
@@ -337,9 +338,30 @@ function ItemFacialRecognition({
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
       setPreview(dataUrl)
       const imageBase64 = dataUrl.split(',')[1]
-      const { data } = await faceCaptureApi.captureIdVerification(sessionId, imageBase64, 'facial_recognition', candidateId)
+
+      // Detect the face in the BROWSER (MediaPipe Tasks Vision is
+      // browser-only — `@mediapipe/tasks-vision` fails in Node with
+      // `navigator is not defined`). Pass the result to the backend so
+      // it can persist an accurate faceDetected flag without needing a
+      // Node face-detection library.
+      const clientDetection = await detectFaceInImage(dataUrl)
+      const { data } = await faceCaptureApi.captureIdVerification(
+        sessionId,
+        imageBase64,
+        'facial_recognition',
+        candidateId,
+        {
+          clientFaceCount: clientDetection.faceCount,
+          clientFaceConfidence: clientDetection.bestConfidence,
+        },
+      )
+      // Trust the browser's detection first (it actually ran); fall back
+      // to whatever the backend reported if the browser detector errored.
+      const faceDetected = clientDetection.error
+        ? !!data.faceDetected
+        : clientDetection.faceCount > 0
       setResult({
-        faceDetected: !!data.faceDetected,
+        faceDetected,
         capturePath: data.capturePath,
         quality: data.quality,
         similarity: typeof data.similarity === 'number' ? data.similarity : undefined,

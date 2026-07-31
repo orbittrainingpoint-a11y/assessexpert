@@ -62,6 +62,12 @@ export class AutoCaptureService {
     imageBase64: string,
     checklistItemKey: string,
     candidateId?: string,
+    // Detection result the proctor's browser produced locally. Used as
+    // the authoritative source for "face present" when server-side
+    // MediaPipe is unavailable (Node can't run @mediapipe/tasks-vision:
+    // it errors with `navigator is not defined`). If both signals are
+    // present, the server-side one wins for defense-in-depth.
+    clientDetection?: { clientFaceCount?: number; clientFaceConfidence?: number },
   ): Promise<CaptureResult> {
     try {
       this.logger.log(`Auto-capture for ID verification: Session ${sessionId}`);
@@ -82,9 +88,16 @@ export class AutoCaptureService {
         };
       }
 
-      // Detect face in image
+      // Server-side detection first (if MediaPipe is actually loaded).
+      // Falls back to the browser-supplied count when the server model
+      // hasn't loaded — which is the norm on Node hosts today.
       const faces = await this.mediaPipeService.detectFaces(imageBase64);
-      const faceDetected = faces.length > 0;
+      const serverFaceCount = faces.length;
+      const clientFaceCount = clientDetection?.clientFaceCount ?? 0;
+      const faceCount = serverFaceCount > 0 ? serverFaceCount : clientFaceCount;
+      const faceDetected = faceCount > 0;
+      const detectedBy: 'server' | 'client' | 'none' =
+        serverFaceCount > 0 ? 'server' : clientFaceCount > 0 ? 'client' : 'none';
 
       if (!faceDetected) {
         this.logger.warn(`No face detected in ID verification capture for session ${sessionId}`);
@@ -140,11 +153,25 @@ export class AutoCaptureService {
           select: { referenceFaceEmbedding: true, referencePhotoPath: true },
         });
         if (!candidate?.referenceFaceEmbedding) {
-          reason = 'No reference photo on file — candidate needs to redo the camera check';
+          // No reference on file — flag for manual review rather than
+          // hard-reject when the client confirmed a face is present.
+          // Automated similarity is impossible here, but the proctor
+          // has just SEEN the candidate so a manual confirm is valid.
+          outcome = detectedBy === 'client' ? 'PENDING_REVIEW' : 'REJECTED';
+          reason = 'No reference photo on file — proctor please visually verify identity';
         } else {
           const capturedLandmarks = await this.mediaPipeService.extractFaceLandmarks(imageBase64);
           if (!capturedLandmarks) {
-            reason = 'Could not extract face landmarks from captured frame';
+            // Server MediaPipe couldn't run (Node/navigator issue). If
+            // the browser confirmed a face was in the frame, defer to
+            // proctor manual review instead of a hard REJECTED — the
+            // similarity number is unknown, not zero.
+            if (detectedBy === 'client') {
+              outcome = 'PENDING_REVIEW';
+              reason = 'Automated similarity unavailable — proctor please visually verify against reference';
+            } else {
+              reason = 'Could not extract face landmarks from captured frame';
+            }
           } else {
             try {
               const referenceEmbedding = JSON.parse(candidate.referenceFaceEmbedding as string);

@@ -303,11 +303,21 @@ export const faceCaptureApi = {
   // and FR comparison land on the right SessionCandidate. Single-
   // candidate sessions can omit it and the backend resolves to the
   // session's primary candidate.
-  captureIdVerification: (sessionId: string, imageBase64: string, checklistItemKey: string, candidateId?: string) =>
+  captureIdVerification: (
+    sessionId: string,
+    imageBase64: string,
+    checklistItemKey: string,
+    candidateId?: string,
+    // Browser-side detection result. Passed through because the backend
+    // MediaPipe can't run in Node (`navigator is not defined`), so the
+    // client is the authoritative source for whether a face is present.
+    clientDetection?: { clientFaceCount?: number; clientFaceConfidence?: number },
+  ) =>
     api.post(`/mediapipe/capture/id-verification/${sessionId}`, {
       image: imageBase64,
       checklistItemKey,
       candidateId,
+      ...(clientDetection || {}),
     }),
 }
 
