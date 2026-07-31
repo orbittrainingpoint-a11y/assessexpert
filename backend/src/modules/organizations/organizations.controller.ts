@@ -66,10 +66,16 @@ export class OrganizationsController {
   // ── Branding ────────────────────────────────────────────────────────────
   // HR / ORG_ADMIN read + update their OWN org's logo + brand display.
   // Super admin can read + update any org.
+  //
+  // Proctors (PROCTOR + MASTER_PROCTOR) are AssessExpert HQ staff who
+  // proctor sessions for CLIENT orgs — they need to display the client
+  // org's branding in the proctor UI header. Their org check is skipped
+  // for the same cross-tenant reason SUPER_ADMIN skips it.
   @Get(':id/branding')
-  @Roles('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER')
+  @Roles('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER', 'PROCTOR', 'MASTER_PROCTOR')
   async getBranding(@Param('id') id: string, @Req() req: any) {
-    if (req.user.role !== 'SUPER_ADMIN' && req.user.organizationId !== id) {
+    const crossTenantRoles = ['SUPER_ADMIN', 'PROCTOR', 'MASTER_PROCTOR']
+    if (!crossTenantRoles.includes(req.user.role) && req.user.organizationId !== id) {
       throw new ForbiddenException();
     }
     return this.orgsService.getBranding(id);

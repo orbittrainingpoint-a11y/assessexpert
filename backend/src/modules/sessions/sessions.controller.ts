@@ -90,8 +90,13 @@ export class SessionsController {
 
   @Get(':id')
   async getSession(@Param('id') id: string, @Req() req: any) {
+    // Platform-side roles (AssessExpert HQ staff) proctor sessions across
+    // every client organization, so they bypass the tenant check.
+    // sessions.service.ts:getSession uses explicit `null` as the bypass
+    // sentinel — passing `undefined` here was a latent bug that made every
+    // cross-tenant fetch 403 for the exact people who should have access.
     const orgId = ['SUPER_ADMIN', 'MASTER_PROCTOR', 'PROCTOR'].includes(req.user.role)
-      ? undefined
+      ? null
       : req.user.organizationId;
     return this.sessionsService.getSession(id, orgId);
   }
