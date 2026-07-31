@@ -91,7 +91,8 @@ export class ReportsService {
     let aiNarrative = '';
     let aiRecommendation = '';
     try {
-      const model = this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
+      // Default model updated after gemini-1.5-flash was retired mid-2025.
+      const model = this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
 
       const narrativeResult = await model.generateContent(
         `You are an expert HR assessment evaluator. Generate a professional assessment report narrative for:

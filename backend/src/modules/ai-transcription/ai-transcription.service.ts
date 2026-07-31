@@ -16,7 +16,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export class AiTranscriptionService {
   private readonly logger = new Logger(AiTranscriptionService.name);
   private genAI: GoogleGenerativeAI;
-  private model = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-1.5-flash';
+  // Default model updated after gemini-1.5-flash was retired mid-2025.
+  // Override via GEMINI_TRANSCRIBE_MODEL if the API SDK is upgraded to
+  // support the newer 2.x tiers.
+  private model = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash';
 
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
