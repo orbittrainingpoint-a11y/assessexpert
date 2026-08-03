@@ -1008,7 +1008,7 @@ function ExamContent() {
               <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" required />
             </div>
             <button className="btn-primary" type="submit" disabled={loading} style={{ width: '100%', padding: '12px' }}>
-              {loading ? 'Sending...' : 'Send Verification Code â†’'}
+              {loading ? 'Sending...' : 'Send Verification Code →'}
             </button>
           </form>
         </div>
@@ -1089,7 +1089,7 @@ function ExamContent() {
             </label>
 
             <button className="btn-primary" type="submit" disabled={loading || otpArray.some(d => !d) || !legalAgreed} style={{ width: '100%', padding: '12px', opacity: legalAgreed ? 1 : 0.5 }}>
-              {loading ? 'Verifying...' : 'Verify & Continue â†’'}
+              {loading ? 'Verifying...' : 'Verify & Continue →'}
             </button>
             <div style={{ textAlign: 'center' }}>
               <button
@@ -1232,7 +1232,7 @@ function ExamContent() {
             )
           })()}
           <button className="btn-primary" onClick={async () => { await enterFullscreen(); handleEnterWaiting() }} style={{ width: '100%', padding: '12px' }}>
-            Enter Waiting Room â†’
+            Enter Waiting Room →
           </button>
         </div>
       </div>
@@ -1301,7 +1301,7 @@ function ExamContent() {
           <Monitor size={64} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
           <h2 style={{ color: '#fff', marginBottom: '12px' }}>Full Screen Required</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>Please return to full screen mode to continue the assessment.</p>
-          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen â†’</button>
+          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen →</button>
         </div>
       )}
       {/* MCQ: proctor feed + self preview */}
@@ -1379,7 +1379,7 @@ function ExamContent() {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button className="btn-primary" onClick={handleSubmitAnswer} disabled={!selectedAnswer || loading} style={{ padding: '12px 32px', fontSize: '15px', opacity: selectedAnswer ? 1 : 0.5 }}>
-              {loading ? 'Submitting...' : 'Submit Answer â†’'}
+              {loading ? 'Submitting...' : 'Submit Answer →'}
             </button>
           </div>
         </div>

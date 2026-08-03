@@ -11,7 +11,7 @@ import { renderTopPageMd } from '@/lib/to-markdown'
 
 // Which slugs are valid top-level pages. Matches the CmsPage rows
 // seeded by backend/prisma/seed-cms.ts.
-const TOP_SLUGS = new Set(['home', 'about', 'services', 'contact', 'blog'])
+const TOP_SLUGS = new Set(['home', 'about', 'services', 'contact', 'blog', 'manpower'])
 
 export const revalidate = 60
 

@@ -90,7 +90,7 @@ export class CmsService {
    * content shape) go to /services/<slug>.
    */
   async listPublicPages() {
-    const TOP_LEVEL = new Set(['home', 'about', 'services', 'contact', 'blog']);
+    const TOP_LEVEL = new Set(['home', 'about', 'services', 'contact', 'blog', 'manpower']);
     const pages = await this.prisma.cmsPage.findMany({
       where: { status: 'PUBLISHED' },
       select: { slug: true, title: true, updatedAt: true, content: true },

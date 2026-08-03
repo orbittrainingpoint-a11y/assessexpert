@@ -29,6 +29,24 @@ Thumbs.db
 .vscode/
 *.pem
 
+# ── Debug + scratch markdown ─────────────────────────
+# Stray notes / troubleshooting / TODO files should never ship to
+# production. The allow-list below keeps repo-conventional MDs
+# (README, CLAUDE, AGENTS) tracked; anything else in frontend/portal
+# or backend root is auto-ignored so a `git add .` after a debugging
+# session doesn't accidentally push notes to the VPS.
+frontend/portal/*.md
+!frontend/portal/README.md
+!frontend/portal/CLAUDE.md
+!frontend/portal/AGENTS.md
+
+backend/*.md
+!backend/README.md
+!backend/CLAUDE.md
+!backend/AGENTS.md
+
+# Real docs go under docs/ at the repo root — those ARE tracked.
+
 # ── Logs ──────────────────────────────────────────────
 *.log
 logs/
