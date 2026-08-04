@@ -273,6 +273,12 @@ export default function CandidatesPage() {
     staleTime: 5 * 60 * 1000,
   })
   const quizFeatureEnabled = brandingData?.features?.quiz === true
+
+  // Bulk selection state (PORTAL_GAPS.md L4). Set of candidate IDs the
+  // user has ticked. Cleared whenever the filtered result set changes
+  // so a stale selection doesn't linger after a search.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   // If the platform admin disables Quiz while HR has the modal open
   // with QUIZ selected, reset to PROCTORED so the (now hidden) state
   // can't sneak past into the schedule mutation.
@@ -488,18 +494,78 @@ export default function CandidatesPage() {
         <input className="form-input" placeholder="Search candidates..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '36px' }} />
       </div>
 
+      {/* Bulk action bar (PORTAL_GAPS.md L4). Visible only when the
+          user has ticked at least one candidate. Sits above the table
+          so bulk actions stay in sight during a scroll. */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '14px',
+          padding: '10px 14px', marginBottom: '12px',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border-accent)',
+          borderRadius: '8px', fontSize: '13px', color: 'var(--text-primary)',
+        }}
+        role="region" aria-label="Bulk actions">
+          <span><strong>{selectedIds.size}</strong> selected</span>
+          <button
+            className="btn-ghost"
+            onClick={() => setSelectedIds(new Set())}
+            style={{ padding: '4px 10px', fontSize: '12px' }}
+          >
+            Clear
+          </button>
+          <div style={{ flex: 1 }} />
+          <button
+            className="btn-ghost"
+            disabled={bulkDeleting}
+            aria-label={`Delete ${selectedIds.size} selected candidates`}
+            onClick={async () => {
+              if (!confirm(`Delete ${selectedIds.size} candidate${selectedIds.size === 1 ? '' : 's'}? This cannot be undone.`)) return
+              setBulkDeleting(true)
+              const ids = Array.from(selectedIds)
+              const results = await Promise.allSettled(ids.map(id => candidatesApi.delete(id)))
+              const failed = results.filter(r => r.status === 'rejected').length
+              const ok = ids.length - failed
+              if (ok > 0) toast.success(`Deleted ${ok} candidate${ok === 1 ? '' : 's'}`)
+              if (failed > 0) toast.error(`${failed} deletion${failed === 1 ? '' : 's'} failed`)
+              setSelectedIds(new Set())
+              setBulkDeleting(false)
+              qc.invalidateQueries({ queryKey: ['candidates'] })
+            }}
+            style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
+          >
+            {bulkDeleting ? 'Deleting…' : 'Delete selected'}
+          </button>
+        </div>
+      )}
+
       <div className="glass-card" style={{ overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Job Position</th><th>Assessment</th><th>Sessions</th><th>Latest Result</th><th>Actions</th></tr>
+            <tr>
+              <th style={{ width: '32px', paddingRight: 0 }}>
+                {/* "Select all visible" checkbox. Ticks only affect
+                    the current filtered result set — invisible rows
+                    stay unselected. */}
+                <input
+                  type="checkbox"
+                  aria-label={selectedIds.size === candidates.length && candidates.length > 0 ? 'Deselect all' : 'Select all visible candidates'}
+                  checked={candidates.length > 0 && candidates.every((c: any) => selectedIds.has(c.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedIds(new Set(candidates.map((c: any) => c.id)))
+                    else setSelectedIds(new Set())
+                  }}
+                />
+              </th>
+              <th>Name</th><th>Email</th><th>Job Position</th><th>Assessment</th><th>Sessions</th><th>Latest Result</th><th>Actions</th>
+            </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} style={{ padding: '12px 24px' }}>
+              <tr><td colSpan={8} style={{ padding: '12px 24px' }}>
                 <SkeletonList count={5} rowHeight={48} />
               </td></tr>
             ) : !candidates.length ? (
-              <tr><td colSpan={7}>
+              <tr><td colSpan={8}>
                 <EmptyState
                   icon={<Users size={26} />}
                   title={search ? 'No candidates match this search' : 'No candidates yet'}
@@ -521,6 +587,20 @@ export default function CandidatesPage() {
               const sessionCount = c.sessions?.length || (slotSession ? 1 : 0)
               return (
                 <tr key={c.id}>
+                  <td style={{ paddingRight: 0 }}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${c.firstName} ${c.lastName}`}
+                      checked={selectedIds.has(c.id)}
+                      onChange={(e) => {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(c.id); else next.delete(c.id)
+                          return next
+                        })
+                      }}
+                    />
+                  </td>
                   <td style={{ color: 'var(--text-primary)', fontWeight: '500' }}>
                     <Link href={`/hr/candidates/${c.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: '500' }}>
                       {c.firstName} {c.lastName}

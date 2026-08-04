@@ -145,6 +145,18 @@ export const usersApi = {
   getAll: (filters?: any) => api.get('/users', { params: filters }),
   getOne: (id: string) => api.get(`/users/${id}`),
   create: (data: any) => api.post('/users', data),
+  // Self-service profile update (PORTAL_GAPS.md L3). Backend enforces
+  // req.user.id + a SELF_WRITABLE_FIELDS allowlist so callers can't
+  // sneak in a role change.
+  updateMe: (data: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    jobTitle?: string;
+    timezone?: string;
+    preferredLanguage?: string;
+    notificationsEmail?: boolean;
+  }) => api.put('/users/me', data),
   invite: (data: any) => api.post('/users/invite', data),
   update: (id: string, data: any) => api.put(`/users/${id}`, data),
   deactivate: (id: string) => api.post(`/users/${id}/deactivate`),

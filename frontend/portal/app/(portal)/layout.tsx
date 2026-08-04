@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth.store'
 import { authApi, brandingApi, notificationsApi } from '@/lib/api'
 import { useSessionExpiryWarning } from '@/lib/useSessionExpiryWarning'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, Users, Building2, Calendar, FileText,
@@ -228,8 +229,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <header style={{
           height: '56px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-          padding: '0 24px', position: 'sticky', top: 0, zIndex: 40,
+          padding: '0 24px', position: 'sticky', top: 0, zIndex: 40, gap: '16px',
         }}>
+          <ThemeToggle />
           <button onClick={() => {}} style={{ position: 'relative', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer' }}>
             <Bell size={20} />
             {(unreadData?.count || 0) > 0 && (

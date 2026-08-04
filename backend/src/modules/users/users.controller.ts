@@ -58,6 +58,21 @@ export class UsersController {
     return this.usersService.getUser(id);
   }
 
+  // Self-service profile update — PORTAL_GAPS.md L3.
+  // Any authenticated user can update THEIR OWN safe fields
+  // (firstName, lastName, phone, notification preferences). The
+  // controller passes req.user.id so the caller can't sneak in a
+  // different id and edit someone else's row; role/status/email
+  // are stripped by the service allowlist.
+  @UseGuards(JwtAuthGuard)
+  @Put('me')
+  updateMe(
+    @Req() req: any,
+    @Body() body: { firstName?: string; lastName?: string; phone?: string; notificationsEmail?: boolean },
+  ) {
+    return this.usersService.updateProfileSelf(req.user.id, body);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
   @Put(':id')

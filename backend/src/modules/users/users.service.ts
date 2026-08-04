@@ -121,6 +121,36 @@ export class UsersService {
     });
   }
 
+  // Self-service profile update (PORTAL_GAPS.md L3). SEPARATE allowlist
+  // from updateUser — non-admin users must not be able to touch role,
+  // organizationId, certification, or anything else that changes their
+  // permission surface. Callable only via PUT /users/me with req.user.id.
+  private readonly SELF_WRITABLE_FIELDS = new Set([
+    'firstName', 'lastName', 'phone', 'jobTitle',
+    'timezone', 'preferredLanguage',
+    // Notification prefs — future extension. Kept flat for now.
+    'notificationsEmail',
+  ]);
+
+  async updateProfileSelf(id: string, data: Record<string, unknown>) {
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data || {})) {
+      if (this.SELF_WRITABLE_FIELDS.has(k)) clean[k] = v;
+    }
+    if (Object.keys(clean).length === 0) {
+      throw new BadRequestException('No editable fields in payload');
+    }
+    return this.prisma.user.update({
+      where: { id },
+      data: clean as any,
+      select: {
+        id: true, email: true, firstName: true, lastName: true,
+        phone: true, jobTitle: true, timezone: true, preferredLanguage: true,
+        role: true, organizationId: true,
+      },
+    });
+  }
+
   async updateUser(id: string, data: any) {
     await this.getUser(id);
     const allowed = this.allowlistUserFields(data || {});
