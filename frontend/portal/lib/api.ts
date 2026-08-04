@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { decodeJwtExp } from './jwt-utils'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 
@@ -35,7 +36,20 @@ api.interceptors.response.use(
         // sends automatically because withCredentials is on the
         // shared axios instance. Response Set-Cookies the new
         // access_token, so the retried request just works.
-        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        const refreshRes = await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        // Push the new expiry into the store so
+        // useSessionExpiryWarning schedules the next warning at
+        // the new deadline. Response body still returns the
+        // token during the migration window; when we go
+        // cookies-only this decode returns null and the hook
+        // stays quiet (no worse than today).
+        try {
+          const newExp = decodeJwtExp(refreshRes?.data?.accessToken)
+          if (newExp && typeof window !== 'undefined') {
+            const { useAuthStore } = await import('@/store/auth.store')
+            useAuthStore.getState().setSessionExpiry(newExp)
+          }
+        } catch {}
         return api(original)
       } catch {
         // Refresh failed — session is truly dead. Clear any leftover
@@ -48,6 +62,15 @@ api.interceptors.response.use(
         } catch {}
         // Only redirect if not already on login page
         if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+          // Remember where the user was so /login can bounce them
+          // back after they re-auth. Skip if they were already on
+          // an /auth flow to avoid ping-pong. (PORTAL_GAPS.md H6.)
+          try {
+            const here = window.location.pathname + window.location.search
+            if (!here.includes('/login') && !here.includes('/forgot-password')) {
+              sessionStorage.setItem('assessexpert.returnTo', here)
+            }
+          } catch {}
           window.location.href = '/login'
         }
       }

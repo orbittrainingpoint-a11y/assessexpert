@@ -16,6 +16,26 @@ const ROLE_ROUTES: Record<string, string> = {
   PROCTOR: '/proctor',
 }
 
+// If the user hit a protected page while unauthenticated, api.ts
+// stashed the original URL in sessionStorage before bouncing them
+// here. Consume it on successful login so they land back where they
+// were mid-work instead of the role-default dashboard. Safe against
+// open-redirect abuse — we only allow same-origin absolute paths.
+// (PORTAL_GAPS.md H6.)
+function consumeReturnTo(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem('assessexpert.returnTo')
+    sessionStorage.removeItem('assessexpert.returnTo')
+    if (!raw) return null
+    // Only relative paths — reject anything with a scheme or //
+    // (which would resolve as a protocol-relative external URL).
+    if (!raw.startsWith('/') || raw.startsWith('//')) return null
+    if (raw.startsWith('/login') || raw.startsWith('/forgot-password')) return null
+    return raw
+  } catch { return null }
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const setAuth = useAuthStore(s => s.setAuth)
@@ -35,7 +55,8 @@ export default function LoginPage() {
       setMfaStep(true)
     } else {
       setAuth(data.user, data.accessToken, data.refreshToken)
-      router.push(ROLE_ROUTES[data.user.role] || '/hr')
+      const returnTo = consumeReturnTo()
+      router.push(returnTo || ROLE_ROUTES[data.user.role] || '/hr')
     }
   }
 
@@ -57,7 +78,8 @@ export default function LoginPage() {
     try {
       await authApi.verifyMfa(pendingUser.id, mfaToken)
       setAuth(pendingUser, pendingTokens.accessToken, pendingTokens.refreshToken)
-      router.push(ROLE_ROUTES[pendingUser.role] || '/hr')
+      const returnTo = consumeReturnTo()
+      router.push(returnTo || ROLE_ROUTES[pendingUser.role] || '/hr')
     } catch {
       toast.error('Invalid MFA code')
     } finally {

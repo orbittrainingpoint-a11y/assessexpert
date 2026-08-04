@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useAuthStore } from '@/store/auth.store'
 import { authApi, brandingApi, notificationsApi } from '@/lib/api'
+import { useSessionExpiryWarning } from '@/lib/useSessionExpiryWarning'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, Users, Building2, Calendar, FileText,
@@ -87,6 +88,11 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => { setHydrated(true) }, [])
+
+  // Toast the user ~2 minutes before their access token expires with a
+  // one-click "Extend now" button so they don't get silently kicked
+  // to /login mid-session. (PORTAL_GAPS.md H8.)
+  useSessionExpiryWarning()
 
   const { data: unreadData } = useQuery({
     queryKey: ['notifications-count'],
