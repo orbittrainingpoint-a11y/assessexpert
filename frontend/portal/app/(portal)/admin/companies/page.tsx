@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { orgsApi, usersApi, reportsApi } from '@/lib/api'
 import { Plus, Search, Building2, X, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { SkeletonList } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const BLANK = { name: '', slug: '', country: 'UAE', city: '', industry: '', size: '', website: '', primaryContactName: '', primaryContactEmail: '', primaryContactPhone: '', assessmentCredits: 100, accountTier: 'STANDARD' }
 
@@ -109,9 +111,19 @@ export default function AdminCompaniesPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={8} style={{ padding: '12px 24px' }}>
+                <SkeletonList count={5} rowHeight={48} />
+              </td></tr>
             ) : !Array.isArray(orgs) || !orgs.length ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No companies yet.</td></tr>
+              <tr><td colSpan={8}>
+                <EmptyState
+                  icon={<Building2 size={26} />}
+                  title={search ? 'No companies match this search' : 'No companies yet'}
+                  description={search
+                    ? 'Try a different name or leave the search box empty to see all companies.'
+                    : 'Add a client company to start scheduling assessments and managing HR users.'}
+                />
+              </td></tr>
             ) : orgs.map((o: any) => (
               <tr key={o.id}>
                 <td>

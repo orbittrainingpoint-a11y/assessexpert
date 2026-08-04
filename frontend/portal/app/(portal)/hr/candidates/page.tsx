@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { candidatesApi, assessmentsApi, schedulingApi, brandingApi } from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
-import { Plus, Upload, Search, Calendar, ChevronRight, Download, CheckCircle, AlertCircle, X, Pencil, Trash2, RotateCcw } from 'lucide-react'
+import { Plus, Upload, Search, Calendar, ChevronRight, Download, CheckCircle, AlertCircle, X, Pencil, Trash2, RotateCcw, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+import { SkeletonList } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const BLANK_FORM = { firstName: '', lastName: '', email: '', phone: '', jobPosition: '', yearsExperience: '0-1', department: '', notes: '', assessmentTypeId: '' }
 
@@ -493,9 +495,20 @@ export default function CandidatesPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={7} style={{ padding: '12px 24px' }}>
+                <SkeletonList count={5} rowHeight={48} />
+              </td></tr>
             ) : !candidates.length ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No candidates yet. Add your first candidate.</td></tr>
+              <tr><td colSpan={7}>
+                <EmptyState
+                  icon={<Users size={26} />}
+                  title={search ? 'No candidates match this search' : 'No candidates yet'}
+                  description={search
+                    ? 'Try a different name, email, or department.'
+                    : 'Add your first candidate to schedule an assessment.'}
+                  action={search ? undefined : { onClick: () => setShowAdd(true), label: 'Add candidate' }}
+                />
+              </td></tr>
             ) : candidates.map((c: any) => {
               const report = c.sessions?.[0]?.report
               // A candidate can be booked two ways: as a session's primary

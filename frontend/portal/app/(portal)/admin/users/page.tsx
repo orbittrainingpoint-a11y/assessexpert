@@ -2,8 +2,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, orgsApi, assessmentsApi } from '@/lib/api'
-import { Plus, Search, KeyRound, RotateCcw, Trash2, Pencil, Mail, X as XIcon, ShieldCheck } from 'lucide-react'
+import { Plus, Search, KeyRound, RotateCcw, Trash2, Pencil, Mail, X as XIcon, ShieldCheck, UserCog } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { SkeletonList } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const ROLES = ['SUPER_ADMIN', 'MASTER_PROCTOR', 'EXAM_SETUP_MASTER', 'SALES_AGENT', 'ORG_ADMIN', 'HR_MANAGER', 'HIRING_MANAGER', 'PROCTOR']
 const CERT_LEVELS = ['JUNIOR', 'SENIOR', 'LEAD']
@@ -167,9 +169,19 @@ export default function AdminUsersPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={7} style={{ padding: '12px 24px' }}>
+                <SkeletonList count={6} rowHeight={48} />
+              </td></tr>
             ) : !Array.isArray(users) || !users.length ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No users found.</td></tr>
+              <tr><td colSpan={7}>
+                <EmptyState
+                  icon={<UserCog size={26} />}
+                  title={search || roleFilter ? 'No users match these filters' : 'No users yet'}
+                  description={search || roleFilter
+                    ? 'Adjust the search or role filter to widen the results.'
+                    : 'Add your first user — an HR manager, proctor, or admin.'}
+                />
+              </td></tr>
             ) : users.map((u: any) => (
               <tr key={u.id}>
                 <td style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{u.firstName} {u.lastName}</td>

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { authApi } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { PasswordStrength, scorePassword } from '@/components/ui/PasswordStrength'
 
 // Public reset-password consumer. Reads the token from the URL,
 // prompts for the new password, then POSTs to /auth/reset-password.
@@ -21,6 +22,11 @@ export default function ResetPasswordPage() {
     e.preventDefault()
     if (password.length < 8) { toast.error('Password must be at least 8 characters'); return }
     if (password !== confirmPassword) { toast.error('Passwords do not match'); return }
+    // Refuse the two "very weak" buckets so a user doesn't set a
+    // password the meter is actively warning them about. The server
+    // still validates independently on submit.
+    const s = scorePassword(password)
+    if (s.bucket <= 1) { toast.error(`Password is too weak (${s.label}). Please choose a stronger one.`); return }
     setLoading(true)
     try {
       await authApi.resetPassword(token, password)
@@ -54,6 +60,7 @@ export default function ResetPasswordPage() {
                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>New password</label>
                   <input className="form-input" type="password" required minLength={8} value={password}
                     onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" autoComplete="new-password" autoFocus />
+                  <PasswordStrength password={password} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Confirm password</label>

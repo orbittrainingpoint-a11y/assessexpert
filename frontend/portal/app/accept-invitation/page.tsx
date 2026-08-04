@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { PasswordStrength, scorePassword } from '@/components/ui/PasswordStrength'
 
 function AcceptInvitationForm() {
   const params = useSearchParams()
@@ -24,6 +25,8 @@ function AcceptInvitationForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (form.password !== form.confirm) { toast.error('Passwords do not match'); return }
+    const s = scorePassword(form.password, invitation?.email)
+    if (s.bucket <= 1) { toast.error(`Password is too weak (${s.label}). Please choose a stronger one.`); return }
     setLoading(true)
     try {
       await api.post('/users/accept-invitation', { token, ...form })
@@ -68,6 +71,7 @@ function AcceptInvitationForm() {
             <div>
               <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '5px' }}>Password *</label>
               <input className="form-input" type="password" required value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} />
+              <PasswordStrength password={form.password} email={invitation?.email} />
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '5px' }}>Confirm Password *</label>
