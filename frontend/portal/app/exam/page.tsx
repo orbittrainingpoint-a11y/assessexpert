@@ -15,6 +15,8 @@ import PracticalSetView from '@/components/candidate/PracticalSetView'
 import DOMPurify from 'isomorphic-dompurify'
 import toast from 'react-hot-toast'
 import { Shield, Monitor, RefreshCw, XCircle, Clock } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/LocaleProvider'
+import LocaleSwitcher from '@/components/LocaleSwitcher'
 
 type Phase = 
   | 'verifying-link' 
@@ -34,6 +36,10 @@ type Phase =
 function ExamContent() {
   const searchParams = useSearchParams()
   const token = searchParams.get('token') || ''
+  // i18n for the candidate-facing exam flow (PORTAL_GAPS.md M7).
+  // Proctor / admin surfaces are still hardcoded English — those
+  // roles read English internally.
+  const { t } = useTranslation()
 
   const [phase, setPhase] = useState<Phase>('verifying-link')
   const [email, setEmail] = useState('')
@@ -438,7 +444,7 @@ function ExamContent() {
   useEffect(() => {
     const handleVisibility = () => {
       if (document.hidden && (phase === 'mcq' || phase === 'practical')) {
-        setAiWarning({ message: 'âš ï¸ You must not switch browser tabs during the assessment. This event has been recorded.', type: 'critical' })
+        setAiWarning({ message: t('exam.warn.tab_switch'), type: 'critical' })
         setTimeout(() => setAiWarning(null), 10000)
       }
     }
@@ -712,7 +718,7 @@ function ExamContent() {
     const ok = await lkStartScreenShare()
     if (ok) {
       setScreenShareRequested(false)
-      toast.success('Screen share active')
+      toast.success(t('exam.toast.screen_share_active'))
       // Notify proctor via socket so their checklist auto-confirms
       if (wsSocket?.connected && sessionState?.id) {
         wsSocket.emit('candidate.screenShareActive', {
@@ -721,7 +727,7 @@ function ExamContent() {
         })
       }
     } else {
-      toast.error('Screen share required for this assessment')
+      toast.error(t('exam.toast.screen_share_required'))
     }
   }
 
@@ -1194,16 +1200,19 @@ function ExamContent() {
     const _micLive = _micTracks.some(t => t.readyState === 'live' && !t.muted)
     const _fsSupported = typeof document !== 'undefined' && !!document.documentElement.requestFullscreen
     const _rows = [
-      { label: 'Camera',     ok: _camLive,      okText: 'Active',    failText: 'No signal - check permissions' },
-      { label: 'Microphone', ok: _micLive,      okText: 'Active',    failText: 'No signal - check permissions' },
-      { label: 'Internet',   ok: isOnline,      okText: 'Connected', failText: 'Offline - reconnect and retry' },
-      { label: 'Fullscreen', ok: _fsSupported,  okText: 'Supported', failText: 'Browser does not expose Fullscreen API' },
+      { label: t('exam.camera.row.camera'),     ok: _camLive,     okText: t('exam.camera.ok.camera'),     failText: t('exam.camera.fail.camera') },
+      { label: t('exam.camera.row.microphone'), ok: _micLive,     okText: t('exam.camera.ok.microphone'), failText: t('exam.camera.fail.microphone') },
+      { label: t('exam.camera.row.internet'),   ok: isOnline,     okText: t('exam.camera.ok.internet'),   failText: t('exam.camera.fail.internet') },
+      { label: t('exam.camera.row.fullscreen'), ok: _fsSupported, okText: t('exam.camera.ok.fullscreen'), failText: t('exam.camera.fail.fullscreen') },
     ]
     return (
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div className="glass-card" style={{ padding: '28px' }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: '18px', color: 'var(--text-primary)' }}>Camera & Device Check</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', gap: '12px' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', color: 'var(--text-primary)' }}>{t('exam.camera.title')}</h2>
+            <LocaleSwitcher compact />
+          </div>
           <video
             ref={el => { videoRef.current = el; assignStream(el) }}
             autoPlay muted playsInline
@@ -1211,13 +1220,13 @@ function ExamContent() {
           />
           {cameraPermError && (
             <div style={{ padding: '12px 14px', marginBottom: '14px', borderRadius: '6px', background: 'rgba(225,29,72,0.12)', border: '1px solid var(--rose)', color: 'var(--rose)', fontSize: '13px', lineHeight: '1.5' }}>
-              <strong>Camera problem:</strong> {cameraPermError}
+              <strong>{t('exam.camera.problem_prefix')}</strong> {cameraPermError}
               <button
                 onClick={retryCamera}
                 className="btn-ghost"
                 style={{ marginTop: '10px', display: 'inline-block', padding: '6px 12px', fontSize: '12px' }}
               >
-                Retry camera access
+                {t('exam.camera.retry_access')}
               </button>
             </div>
           )}
@@ -1231,11 +1240,11 @@ function ExamContent() {
           </div>
           {(() => {
             const map: Record<typeof referenceCaptureState, { color: string; label: string }> = {
-              idle:      { color: 'var(--text-muted)', label: 'Preparing your reference photo...' },
-              capturing: { color: 'var(--cyan)',       label: 'Capturing your reference photo for ID verification...' },
-              saved:     { color: 'var(--emerald)',    label: '✓ Reference photo saved' },
-              present:   { color: 'var(--emerald)',    label: '✓ Reference photo already on file' },
-              failed:    { color: 'var(--amber)',      label: 'Could not capture reference photo — your proctor will redo this' },
+              idle:      { color: 'var(--text-muted)', label: t('exam.camera.reference.preparing') },
+              capturing: { color: 'var(--cyan)',       label: t('exam.camera.reference.capturing') },
+              saved:     { color: 'var(--emerald)',    label: t('exam.camera.reference.saved') },
+              present:   { color: 'var(--emerald)',    label: t('exam.camera.reference.present') },
+              failed:    { color: 'var(--amber)',      label: t('exam.camera.reference.failed') },
             }
             const s = map[referenceCaptureState]
             return (
@@ -1245,7 +1254,7 @@ function ExamContent() {
             )
           })()}
           <button className="btn-primary" onClick={async () => { await enterFullscreen(); handleEnterWaiting() }} style={{ width: '100%', padding: '12px' }}>
-            Enter Waiting Room →
+            {t('exam.camera.enter_waiting_room')} →
           </button>
         </div>
       </div>
@@ -1257,7 +1266,7 @@ function ExamContent() {
     <>
       {checklistStale && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: 'var(--amber)', color: '#000', padding: '8px 16px', textAlign: 'center', zIndex: 1000, fontSize: '13px', fontWeight: 600 }}>
-          Connection to proctor server is unstable — checklist updates may be delayed. Check your internet and wait a moment.
+          {t('exam.verification.stale_warning')}
         </div>
       )}
       <CandidateVerificationLayout
@@ -1294,7 +1303,7 @@ function ExamContent() {
       {timeRemaining === 60 && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(225,29,72,0.2)', pointerEvents: 'none', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'var(--rose)', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontWeight: '700', fontSize: '18px', boxShadow: '0 0 20px rgba(0,0,0,0.5)' }}>
-            â± 1 minute remaining â€” please submit your current answer.
+            {t('exam.warn.one_minute_left')}
           </div>
         </div>
       )}
@@ -1303,8 +1312,8 @@ function ExamContent() {
       {!isOnline && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
           <RefreshCw className="animate-spin" size={48} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
-          <h2 style={{ color: '#fff', marginBottom: '8px' }}>Connection Lost</h2>
-          <p style={{ color: 'var(--text-secondary)' }}>Attempting to reconnect... your progress is saved.</p>
+          <h2 style={{ color: '#fff', marginBottom: '8px' }}>{t('exam.offline.title')}</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>{t('exam.offline.subtitle')}</p>
         </div>
       )}
 
@@ -1312,9 +1321,9 @@ function ExamContent() {
       {!isFullscreen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
           <Monitor size={64} style={{ color: 'var(--rose)', marginBottom: '20px' }} />
-          <h2 style={{ color: '#fff', marginBottom: '12px' }}>Full Screen Required</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>Please return to full screen mode to continue the assessment.</p>
-          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>Return to Full Screen →</button>
+          <h2 style={{ color: '#fff', marginBottom: '12px' }}>{t('exam.fullscreen.title')}</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>{t('exam.fullscreen.subtitle')}</p>
+          <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>{t('exam.fullscreen.return')} →</button>
         </div>
       )}
       {/* MCQ: proctor feed + self preview */}
@@ -1405,9 +1414,9 @@ function ExamContent() {
       <div style={cardStyle}>
         <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>âœ…</div>
-          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>MCQ Assessment Complete</h2>
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>{t('exam.mcq_complete.title')}</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>
-            You have answered all questions. Your proctor will now assign your practical task. Please remain on camera and wait for instructions.
+            {t('exam.mcq_complete.body')}
           </p>
           <div style={{ marginTop: '20px', padding: '14px', background: 'rgba(0,212,255,0.08)', borderRadius: '8px', fontSize: '13px', color: 'var(--cyan)' }}>
             â³ Waiting for proctor to begin the practical phase...
@@ -1490,8 +1499,8 @@ function ExamContent() {
       <div style={cardStyle}>
         <div className="glass-card" style={{ padding: '32px', textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>ðŸŽ‰</div>
-          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>Assessment Complete</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>Thank you. Your assessment has been completed and submitted.</p>
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 12px' }}>{t('exam.complete.title')}</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>{t('exam.complete.body')}</p>
           <div style={{ marginTop: '20px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'left' }}>
             <p style={{ margin: '0 0 4px' }}>1. Your assessment is being reviewed by your proctor.</p>
             <p style={{ margin: '0 0 4px' }}>2. A report will be shared with the hiring team.</p>
