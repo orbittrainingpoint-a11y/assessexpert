@@ -879,24 +879,31 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
   }
 
   return (
-    <div className="glass-card" style={{ padding: '20px' }}>
+    <div className="glass-card" style={{ padding: '20px' }} role="region" aria-label="Pre-exam checklist">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Pre-Exam Checklist</h3>
-        <span style={{ fontSize: '13px', color: allDone ? 'var(--emerald)' : 'var(--cyan)' }}>{doneCount} / {ITEMS.length} complete</span>
+        {/* aria-live so screen readers announce progress ticks as items
+            complete — PORTAL_GAPS.md M3. */}
+        <span aria-live="polite" style={{ fontSize: '13px', color: allDone ? 'var(--emerald)' : 'var(--cyan)' }}>{doneCount} / {ITEMS.length} complete</span>
       </div>
 
-      <div style={{ height: '4px', background: 'var(--bg-elevated)', borderRadius: '2px', marginBottom: '20px' }}>
+      <div style={{ height: '4px', background: 'var(--bg-elevated)', borderRadius: '2px', marginBottom: '20px' }}
+        role="progressbar"
+        aria-valuenow={doneCount}
+        aria-valuemin={0}
+        aria-valuemax={ITEMS.length}
+        aria-label={`${doneCount} of ${ITEMS.length} checklist items complete`}>
         <div style={{ height: '100%', background: 'var(--cyan)', borderRadius: '2px', width: `${(doneCount / ITEMS.length) * 100}%`, transition: 'width 0.4s' }} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} role="list">
         {ITEMS.map((item, idx) => {
           const state = itemStates[item.key]
           const isActive = state === 'active'
           const isDone = state === 'done'
 
           return (
-            <div key={item.key} style={{
+            <div key={item.key} role="listitem" aria-current={isActive ? 'step' : undefined} style={{
               borderRadius: '8px',
               border: `1px solid ${isActive ? 'var(--cyan)' : isDone ? 'rgba(5,150,105,0.3)' : 'var(--border)'}`,
               background: isActive ? 'rgba(0,212,255,0.05)' : isDone ? 'rgba(5,150,105,0.05)' : 'var(--bg-elevated)',
@@ -905,7 +912,7 @@ export default function ChecklistPanel({ sessionId, candidateVideoRef, candidate
               transition: 'all 0.2s',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
-                <div style={{ flexShrink: 0 }}>
+                <div style={{ flexShrink: 0 }} aria-hidden="true">
                   {isDone
                     ? <CheckCircle size={18} color="var(--emerald)" />
                     : <Circle size={18} color={isActive ? 'var(--cyan)' : 'var(--text-muted)'} />

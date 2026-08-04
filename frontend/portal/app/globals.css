@@ -119,6 +119,37 @@ html, body {
 }
 .btn-ghost:hover { border-color: var(--blue-neon); color: var(--blue-bright); }
 
+/* Accessibility (PORTAL_GAPS.md M3) — restore keyboard-only focus rings.
+ *
+ * Applies to every interactive control unless a component defines its
+ * own focus style. :focus-visible fires only for keyboard focus, so
+ * mouse users don't see the ring on every click. Colour matches the
+ * primary accent so the ring reads as part of the design language.
+ *
+ * Skip the ring on inputs — they already have their own .form-input:focus
+ * treatment above; a second outline stacks awkwardly.
+ */
+:focus-visible {
+  outline: 2px solid var(--blue-neon);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;   /* uses the .form-input:focus box-shadow instead */
+}
+/* Marketing site uses --web-gold as its accent; match that for focus rings
+ * inside .web-* wrappers so the accent stays consistent per surface. */
+.web-btn-primary:focus-visible,
+.web-btn-outline:focus-visible,
+.web-btn-ghost:focus-visible,
+.web-card a:focus-visible,
+[class^="web-"] a:focus-visible {
+  outline: 2px solid var(--web-gold);
+  outline-offset: 3px;
+}
+
 /* Status badges */
 .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
 .badge-pass { background: rgba(5,150,105,0.15); color: #059669; }

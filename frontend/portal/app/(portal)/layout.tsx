@@ -187,7 +187,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
+        <nav aria-label="Portal navigation" style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
           {navItems.map(item => {
             const Icon = item.icon
             const isActive = pathname === item.href || (item.href !== '/admin' && item.href !== '/hr' && item.href !== '/proctor' && pathname.startsWith(item.href))

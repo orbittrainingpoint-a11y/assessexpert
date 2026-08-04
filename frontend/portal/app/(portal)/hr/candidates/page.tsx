@@ -100,7 +100,7 @@ function CsvImportWizard({ atList, onClose, onSuccess }: { atList: any[]; onClos
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>Import Candidates</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close import wizard" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} aria-hidden="true" /></button>
         </div>
 
         {/* Step indicator */}
@@ -555,12 +555,12 @@ export default function CandidatesPage() {
                         </button>
                       )}
                       <button className="btn-ghost" style={{ padding: '6px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center' }}
-                        onClick={() => openEdit(c)} title="Edit candidate">
-                        <Pencil size={12} />
+                        onClick={() => openEdit(c)} title="Edit candidate" aria-label={`Edit ${c.firstName} ${c.lastName}`}>
+                        <Pencil size={12} aria-hidden="true" />
                       </button>
                       <button className="btn-ghost" style={{ padding: '6px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', color: 'var(--rose)', borderColor: 'rgba(225,29,72,0.3)' }}
-                        onClick={() => handleDelete(c)} title="Delete candidate" disabled={deleteMutation.isPending}>
-                        <Trash2 size={12} />
+                        onClick={() => handleDelete(c)} title="Delete candidate" disabled={deleteMutation.isPending} aria-label={`Delete ${c.firstName} ${c.lastName}`}>
+                        <Trash2 size={12} aria-hidden="true" />
                       </button>
                     </div>
                   </td>
