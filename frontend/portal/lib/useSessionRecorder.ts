@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { captureError } from './errors'
 
 /**
  * Record the candidate's webcam + screen share continuously during the
@@ -120,9 +121,12 @@ export function useSessionRecorder({
             keepalive: true,
           },
         )
-      } catch {
+      } catch (e) {
         // Network blip — the chunk is dropped. Better than crashing
-        // the recorder for one missed segment.
+        // the recorder for one missed segment. Log so persistent
+        // upload failures show up in Sentry instead of the recording
+        // silently ending short.
+        captureError(e, 'recorder-chunk-upload')
       }
     }
 
@@ -141,9 +145,9 @@ export function useSessionRecorder({
       // incomplete chunk set.
       Promise.allSettled(Array.from(pendingUploads))
         .then(() =>
-          fetch(finalizeUrl, { method: 'POST', keepalive: true }).catch(() => {}),
+          fetch(finalizeUrl, { method: 'POST', keepalive: true }).catch((e) => captureError(e, 'recorder-finalize')),
         )
-        .catch(() => {})
+        .catch((e) => captureError(e, 'recorder-finalize-settle'))
     }
 
     const startRecorder = (stream: MediaStream | null | undefined, streamType: StreamType) => {

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { captureError } from './errors'
 
 /**
  * Capture audio in short chunks and POST each chunk to an AI transcription
@@ -114,8 +115,11 @@ export function useAudioTranscriber({
           // fetch when explicitly told to.
           credentials: 'include',
         })
-      } catch {
+      } catch (e) {
         // Drop the chunk on network failure — next chunk will pick up.
+        // Report so a systemic failure (bad endpoint, auth broken)
+        // surfaces in Sentry instead of silently losing every transcript.
+        captureError(e, 'audio-transcriber-upload')
       }
     }
 

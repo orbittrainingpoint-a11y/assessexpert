@@ -14,21 +14,38 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // ── CSP (was middleware.ts) ─────────────────────────────────────────
 
-const REPORT_ONLY = process.env.CSP_REPORT_ONLY !== 'false'
+// CSP enforcement: default to ENFORCE in production so the header
+// actually blocks injected scripts, REPORT_ONLY in dev/staging so a
+// missed directive doesn't wedge feature development. Override with
+// `CSP_REPORT_ONLY=true` for a canary rollout on prod that watches
+// violations without blocking.
+const REPORT_ONLY = process.env.CSP_REPORT_ONLY === 'true'
+  || (process.env.NODE_ENV !== 'production' && process.env.CSP_REPORT_ONLY !== 'false')
 
 const API_HOST = process.env.NEXT_PUBLIC_API_URL || 'https://assessexpert.com'
 const API_ORIGIN = (() => {
   try { return new URL(API_HOST).origin } catch { return 'https://assessexpert.com' }
 })()
 
+// MediaPipe (client-side face detection) fetches WASM + models from
+// these CDNs — must be allowed for step-7 Facial Recognition to work
+// once CSP is enforced. Kept in one constant so the two directives
+// stay in sync.
+const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net https://storage.googleapis.com'
+
 function buildCsp(): string {
   const directives: string[] = [
     `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com`,
+    // wasm-unsafe-eval — MediaPipe compiles WebAssembly at runtime.
+    // Without it, FaceDetector.createFromOptions() throws.
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${MEDIAPIPE_CDN} https://va.vercel-scripts.com`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `font-src 'self' data: https://fonts.gstatic.com`,
     `img-src 'self' data: blob: ${API_ORIGIN}`,
-    `connect-src 'self' ${API_ORIGIN} wss: ws:`,
+    // connect-src covers XHR + fetch + WebSocket. Add the MediaPipe
+    // CDN hosts so the model / WASM fetch isn't blocked. wss: + ws:
+    // stay for Socket.IO transport upgrades and LiveKit signalling.
+    `connect-src 'self' ${API_ORIGIN} ${MEDIAPIPE_CDN} wss: ws:`,
     `media-src 'self' blob: data:`,
     `worker-src 'self' blob:`,
     `object-src 'none'`,

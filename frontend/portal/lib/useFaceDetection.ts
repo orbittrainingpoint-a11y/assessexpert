@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { captureError } from './errors'
 
 interface UseFaceDetectionOptions {
   enabled: boolean
@@ -100,7 +101,7 @@ export function useFaceDetection({
           }
         }, intervalMs)
       } catch (e) {
-        console.warn('[FaceDetection] init failed:', e)
+        captureError(e, 'face-detection-init')
       }
     }
 
