@@ -341,9 +341,10 @@ function ItemFacialRecognition({
 
       // Detect the face in the BROWSER (MediaPipe Tasks Vision is
       // browser-only — `@mediapipe/tasks-vision` fails in Node with
-      // `navigator is not defined`). Pass the result to the backend so
-      // it can persist an accurate faceDetected flag without needing a
-      // Node face-detection library.
+      // `navigator is not defined`). Also compute a normalised
+      // face-geometry signature (PORTAL_GAPS.md H4) — the backend can
+      // then cosine-compare against the stored reference signature
+      // without needing to run MediaPipe itself.
       const clientDetection = await detectFaceInImage(dataUrl)
       const { data } = await faceCaptureApi.captureIdVerification(
         sessionId,
@@ -353,6 +354,7 @@ function ItemFacialRecognition({
         {
           clientFaceCount: clientDetection.faceCount,
           clientFaceConfidence: clientDetection.bestConfidence,
+          clientFaceSignature: clientDetection.faceSignature || undefined,
         },
       )
       // Trust the browser's detection first (it actually ran); fall back

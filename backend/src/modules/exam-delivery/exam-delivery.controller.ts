@@ -56,7 +56,7 @@ export class ExamDeliveryController {
   @Post('reference-photo')
   async uploadReferencePhoto(
     @Query('token') token: string,
-    @Body() body: { candidateId?: string; imageBase64: string },
+    @Body() body: { candidateId?: string; imageBase64: string; clientFaceSignature?: number[] },
   ) {
     if (!body?.imageBase64) throw new BadRequestException('imageBase64 required');
     const session = await this.examDeliveryService.getSessionByToken(token);
@@ -76,7 +76,7 @@ export class ExamDeliveryController {
       if (!sc) throw new BadRequestException('candidateId not part of this session');
     }
 
-    return this.frService.saveReferencePhoto(candidateId, body.imageBase64);
+    return this.frService.saveReferencePhoto(candidateId, body.imageBase64, false, body.clientFaceSignature);
   }
 
   @Get('reference-photo/status')

@@ -82,7 +82,20 @@ export class FacialRecognitionService {
 
   // Save the candidate's one-time reference photo + embedding. Refuses to
   // overwrite an existing reference unless force=true (kept for admin use).
-  async saveReferencePhoto(candidateId: string, imageBase64: string, force = false) {
+  //
+  // clientFaceSignature (H4): normalised anatomical signature the browser
+  // computed at capture time via MediaPipe FaceLandmarker. When present,
+  // stored directly as the referenceFaceEmbedding — no server-side
+  // MediaPipe needed. When absent, we fall back to the (currently
+  // broken in Node) server-side extractor, which usually means the
+  // candidate gets a reference photo without a comparable embedding
+  // (proctor must do PENDING_REVIEW manual match forever after).
+  async saveReferencePhoto(
+    candidateId: string,
+    imageBase64: string,
+    force = false,
+    clientFaceSignature?: number[],
+  ) {
     const candidate = await this.prisma.candidateRecord.findUnique({
       where: { id: candidateId },
       select: { id: true, referencePhotoPath: true },
@@ -92,10 +105,20 @@ export class FacialRecognitionService {
       return { saved: false, reason: 'Reference photo already on file' };
     }
 
-    // Extract embedding FIRST — if MediaPipe can't see a face, refuse to save.
-    const landmarks = await this.mediaPipeService.extractFaceLandmarks(imageBase64);
-    if (!landmarks) {
-      throw new BadRequestException('No face detected in the frame. Please re-centre the candidate and retry.');
+    // Prefer the client-computed anatomical signature (H4). Falls back
+    // to server MediaPipe when absent — legacy path, will likely
+    // return null on Node hosts.
+    let embedding: number[] | null = null;
+    if (clientFaceSignature?.length) {
+      embedding = clientFaceSignature;
+    } else {
+      const landmarks = await this.mediaPipeService.extractFaceLandmarks(imageBase64);
+      if (!landmarks) {
+        throw new BadRequestException(
+          'No face detected in the frame. Please re-centre the candidate and retry.',
+        );
+      }
+      embedding = landmarks.embedding;
     }
 
     const storagePath = process.env.STORAGE_PATH || './storage';
@@ -111,11 +134,13 @@ export class FacialRecognitionService {
       data: {
         referencePhotoPath: relPath,
         referencePhotoCapturedAt: new Date(),
-        referenceFaceEmbedding: JSON.stringify(landmarks.embedding),
+        referenceFaceEmbedding: JSON.stringify(embedding),
       },
     });
 
-    this.logger.log(`Reference photo saved for candidate ${candidateId}`);
+    this.logger.log(
+      `Reference photo saved for candidate ${candidateId} (${clientFaceSignature?.length ? 'client-signature' : 'server-landmarks'})`,
+    );
     return { saved: true, path: relPath };
   }
 

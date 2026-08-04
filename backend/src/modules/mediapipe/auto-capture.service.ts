@@ -67,7 +67,16 @@ export class AutoCaptureService {
     // MediaPipe is unavailable (Node can't run @mediapipe/tasks-vision:
     // it errors with `navigator is not defined`). If both signals are
     // present, the server-side one wins for defense-in-depth.
-    clientDetection?: { clientFaceCount?: number; clientFaceConfidence?: number },
+    //
+    // clientFaceSignature (H4): normalised anatomical signature from
+    // MediaPipe FaceLandmarker. If present + reference is also a
+    // signature, cosine similarity IS the identity match (no server
+    // ML needed).
+    clientDetection?: {
+      clientFaceCount?: number;
+      clientFaceConfidence?: number;
+      clientFaceSignature?: number[];
+    },
   ): Promise<CaptureResult> {
     try {
       this.logger.log(`Auto-capture for ID verification: Session ${sessionId}`);
@@ -159,13 +168,38 @@ export class AutoCaptureService {
           // has just SEEN the candidate so a manual confirm is valid.
           outcome = detectedBy === 'client' ? 'PENDING_REVIEW' : 'REJECTED';
           reason = 'No reference photo on file — proctor please visually verify identity';
+        } else if (clientDetection?.clientFaceSignature?.length) {
+          // Preferred path (H4): client-computed anatomical signature +
+          // stored reference signature → cosine similarity right here,
+          // no server-side MediaPipe involved.
+          try {
+            const refVec = JSON.parse(candidate.referenceFaceEmbedding as string);
+            if (Array.isArray(refVec) && refVec.length === clientDetection.clientFaceSignature.length) {
+              const cmp = this.mediaPipeService.compareFaceEmbeddings(
+                clientDetection.clientFaceSignature,
+                refVec,
+              );
+              similarity = cmp.similarity;
+              outcome = cmp.outcome;
+            } else {
+              // Length mismatch = the stored reference is an old
+              // pre-H4 fake embedding. Fall back to manual review; the
+              // reference will be replaced with a real signature on
+              // the next reference-photo recapture.
+              outcome = 'PENDING_REVIEW';
+              reason = 'Reference photo predates the current face-signature format — proctor please visually verify and ask the candidate to recapture their reference photo';
+            }
+          } catch {
+            outcome = 'PENDING_REVIEW';
+            reason = 'Stored reference is unreadable — proctor please visually verify identity';
+          }
         } else {
+          // Legacy path: browser didn't send a signature. Try server
+          // MediaPipe (still broken in Node), and if that also fails,
+          // defer to manual review when the browser at least confirmed
+          // a face was present.
           const capturedLandmarks = await this.mediaPipeService.extractFaceLandmarks(imageBase64);
           if (!capturedLandmarks) {
-            // Server MediaPipe couldn't run (Node/navigator issue). If
-            // the browser confirmed a face was in the frame, defer to
-            // proctor manual review instead of a hard REJECTED — the
-            // similarity number is unknown, not zero.
             if (detectedBy === 'client') {
               outcome = 'PENDING_REVIEW';
               reason = 'Automated similarity unavailable — proctor please visually verify against reference';

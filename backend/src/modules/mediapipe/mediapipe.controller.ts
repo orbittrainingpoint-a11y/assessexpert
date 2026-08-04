@@ -36,16 +36,18 @@ export class MediaPipeController {
   @ApiOperation({ summary: 'Auto-capture + compare against stored reference for ID verification' })
   async captureIDVerification(
     @Param('sessionId') sessionId: string,
-    // clientFaceCount + clientFaceConfidence are passed through from the
-    // proctor browser, which runs @mediapipe/tasks-vision locally. The
-    // Node package fails with `navigator is not defined`, so the browser
-    // is the authoritative source for whether a face is present.
+    // clientFaceCount / clientFaceConfidence: does the browser think a
+    // face is present? clientFaceSignature: L2-normalised anatomical
+    // signature (~40 floats) from MediaPipe FaceLandmarker for cosine
+    // comparison against the stored reference signature.
+    // (PORTAL_GAPS.md H4.)
     @Body() dto: {
       image: string;
       checklistItemKey: string;
       candidateId?: string;
       clientFaceCount?: number;
       clientFaceConfidence?: number;
+      clientFaceSignature?: number[];
     },
   ) {
     return this.autoCaptureService.captureForIDVerification(
@@ -56,6 +58,7 @@ export class MediaPipeController {
       {
         clientFaceCount: dto.clientFaceCount,
         clientFaceConfidence: dto.clientFaceConfidence,
+        clientFaceSignature: dto.clientFaceSignature,
       },
     );
   }

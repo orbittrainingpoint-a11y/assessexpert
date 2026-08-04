@@ -338,8 +338,16 @@ export const faceCaptureApi = {
     candidateId?: string,
     // Browser-side detection result. Passed through because the backend
     // MediaPipe can't run in Node (`navigator is not defined`), so the
-    // client is the authoritative source for whether a face is present.
-    clientDetection?: { clientFaceCount?: number; clientFaceConfidence?: number },
+    // client is the authoritative source for both face-present and the
+    // signature used for cosine similarity vs the stored reference.
+    clientDetection?: {
+      clientFaceCount?: number
+      clientFaceConfidence?: number
+      /** L2-normalised anatomical signature from MediaPipe FaceLandmarker.
+       *  ~40 floats. Backend cosine-compares this against the stored
+       *  reference signature (also client-generated on first capture). */
+      clientFaceSignature?: number[]
+    },
   ) =>
     api.post(`/mediapipe/capture/id-verification/${sessionId}`, {
       image: imageBase64,
@@ -361,10 +369,20 @@ export const legalApi = {
 export const referencePhotoApi = {
   status: (token: string, candidateId?: string) =>
     api.get('/exam/reference-photo/status', { params: { token, candidateId } }),
-  upload: (token: string, candidateId: string | undefined, imageBase64: string) =>
+  upload: (
+    token: string,
+    candidateId: string | undefined,
+    imageBase64: string,
+    // Optional H4 field: normalised face signature computed by the
+    // browser via MediaPipe FaceLandmarker at capture time. When
+    // present the backend stores it as the referenceFaceEmbedding
+    // directly instead of computing one server-side.
+    clientFaceSignature?: number[],
+  ) =>
     api.post(`/exam/reference-photo?token=${encodeURIComponent(token)}`, {
       candidateId,
       imageBase64,
+      clientFaceSignature,
     }),
 }
 

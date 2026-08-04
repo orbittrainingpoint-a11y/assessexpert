@@ -585,7 +585,20 @@ function ExamContent() {
           const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
           setReferenceCaptureState('capturing')
           try {
-            await referencePhotoApi.upload(token, candidateId, dataUrl)
+            // Compute the face signature in the browser (H4) so the
+            // backend stores a real anatomical descriptor as the
+            // reference — not the old pre-H4 fake landmark-sum
+            // embedding. If detection fails (no face / CDN blip) we
+            // still upload the image; the backend just won't have a
+            // signature to compare later. Better than skipping the
+            // reference photo entirely.
+            let signature: number[] | undefined
+            try {
+              const { detectFaceInImage } = await import('@/lib/detectFaceInImage')
+              const det = await detectFaceInImage(dataUrl)
+              if (det.faceSignature) signature = det.faceSignature
+            } catch {}
+            await referencePhotoApi.upload(token, candidateId, dataUrl, signature)
             if (!cancelled) setReferenceCaptureState('saved')
             return true
           } catch {
