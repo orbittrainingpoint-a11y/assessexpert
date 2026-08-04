@@ -682,6 +682,11 @@ export function useJitsi({
     ;(async () => {
       try {
         // 1) Resolve identity
+        //
+        // Auth now rides the httpOnly `access_token` cookie for proctors
+        // (PORTAL_GAPS.md C1). `credentials: 'include'` makes the browser
+        // send it on this cross-cookie-scope fetch. jwtToken remains
+        // supported as a fallback for any consumer that still passes it.
         const tokenUrl = role === 'PROCTOR'
           ? `${API_URL}/jitsi/proctor-token?sessionId=${sessionId}`
           : `${API_URL}/jitsi/candidate-token?magicToken=${magicToken}${candidateId ? `&candidateId=${candidateId}` : ''}`
@@ -690,7 +695,10 @@ export function useJitsi({
 
         let myIdentity = role === 'PROCTOR' ? `proctor-${sessionId}` : `candidate-unknown`
         try {
-          const res = await fetch(tokenUrl, { headers })
+          const res = await fetch(tokenUrl, {
+            headers,
+            credentials: role === 'PROCTOR' ? 'include' : 'same-origin',
+          })
           if (res.ok) { const d = await res.json(); myIdentity = d.identity || myIdentity }
         } catch {}
         if (cancelled) return

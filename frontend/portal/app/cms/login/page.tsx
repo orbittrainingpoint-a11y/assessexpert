@@ -13,9 +13,9 @@ export default function CmsLoginPage() {
   const [error, setError] = useState('')
 
   // Already signed in with a CMS role? Skip straight to the dashboard.
+  // Token is now an httpOnly cookie — we can't peek at it from JS.
+  // Just ask /auth/me and let it 401 if no cookie is present.
   useEffect(() => {
-    const token = localStorage.getItem('accessToken')
-    if (!token) return
     authApi.me().then((r) => { if (CMS_ROLES.includes(r.data.role)) router.replace('/cms') }).catch(() => {})
   }, [router])
 
@@ -35,8 +35,11 @@ export default function CmsLoginPage() {
         setLoading(false)
         return
       }
-      localStorage.setItem('accessToken', data.accessToken)
-      if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken)
+      // No localStorage token writes any more — the backend set
+      // httpOnly `access_token` + `refresh_token` cookies on this same
+      // response, which every subsequent /api call will send
+      // automatically via `withCredentials: true`.
+      // (PORTAL_GAPS.md C1.)
       router.replace('/cms')
     } catch {
       setError('Invalid email or password.')

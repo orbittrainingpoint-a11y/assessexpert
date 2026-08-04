@@ -116,17 +116,19 @@ function SessionContent() {
   })
   // LiveKit replaces our previous getUserMedia + WebRTC P2P stack.
   // We still get a "local" camera stream back from LiveKit for the PIP/preview.
-  const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') || '' : ''
+  //
+  // Auth: no localStorage token any more — the useJitsi call now sends
+  // the httpOnly cookie via credentials:'include'. Gate the connection
+  // on `user` (loaded from /auth/me on mount) instead of a token.
   const {
     isConnected: lkConnected,
     localCameraStream: proctorStream,
     peers: lkPeers,
     error: lkError,
   } = useLivekit({
-    enabled: !!sessionId && !!jwtToken,
+    enabled: !!sessionId && !!user,
     role: 'PROCTOR',
     sessionId,
-    jwtToken,
     publishCamera: true,
     publishMic: true,
     // 1-to-1 routing: only the currently-selected candidate sees + hears the
@@ -160,7 +162,7 @@ function SessionContent() {
   const { data: sessionCandidates } = useQuery({
     queryKey: ['session-candidates', sessionId],
     queryFn: () => fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/${sessionId}/candidates`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      credentials: 'include',
     }).then(r => r.json()),
     enabled: !!sessionId,
     refetchInterval: 5000,

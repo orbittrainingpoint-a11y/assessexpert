@@ -109,6 +109,10 @@ export function useAudioTranscriber({
           body: fd,
           keepalive: true,
           headers: reqHeaders,
+          // Auth is now the httpOnly access_token cookie
+          // (PORTAL_GAPS.md C1). Browsers only send credentials on
+          // fetch when explicitly told to.
+          credentials: 'include',
         })
       } catch {
         // Drop the chunk on network failure — next chunk will pick up.

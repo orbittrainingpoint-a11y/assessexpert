@@ -45,16 +45,8 @@ export default function ProctorSettingsPage() {
       if (!user?.id) return null
       
       const url = `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`
-      const token = localStorage.getItem('accessToken')
-      
-      console.log('[Availability] Loading from:', url)
-      console.log('[Availability] Token exists:', !!token)
-      
-      const res = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      
-      console.log('[Availability] Loaded data:', res.data)
+      // Auth via httpOnly cookie (PORTAL_GAPS.md C1) — no header needed.
+      const res = await axios.get(url, { withCredentials: true })
       return res.data
     },
     enabled: !!user?.id,
@@ -126,23 +118,13 @@ export default function ProctorSettingsPage() {
         endTime: `${end.toString().padStart(2, '0')}:00`,
       }))
       
-      console.log('[Availability] Slots to save:', slots)
-      console.log('[Availability] Timezone:', timezone)
-      console.log('[Availability] Max per day:', maxPerDay)
-      
       const url = `${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/availability`
-      const token = localStorage.getItem('accessToken')
-      
-      console.log('[Availability] POST URL:', url)
-      console.log('[Availability] Token exists:', !!token)
-      
+      // Auth via httpOnly cookie (PORTAL_GAPS.md C1).
       const response = await axios.post(
         url,
         { slots, timezone, maxSessionsPerDay: maxPerDay },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { withCredentials: true },
       )
-      
-      console.log('[Availability] Save response:', response.data)
       return response.data
     },
     onSuccess: (data) => {

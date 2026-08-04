@@ -124,12 +124,9 @@ export default function VerificationLayout({
     micStream: proctorStream,
     endpoint: `${baseApiUrl}/sessions/${encodeURIComponent(sessionId)}/transcribe-audio`,
     extraFields: () => ({ candidateId: activeCandidateId || undefined }),
-    headers: () => {
-      const t = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
-      const h: Record<string, string> = {}
-      if (t) h.Authorization = `Bearer ${t}`
-      return h
-    },
+    // Auth = httpOnly access_token cookie (PORTAL_GAPS.md C1). The
+    // fetch inside useAudioTranscriber sets credentials:'include' so
+    // no header is needed here.
   })
 
   // Auto-select first candidate

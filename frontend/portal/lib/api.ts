@@ -2,26 +2,26 @@ import axios from 'axios'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 
+// PORTAL_GAPS.md C1 — auth tokens live in httpOnly cookies now, not
+// localStorage. `withCredentials: true` makes axios include them on
+// every request; the backend reads them in the JWT strategy. There is
+// no `Authorization: Bearer …` header injection here on purpose — JS
+// can no longer touch the token, so an XSS bug can't exfiltrate it.
 export const api = axios.create({
   baseURL: API_URL,
   withCredentials: true,
 })
 
-// Attach token from localStorage
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('accessToken')
-    if (token) config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-// Auto-refresh on 401
+// Auto-refresh on 401. The refresh cookie is scoped to /api/auth and
+// httpOnly; we POST /auth/refresh with no body — the backend reads the
+// cookie and sets a new access_token cookie in the response.
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
-    // Don't intercept auth endpoints — let them fail naturally
+    // Don't intercept the auth endpoints themselves — let their errors
+    // surface naturally (e.g. "wrong password" on login, "invalid
+    // refresh" on refresh, etc.).
     if (original.url?.includes('/auth/login') ||
         original.url?.includes('/auth/refresh') ||
         original.url?.includes('/auth/otp') ||
@@ -31,16 +31,21 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
       try {
-        const refreshToken = localStorage.getItem('refreshToken')
-        if (refreshToken) {
-          const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken })
-          localStorage.setItem('accessToken', data.accessToken)
-          original.headers.Authorization = `Bearer ${data.accessToken}`
-          return api(original)
-        }
+        // No body needed — refresh token is a cookie the browser
+        // sends automatically because withCredentials is on the
+        // shared axios instance. Response Set-Cookies the new
+        // access_token, so the retried request just works.
+        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        return api(original)
       } catch {
-        localStorage.removeItem('accessToken')
-        localStorage.removeItem('refreshToken')
+        // Refresh failed — session is truly dead. Clear any leftover
+        // localStorage keys from the pre-cookie era so a soft reload
+        // doesn't try to authenticate with a stale value.
+        try {
+          localStorage.removeItem('accessToken')
+          localStorage.removeItem('refreshToken')
+          localStorage.removeItem('assessexpert-auth')
+        } catch {}
         // Only redirect if not already on login page
         if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
           window.location.href = '/login'

@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Camera, CheckCircle2, XCircle, AlertCircle, Video, 
 import toast from 'react-hot-toast'
 import { interviewsApi, candidatesApi } from '@/lib/api'
 import { useJitsi } from '@/lib/useJitsi'
+import { useAuthStore } from '@/store/auth.store'
 
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api').replace(/\/api\/?$/, '')
 
@@ -118,15 +119,16 @@ function LiveRoom({ interviewId, interview, candidate }: { interviewId: string; 
   const [verifying, setVerifying] = useState(false)
   const [latestFR, setLatestFR] = useState<{ similarity: number; outcome: string; reason?: string } | null>(null)
 
-  const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') || '' : ''
+  const { user: currentUser } = useAuthStore()
   // The Jitsi/WebRTC stack rooms are keyed by sessionId — for interviews
   // we use the interview id as a generic, unguessable room id. The
-  // candidate joins the same room id from their token-gated page.
+  // candidate joins the same room id from their token-gated page. Auth
+  // = httpOnly cookie now (PORTAL_GAPS.md C1); gate on the loaded user
+  // instead of a JS-readable token.
   const { localCameraStream, peers, isConnected } = useJitsi({
-    enabled: !!jwtToken,
+    enabled: !!currentUser,
     role: 'PROCTOR',
     sessionId: interviewId,
-    jwtToken,
     publishCamera: true,
     publishMic: true,
   })

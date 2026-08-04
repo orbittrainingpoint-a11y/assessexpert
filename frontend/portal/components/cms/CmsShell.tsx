@@ -21,8 +21,10 @@ export function CmsShell({ children, title }: { children: ReactNode; title?: str
 
   useEffect(() => {
     let active = true
-    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
-    if (!token) { router.replace('/cms/login'); return }
+    // Auth is now an httpOnly cookie — JS can't see it. Skip the
+    // pre-flight token existence check and just ask /auth/me; if the
+    // cookie is missing or expired, the request returns 401 and we
+    // bounce to /cms/login the same way as before.
     api.get('/auth/me')
       .then((r) => {
         if (!active) return
@@ -33,9 +35,15 @@ export function CmsShell({ children, title }: { children: ReactNode; title?: str
     return () => { active = false }
   }, [router])
 
-  const logout = () => {
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
+  const logout = async () => {
+    // Server clears the httpOnly cookies. Best-effort — even if the
+    // request fails, we still bounce the user to login.
+    try { await api.post('/auth/logout') } catch {}
+    try {
+      localStorage.removeItem('accessToken')
+      localStorage.removeItem('refreshToken')
+      localStorage.removeItem('assessexpert-auth')
+    } catch {}
     router.replace('/cms/login')
   }
 

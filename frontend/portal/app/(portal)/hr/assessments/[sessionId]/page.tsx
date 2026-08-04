@@ -74,7 +74,7 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
       const cidQs = safeCandidateId ? `?candidateId=${encodeURIComponent(safeCandidateId)}` : ''
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
       const response = await fetch(`${apiUrl}/reports/session/${safeSessionId}/pdf${cidQs}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        credentials: 'include',
       })
       if (response.status === 404) {
         toast('PDF export is not enabled yet. Showing the on-screen report instead.', { icon: 'ℹ️' })
