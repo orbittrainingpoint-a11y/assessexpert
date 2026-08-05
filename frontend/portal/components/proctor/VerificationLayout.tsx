@@ -12,7 +12,8 @@ interface Candidate {
   firstName?: string
   lastName?: string
   email?: string
-  stream: MediaStream | null
+  stream: MediaStream | null           // camera stream
+  screenStream?: MediaStream | null    // screen-share stream (if candidate is sharing)
   socketId?: string
   verified?: boolean
 }
@@ -186,14 +187,48 @@ export default function VerificationLayout({
           )}
 
           {/* Candidate stream — defaults to muted so autoplay succeeds;
-              proctor toggles audio via the indicator above. */}
-          <div style={{ width: '100%', height: '100%' }}>
-            <VideoBox
-              stream={activeCandidate?.stream || null}
-              label="No candidate selected — click a tile"
-              muted={!audioUnmuted}
-            />
-          </div>
+              proctor toggles audio via the indicator above.
+              When the candidate is ALSO sharing their screen, split the
+              area so the proctor can watch camera AND screen simultaneously
+              instead of one replacing the other. */}
+          {(() => {
+            const hasScreen = !!activeCandidate?.screenStream
+            if (hasScreen) {
+              return (
+                <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <div style={{ position: 'relative' }}>
+                    <VideoBox
+                      stream={activeCandidate?.stream || null}
+                      label="Candidate camera"
+                      muted={!audioUnmuted}
+                    />
+                    <span style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(0,0,0,0.75)', padding: '2px 6px', borderRadius: 3, fontSize: 9, color: 'var(--cyan)', fontWeight: 700 }}>
+                      CAMERA
+                    </span>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <VideoBox
+                      stream={activeCandidate?.screenStream || null}
+                      label="Candidate screen"
+                      muted
+                    />
+                    <span style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(0,0,0,0.75)', padding: '2px 6px', borderRadius: 3, fontSize: 9, color: 'var(--emerald)', fontWeight: 700 }}>
+                      SCREEN
+                    </span>
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div style={{ width: '100%', height: '100%' }}>
+                <VideoBox
+                  stream={activeCandidate?.stream || null}
+                  label="No candidate selected — click a tile"
+                  muted={!audioUnmuted}
+                />
+              </div>
+            )
+          })()}
 
           {/* Proctor self PIP — bottom right */}
           <div style={{ position: 'absolute', bottom: '12px', right: '12px', width: '160px', aspectRatio: '16/9', zIndex: 10, borderRadius: '8px', overflow: 'hidden', border: '2px solid var(--amber)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>

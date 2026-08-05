@@ -754,10 +754,28 @@ function ItemGuidelines({
           ✓ Candidate agreed to the exam guidelines
         </div>
       )}
-      <button className="btn-ghost" style={{ width: '100%', padding: '8px', fontSize: '12px' }}
+      <button className="btn-ghost" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '6px' }}
         onClick={() => onRequestAgreement?.()} disabled={saving}>
         Re-send agreement popup
       </button>
+      {/* Manual-confirm escape hatch — used when the candidate agreed
+          verbally but the socket-driven auto-tick didn't reach the
+          proctor UI (network blip, stale candidateId in emit payload,
+          etc.). Without this the Begin Exam button stays disabled and
+          the proctor is stuck. */}
+      {!candidateAgreed && (
+        <button
+          className="btn-primary"
+          style={{ width: '100%', padding: '10px', fontSize: '13px' }}
+          disabled={saving}
+          onClick={() => {
+            if (!confirm('Confirm the candidate has verbally agreed to the exam guidelines?')) return
+            onComplete({ value: { agreed: 'yes', by: 'proctor_manual' } })
+          }}
+        >
+          Manually confirm — candidate agreed verbally
+        </button>
+      )}
     </div>
   )
 }
