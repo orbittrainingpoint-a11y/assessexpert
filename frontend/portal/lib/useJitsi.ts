@@ -663,7 +663,13 @@ export function useJitsi({
   // ── Main effect: get camera, announce presence ────────────────────────────
   useEffect(() => {
     if (!enabled) return
-    if (role === 'PROCTOR' && (!sessionId || !jwtToken)) return
+    // PROCTOR now authenticates via the httpOnly access_token cookie
+    // (PORTAL_GAPS.md C1) — jwtToken is optional here. The identity
+    // fetch below uses credentials:'include' so the browser sends the
+    // cookie automatically. Callers can still pass jwtToken for the
+    // legacy Bearer-header path; missing it must not gate camera
+    // acquisition.
+    if (role === 'PROCTOR' && !sessionId) return
     if (role === 'CANDIDATE' && !magicToken) return
 
     let cancelled = false
