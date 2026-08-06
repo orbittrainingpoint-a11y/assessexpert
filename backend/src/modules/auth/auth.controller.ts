@@ -1,6 +1,11 @@
 import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode, Param, Inject, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response, CookieOptions } from 'express';
+import type { Response } from 'express';
+// CookieOptions is not a top-level named export from `express` (it lives
+// inside `namespace e`), so importing `{ CookieOptions }` fails
+// TypeScript compilation. Derive it from the Response['cookie']
+// signature instead — same shape, zero import fragility.
+type CookieOptions = Parameters<Response['cookie']>[2];
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
