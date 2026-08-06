@@ -278,6 +278,10 @@ export const practicalTasksApi = {
   getOne: (id: string) => api.get(`/practical-tasks/${id}`),
   create: (data: any) => api.post('/practical-tasks', data),
   update: (id: string, data: any) => api.put(`/practical-tasks/${id}`, data),
+  // Flip DRAFT → ACTIVE. Task must be ACTIVE to be pickable in
+  // /exam-setup/simulation and assignable during a live session.
+  activate: (id: string) => api.post(`/practical-tasks/${id}/activate`),
+  archive: (id: string) => api.post(`/practical-tasks/${id}/archive`),
 }
 
 // Candidates

@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { practicalTasksApi, assessmentsApi } from '@/lib/api'
-import { Plus } from 'lucide-react'
+import { Plus, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const BLANK = { assessmentTypeId: '', type: 'FILE', title: '', description: '', difficulty: 'STANDARD', estimatedMinutes: 60, acceptedFileTypes: ['.pdf', '.docx'], rubricData: {} }
@@ -24,6 +24,15 @@ export default function ExamSetupPracticalPage() {
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   })
 
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => practicalTasksApi.activate(id),
+    onSuccess: () => {
+      toast.success('Task activated — now assignable to candidates and visible in the simulator')
+      qc.invalidateQueries({ queryKey: ['practical-tasks'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to activate'),
+  })
+
   const atList = atData?.assessmentTypes || atData || []
   const tasks = data?.tasks || data || []
 
@@ -42,13 +51,13 @@ export default function ExamSetupPracticalPage() {
       <div className="glass-card" style={{ overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
-            <tr><th>Title</th><th>Assessment Type</th><th>Type</th><th>Difficulty</th><th>Est. Time</th><th>Status</th></tr>
+            <tr><th>Title</th><th>Assessment Type</th><th>Type</th><th>Difficulty</th><th>Est. Time</th><th>Status</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</td></tr>
             ) : !Array.isArray(tasks) || !tasks.length ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No practical tasks yet.</td></tr>
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No practical tasks yet.</td></tr>
             ) : tasks.map((t: any) => (
               <tr key={t.id}>
                 <td style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{t.title}</td>
@@ -57,6 +66,19 @@ export default function ExamSetupPracticalPage() {
                 <td style={{ fontSize: '13px' }}>{t.difficulty}</td>
                 <td style={{ fontSize: '13px' }}>{t.estimatedMinutes} min</td>
                 <td><span className={`badge ${t.status === 'ACTIVE' ? 'badge-pass' : t.status === 'DRAFT' ? 'badge-draft' : 'badge-fail'}`}>{t.status}</span></td>
+                <td>
+                  {t.status === 'DRAFT' && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--emerald)', borderColor: 'rgba(5,150,105,0.4)' }}
+                      onClick={() => activateMutation.mutate(t.id)}
+                      disabled={activateMutation.isPending}
+                      aria-label={`Activate ${t.title}`}
+                    >
+                      <CheckCircle2 size={12} /> Activate
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
