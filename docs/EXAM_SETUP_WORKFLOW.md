@@ -1,164 +1,190 @@
-# How to set up an exam (from empty CMS to first candidate session)
+# Exam setup — the simple flow
 
-Every content object in the platform starts in **DRAFT** status. Nothing
-reaches a real candidate until it is explicitly promoted to **ACTIVE**.
-This is the single most common reason a session "isn't pushing" — the
-content the proctor is trying to assign is still DRAFT.
+**One role does everything: Master Proctor.**
 
-There are four content object types with a DRAFT → ACTIVE gate:
+Log in as `MASTER_PROCTOR` and the sidebar shows every screen you need
+in order — content setup at the top, live operations below, settings
+at the bottom.
 
-| Object | Where it's created | Where it's activated |
+```
+Overview                    ← dashboard
+──── Content setup ────
+Assessment Types            ← create the exam container (per role/skill)
+MCQ Question Bank           ← add + activate multiple-choice questions
+Practical Paper Sets        ← add + activate practical papers
+Exam Simulation             ← rehearse the full exam before it goes live
+──── Live operations ────
+Live Sessions               ← monitor everything running now
+Proctors                    ← manage proctor accounts
+Reports                     ← review + publish reports
+──── Config ────
+Settings
+```
+
+The old EXAM_SETUP_MASTER role still exists for backwards compatibility
+but you don't need it any more — everything is now reachable from the
+Master Proctor sidebar.
+
+---
+
+## The 5-step flow, first time
+
+### Step 1: Assessment Type — the container
+
+Path: **Assessment Types** → click **+ New Exam**
+
+Fields to set (these become the exam's defaults):
+- Name, code, category, industry, job role, description
+- **MCQ Time Limit** — how long the MCQ round runs (default 30 min)
+- **MCQ Question Count** — how many questions the candidate gets (default 25)
+- **MCQ Pass Threshold** — % correct needed (default 60)
+- **Practical Time Limit** — how long the practical runs (default 60 min)
+- **Practical Pass Threshold** — % score needed (default 60)
+
+Save → the exam is DRAFT. Come back and click **Activate** once you've
+added enough content in steps 2 and 3.
+
+### Step 2: MCQ Question Bank
+
+Path: **MCQ Question Bank** → filter by the assessment type you just made
+
+Two ways to add:
+- **Add per question** — form with text + options + correct answer
+- **Bulk CSV upload** — many at once from a spreadsheet
+
+Every new question lands as **DRAFT**. Click **"Activate N Drafts"** at
+the top of the page in one shot, or **Activate** per row.
+
+**Target: 500 active questions per assessment type.** The exam picks 25
+at random from the active pool (Fisher-Yates shuffle) so a big pool
+means no two candidates ever see the same paper.
+
+### Step 3: Practical Paper Set
+
+Path: **Practical Paper Sets** → click **+ New Set**
+
+- Give it a name, pick the assessment type
+- Add practical questions (text / file-upload / code / etc.)
+- Upload any reference files the candidate needs
+
+Save → **click "Activate Set"** in the SetEditor header.
+
+The exam auto-picks a random ACTIVE paper set per candidate when they
+finish the MCQ round. So the more sets you have per assessment type,
+the more variety across candidates. Minimum: **one active paper set per
+assessment type**.
+
+### Step 4: Verify with the Simulator
+
+Path: **Exam Simulation** → pick the assessment type + mode → **Start**
+
+- Runs a real MCQ round (only pulls ACTIVE questions)
+- Shows correct/wrong feedback per question
+- Lets you preview the practical assignment too
+
+If the simulator says "no questions" or "no practical" → something
+above is still DRAFT. Go back and click Activate.
+
+### Step 5: Activate the Assessment Type
+
+Once MCQ questions + at least one practical paper set are ACTIVE, go
+back to **Assessment Types** and click **Activate** on the row.
+
+That's it. HR can now schedule candidates for this assessment type from
+their side, and the whole exam is ready to run.
+
+---
+
+## Live session flow (proctor side)
+
+Once content is set up, live sessions work automatically:
+
+1. HR schedules a candidate → magic-link email fires
+2. Candidate joins via link → tech check → OTP → camera → waiting room
+3. Proctor opens `/proctor/session/<sessionId>` and runs the 10-item
+   checklist for each candidate
+4. Proctor clicks **All Verified — Start Exam** → single click now:
+   - Marks all candidates verified
+   - Transitions to MCQ phase
+   - Calls backend `POST /sessions/:id/begin`
+   - Emits `exam.pushMCQ` socket → candidates advance to question 1
+5. MCQ round runs (candidates get 25 random questions, 30 min)
+6. On MCQ submit, backend **auto-assigns a random ACTIVE paper set** per
+   candidate. Proctor sees "Push Practical Exam" button light up.
+7. Proctor clicks **Push Practical Exam** → candidates load the practical
+   paper set and start
+8. Candidates submit → proctor grades against rubric → report drafts →
+   proctor reviews → publish
+
+Proctor's role in the live session is mostly monitoring + integrity —
+they don't have to pick which content to serve; the setup you did in
+steps 1–5 already decided that.
+
+---
+
+## Which content actually runs in an exam?
+
+**MCQ round** — only from `Question` table (MCQ Question Bank). Master
+Proctor now owns this via the consolidated nav.
+
+**Practical round** — priority chain:
+1. **Practical Paper Set** — if any ACTIVE set exists for the assessment
+   type → auto-picked at random when MCQ finishes. **This is the
+   recommended path.** One content model, one place to edit.
+2. **Legacy Practical Task** — the older `PracticalTask` library (still
+   at `/exam-setup/practical` for backwards compat, not surfaced in the
+   consolidated Master Proctor nav any more). Live proctor can manually
+   assign a task from this library if no paper set is available.
+
+**Going forward: use Practical Paper Sets only.** They support multiple
+sub-questions, reference files, per-question rubric — a superset of what
+the older Practical Task library offered. If you have legacy sessions
+using PracticalTask, those keep working.
+
+---
+
+## DRAFT → ACTIVE gate — every content type has one
+
+| Content | Where | How to activate |
 |---|---|---|
-| Assessment Type | `/admin/assessments` or `/exam-setup/assessments` | Auto-active? See notes |
-| MCQ Question    | `/exam-setup/questions` (bulk or per-question) | Same page — "Activate" button |
-| Practical Task  | `/exam-setup/practical` | Same page — "Activate" button (**new**) |
-| Practical Paper Set | `/master-proctor/paper-sets/<setId>` (SetEditor) | Same page — "Activate Set" button |
+| Assessment Type | Assessment Types page | Click **Activate** on row (after MCQ + practical are ready) |
+| MCQ Question | MCQ Question Bank | **"Activate N Drafts"** button (bulk) or per row |
+| Practical Paper Set | SetEditor (inside Practical Paper Sets) | **"Activate Set"** in header |
+| (Legacy) Practical Task | /exam-setup/practical | **"Activate"** per row |
 
----
-
-## Full setup flow — first-time proctored exam
-
-### 1. Assessment Type (once per role)
-
-Path: `/admin/assessments` (SUPER_ADMIN) or `/exam-setup/assessments`
-(EXAM_SETUP_MASTER).
-
-Create an `AssessmentType` — this is the container for MCQ questions +
-practical tasks for a specific job role (e.g. "AutoCAD Draftsman L2").
-
-- Fill in name, description, industry, `mcqQuestionCount` (default 25),
-  `mcqDurationMinutes` (default 30), `practicalDurationMinutes` (default 60).
-- Save.
-
-### 2. MCQ question bank (aim for 500 per role)
-
-Path: `/exam-setup/questions?assessmentTypeId=<id>`
-
-- **Add questions** individually OR upload CSV in bulk.
-- Every new question lands in **DRAFT** by default.
-- Click **"Activate <n> Drafts"** at the top to promote all drafts to
-  ACTIVE in one click, or use the per-row **"Activate"** button.
-- Only ACTIVE questions can appear in a live exam or the simulator.
-
-### 3. Practical task (at least one per role)
-
-Path: `/exam-setup/practical`
-
-- Click **"Add Task"** — set title, description, task type
-  (CAD / CODING / LAB / FILE), difficulty, estimated minutes.
-- After save the task is **DRAFT**.
-- **NEW: click the "Activate" button on the row** to flip it to ACTIVE.
-- Before this fix, tasks stayed DRAFT forever and were invisible to
-  both the simulator and the proctor's "Assign practical" panel.
-
-### 4. Practical Paper Set (optional — multi-part practical)
-
-Path: `/master-proctor/paper-sets` → click a set → SetEditor
-
-A **Paper Set** is a wrapper around multiple **Practical Questions** so
-you can ask a candidate several practical sub-tasks in sequence.
-
-- Create the set (name, assessmentType).
-- Add questions to it (per-question type: TEXT / FILE / CODE / etc.).
-- Upload any reference files needed.
-- Click **"Activate Set"** in SetEditor header to promote DRAFT → ACTIVE.
-- Only ACTIVE sets appear in the proctor's "Assign practical set" dropdown.
-
-### 5. Verify with the simulator
-
-Path: `/exam-setup/simulation?assessmentTypeId=<id>`
-
-- Pick the assessment type + mode (MCQ / Practical / Full).
-- The simulator queries the API with `status=ACTIVE`; anything DRAFT
-  will not appear.
-- If MCQ mode returns "No questions" → step 2 wasn't finished.
-- If Practical mode returns "No tasks" → step 3 wasn't finished
-  (Activate button not clicked).
-
----
-
-## Live session flow — proctored exam
-
-Once content is set up:
-
-### 6. Schedule a candidate
-
-Path: `/hr/candidates` (HR_MANAGER)
-
-- Add candidate → click **Schedule** → pick assessment type + slot.
-- Magic-link email fires automatically.
-
-### 7. Candidate joins on session day
-
-- Clicks magic link → tech check → OTP → camera + reference photo →
-  waiting room.
-
-### 8. Proctor runs the checklist
-
-Path: `/proctor/session/<sessionId>`
-
-Complete all 10 checklist items in order:
-1. Camera Verification
-2. Verbal Identity (Name)
-3. Verbal Identity (Email)
-4. Identity Check (photo ID capture)
-5. Environment Scan (360° rotation)
-6. No Unauthorized Materials
-7. Facial Recognition (auto-cosine against stored reference)
-8. Screen Share (candidate shares whole screen)
-9. GuardPro / Tech Check (manual confirm)
-10. Guidelines & Agreement (candidate ticks "I Agree" on their end — OR
-    proctor uses the new **"Manually confirm — candidate agreed verbally"**
-    button if the socket event doesn't arrive)
-
-### 9. Push the exam
-
-- Bottom of ChecklistPanel: **"Begin MCQ Exam"** (per-candidate mark verified)
-- Bottom of VerificationLayout: **"All Verified — Start Exam"** →
-  chained now: this ONE click sets the session to MCQ_IN_PROGRESS,
-  emits `exam.pushMCQ` socket, candidates advance to question 1.
-- Post-verification screen still shows a **"Push MCQ Exam"** button for
-  manual re-push if a candidate joined late.
-
-### 10. After MCQ submission
-
-- `allMcqSubmitted` flips true when every candidate has submitted.
-- **"Push Practical Exam"** button in PostVerificationLayout becomes clickable.
-- Click it → candidates receive `exam.pushPractical` → practical panel
-  loads their assigned task.
-
-### 11. Practical submission → report
-
-- Candidates upload / submit their practical work.
-- Proctor grades against rubric.
-- Report auto-drafts → proctor reviews → publishes.
+Rule: if something isn't showing up in the simulator or during a live
+session, 99% of the time it's still DRAFT.
 
 ---
 
 ## Troubleshooting
 
-**"Push MCQ is greyed out with ✓ MCQ Pushed already"**
-Old bug: mcqPushed was pre-set true. Fixed 2026-08. If still seeing it,
-your browser has a stale build — close tab, reopen fresh.
+**"Simulator has no MCQ questions"**
+Questions are DRAFT. Open MCQ Question Bank, click "Activate N Drafts".
 
-**"Simulator says no questions"**
-Questions are DRAFT. Go to `/exam-setup/questions?assessmentTypeId=<id>`
-and click "Activate N Drafts".
+**"Simulator has no practical"**
+Only checks the legacy `PracticalTask` library — not paper sets.
+If you're using paper sets (recommended), test them via a real session
+instead. Or create one standalone PracticalTask + activate it just to
+verify the simulator surface.
 
-**"Proctor can't assign a practical"**
-Task is DRAFT. Go to `/exam-setup/practical` and click Activate on the row.
+**"Candidate reaches practical screen with nothing to do"**
+No active paper set for this assessment type + proctor didn't manually
+assign a task. Activate a paper set OR have proctor assign one during
+the session.
 
-**"Paper set doesn't appear in proctor's dropdown"**
-Set is DRAFT. Go to `/master-proctor/paper-sets/<id>` → header → click
-"Activate Set".
+**"Start Exam button is disabled"**
+One of the 10 checklist items isn't marked done for at least one
+candidate. Usually the last one — Guidelines & Agreement — because the
+candidate hasn't clicked "I Agree". Proctor now has a
+**"Manually confirm — candidate agreed verbally"** escape hatch in that
+checklist step.
 
-**"Candidate stuck at camera / verification never advances"**
-- Proctor hasn't clicked "All Verified — Start Exam" yet, OR
-- The socket connection dropped between proctor and backend. Check
-  `pm2 logs assessexpert-backend --lines 40 --nostream | tail` for
-  socket-disconnect entries around the click time.
+**"Push MCQ Exam shows ✓ MCQ Pushed already but candidates never advanced"**
+Stale build — close the tab, open fresh. The old bug pre-set the button;
+the current build only marks it pushed AFTER the backend confirms.
 
-**"Push Practical is disabled"**
-No candidate has submitted MCQ yet. Wait for them, OR they're stuck on
-a question. Check MonitorGrid on the proctor page for their current
-question index.
+**"Push Practical Exam is greyed out"**
+Not a bug — it enables only when every candidate has submitted MCQ.
+Wait for them, or check MonitorGrid to see who's stuck on what
+question.
