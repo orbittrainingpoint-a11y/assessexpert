@@ -206,10 +206,14 @@ function SessionContent() {
     if (wsSocket?.connected) {
       wsSocket.emit('proctor.allVerified', { sessionId })
     }
-    // Move to MCQ phase. The actual `sessionsApi.begin` call happens in
-    // handlePushMCQ when the proctor clicks "Push MCQ" inside
-    // PostVerificationLayout — same flow for N=1 and N>1.
-    setMcqPushed(true)
+    // Move to MCQ phase so PostVerificationLayout renders. The actual
+    // `sessionsApi.begin` + `exam.pushMCQ` socket emit happens ONLY when
+    // the proctor clicks "Push MCQ" inside that layout — that's the
+    // deliberate handoff between verification and the exam clock
+    // starting. Do NOT pre-set mcqPushed here or the button lands
+    // already-disabled and the proctor can never trigger begin(),
+    // leaving every candidate stuck at the verification screen and
+    // Push Practical greyed out forever.
     setPhase('mcq')
   }, [sessionId, wsSocket])
 
