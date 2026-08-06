@@ -1326,29 +1326,15 @@ function ExamContent() {
           <button className="btn-primary" onClick={enterFullscreen} style={{ padding: '12px 32px' }}>{t('exam.fullscreen.return')} →</button>
         </div>
       )}
-      {/* MCQ: proctor feed + self preview */}
-      <div style={{ position: 'fixed', left: '16px', bottom: '16px', zIndex: 50, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div style={{ position: 'relative', width: '150px', aspectRatio: '16/9', background: '#000', borderRadius: '7px', border: `2px solid ${proctorStream ? 'var(--cyan)' : 'var(--border)'}`, overflow: 'hidden' }}>
-          {proctorStream ? (
-            <video autoPlay playsInline
-              ref={el => { if (el && proctorStream && el.srcObject !== proctorStream) { el.srcObject = proctorStream; el.play().catch(() => {}) } }}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          ) : (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Proctor</span>
-            </div>
-          )}
-          <div style={{ position: 'absolute', bottom: '2px', left: '4px', background: 'rgba(0,0,0,0.7)', padding: '1px 4px', borderRadius: '3px', fontSize: '8px', color: proctorStream ? 'var(--cyan)' : 'var(--text-muted)' }}>PROCTOR</div>
-        </div>
-        <div style={{ position: 'relative', width: '150px', aspectRatio: '16/9', background: '#000', borderRadius: '7px', border: '2px solid var(--emerald)', overflow: 'hidden' }}>
-          <video autoPlay muted playsInline
-            ref={el => { if (el && cameraStreamRef.current && el.srcObject !== cameraStreamRef.current) { el.srcObject = cameraStreamRef.current; el.play().catch(() => {}) } }}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-          <div style={{ position: 'absolute', bottom: '2px', left: '4px', background: 'rgba(0,0,0,0.7)', padding: '1px 4px', borderRadius: '3px', fontSize: '8px', color: 'var(--emerald)' }}>YOU</div>
-        </div>
-      </div>
+      {/* MCQ / practical view — proctor camera + candidate self-preview
+          intentionally NOT rendered here. Once the exam starts the
+          candidate should see only the question paper on their screen;
+          the proctor stream stays connected (recording continues) but
+          isn't shown, and the candidate's own camera doesn't distract
+          them. Per exam-flow spec.
+          The camera + mic streams are still active in the background:
+          useSessionRecorder keeps recording webcam + screen, and
+          face-detection / periodic-FR keep running. */}
       {/* Top bar */}
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>

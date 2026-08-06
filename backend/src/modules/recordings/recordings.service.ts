@@ -94,15 +94,15 @@ export class RecordingsService {
           where: { id: sessionId },
           data: {
             [field]: finalPath,
-            recordingExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            recordingExpiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
           } as any,
         });
       } else {
         // Multi-candidate: still bump the session retention clock so the
-        // 7-day purge cron knows when to clean up.
+        // 10-day purge cron knows when to clean up.
         await this.prisma.examSession.update({
           where: { id: sessionId },
-          data: { recordingExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+          data: { recordingExpiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000) },
         });
       }
     }
@@ -149,7 +149,7 @@ export class RecordingsService {
       if (session.organizationId !== requestingUser.organizationId) throw new ForbiddenException('Access denied');
     }
 
-    if (session.recordingPurged) throw new ForbiddenException('Recording has been purged (7-day retention expired)');
+    if (session.recordingPurged) throw new ForbiddenException('Recording has been purged (10-day retention expired)');
 
     // Resolve the file path: prefer SessionCandidate row (multi-candidate
     // OR explicit candidateId), fall back to session-level for legacy

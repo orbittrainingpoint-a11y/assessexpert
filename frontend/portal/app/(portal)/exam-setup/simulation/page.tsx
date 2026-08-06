@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { assessmentsApi, questionsApi, practicalTasksApi } from '@/lib/api'
+import { assessmentsApi, questionsApi, practicalTasksApi, practicalSetsApi } from '@/lib/api'
 import { Play, RotateCcw, Flag, Eye } from 'lucide-react'
 
 type Mode = 'mcq' | 'practical' | 'full'
@@ -39,10 +39,22 @@ export default function ExamSetupSimulationPage() {
     queryFn: () => practicalTasksApi.getAll({ assessmentTypeId, status: 'ACTIVE', limit: 10 }).then(r => r.data),
     enabled: !!assessmentTypeId && (mode === 'practical' || mode === 'full'),
   })
+  // Also pull paper sets — the recommended practical model per
+  // EXAM_SETUP_WORKFLOW.md. Previously the simulator ignored them and
+  // showed "no practical" even when the master proctor had set up sets.
+  const { data: paperSetsData } = useQuery({
+    queryKey: ['paper-sets-sim', assessmentTypeId],
+    queryFn: () => practicalSetsApi.list(assessmentTypeId).then((r: any) => r.data),
+    enabled: !!assessmentTypeId && (mode === 'practical' || mode === 'full'),
+  })
 
   const atList: any[] = atData?.assessmentTypes || atData || []
   const allQuestions: any[] = qData?.questions || qData || []
   const practicals: any[] = practicalData?.practicalTasks || practicalData || []
+  const paperSetsAll: any[] = paperSetsData?.sets || paperSetsData || []
+  // Only surface ACTIVE sets to mirror the live-session behaviour;
+  // DRAFT sets never auto-assign so shouldn't appear in the rehearsal.
+  const paperSets: any[] = paperSetsAll.filter((s: any) => s.status === 'ACTIVE')
   const selectedAt = atList.find((a: any) => a.id === assessmentTypeId)
 
   const startSim = () => {
@@ -121,7 +133,16 @@ export default function ExamSetupSimulationPage() {
             {assessmentTypeId && (
               <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-muted)' }}>
                 {mode !== 'practical' && <p style={{ margin: '0 0 2px' }}>MCQ: {allQuestions.length} active questions · {selectedAt?.mcqQuestionCount || 25} will be selected</p>}
-                {mode !== 'mcq' && <p style={{ margin: 0 }}>Practical: {practicals.length} active task{practicals.length !== 1 ? 's' : ''} available</p>}
+                {mode !== 'mcq' && (
+                  <>
+                    <p style={{ margin: 0 }}>Practical paper sets: {paperSets.length} active · one auto-assigned at random per candidate</p>
+                    {practicals.length > 0 && (
+                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        (Legacy practical tasks also present: {practicals.length}. Paper sets take priority.)
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -194,11 +215,39 @@ export default function ExamSetupSimulationPage() {
       {simState === 'running' && mode === 'practical' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-primary)' }}>Practical Task Preview</h3>
+            <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-primary)' }}>Practical Preview</h3>
             <button className="btn-ghost" onClick={reset} style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}><RotateCcw size={12} /> Exit</button>
           </div>
-          {!practicals.length ? (
-            <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No active practical tasks for this assessment type</div>
+
+          {/* Paper sets first (the recommended model, auto-assigned at MCQ completion). */}
+          {paperSets.length > 0 && (
+            <>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                Practical Paper Sets ({paperSets.length} active — one assigned at random per candidate)
+              </p>
+              {paperSets.map((s: any) => (
+                <div key={s.id} className="glass-card" style={{ padding: '16px 20px', borderLeft: '3px solid var(--emerald)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <p style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</p>
+                    <span className="badge badge-pass" style={{ fontSize: '11px' }}>ACTIVE</span>
+                  </div>
+                  {s.description && <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>{s.description}</p>}
+                  <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    {s._count?.questions ?? s.questions?.length ?? '?'} question{(s._count?.questions ?? s.questions?.length) === 1 ? '' : 's'} · {s._count?.files ?? s.files?.length ?? 0} reference file{(s._count?.files ?? s.files?.length) === 1 ? '' : 's'}
+                  </p>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Legacy standalone tasks (still supported for compat). */}
+          {practicals.length > 0 && (
+            <p style={{ margin: '14px 0 0', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+              Legacy Practical Tasks ({practicals.length}) — proctor manually assigns if no paper set exists
+            </p>
+          )}
+          {!paperSets.length && !practicals.length ? (
+            <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No active paper sets or practical tasks for this assessment type.<br/>Create at least one paper set in <strong>Practical Paper Sets</strong> and activate it.</div>
           ) : practicals.map((t: any) => (
             <div key={t.id} className="glass-card" style={{ padding: '20px', borderLeft: '3px solid var(--cyan)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>

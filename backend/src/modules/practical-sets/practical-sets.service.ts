@@ -233,12 +233,31 @@ export class PracticalSetsService {
       return { assigned: false, reason: 'no_active_sets', assignments: [] };
     }
 
-    // SAST P1 #6 — was Math.random(), which is a pseudo-RNG and is
-    // predictable enough that a candidate who knew the set count and
-    // an approximate scheduling timestamp could narrow which paper
-    // they'd receive. crypto.randomInt is CSPRNG-sourced and
-    // unbiased.
-    const pickRandom = () => sets[randomInt(0, sets.length)];
+    // SAST P1 #6 — Math.random() is a predictable PRNG. Use
+    // crypto.randomInt (CSPRNG) so a candidate can't narrow which
+    // paper they'll receive from timing + set count.
+    //
+    // Distinct-per-candidate rule: shuffle the set pool once with
+    // Fisher-Yates, then hand out sets sequentially. If more
+    // candidates than sets, wrap around (unavoidable — the second
+    // pass will repeat). Prevents the previous behaviour where two
+    // candidates in the same slot could randomly land on the same
+    // paper even when 5 distinct sets were available.
+    const shuffle = <T>(arr: T[]): T[] => {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = randomInt(0, i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+    const pool = shuffle(sets);
+    let cursor = 0;
+    const nextDistinct = () => {
+      const s = pool[cursor % pool.length];
+      cursor++;
+      return s;
+    };
     const assignments: Array<{ candidateId: string; setId: string; setName: string }> = [];
 
     // Always include the primary candidate even if no SessionCandidate
@@ -260,7 +279,7 @@ export class PracticalSetsService {
         }
         continue;
       }
-      const pick = pickRandom();
+      const pick = nextDistinct();
       await this.prisma.sessionCandidate.upsert({
         where: { sessionId_candidateId: { sessionId, candidateId: cId } },
         create: { sessionId, candidateId: cId, practicalPaperSetId: pick.id, practicalTaskId: null },

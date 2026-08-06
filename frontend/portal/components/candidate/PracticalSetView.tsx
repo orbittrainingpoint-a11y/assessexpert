@@ -123,8 +123,58 @@ export default function PracticalSetView({ token, sessionId, candidateId, onAllS
   )
 }
 
+/** True when the reference file is an image the candidate should
+ *  VIEW ONLY, not download. Per exam-flow spec — image outputs that
+ *  the answer depends on must be visible on-screen but not saveable. */
+function isViewOnlyImage(fileName?: string): boolean {
+  if (!fileName) return false
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName)
+}
+
 function FileChip({ file }: { file: SetFileView }) {
   const href = uploadUrl(file.downloadUrl || '')
+  const viewOnly = isViewOnlyImage(file.fileName)
+
+  // View-only image mode: render the image inline, no anchor, no
+  // download, and block the browser's right-click "Save image as…"
+  // and drag-to-save gestures. Not a hard security control (any
+  // determined user can screenshot), but it takes the accidental
+  // download surface off the table.
+  if (viewOnly) {
+    return (
+      <figure
+        style={{
+          margin: 0,
+          padding: '6px',
+          background: 'var(--bg-elevated)',
+          borderRadius: '8px',
+          border: '1px solid var(--border)',
+          maxWidth: '320px',
+        }}
+      >
+        <img
+          src={href}
+          alt={file.fileName}
+          onContextMenu={(e) => e.preventDefault()}
+          onDragStart={(e) => e.preventDefault()}
+          draggable={false}
+          style={{
+            display: 'block',
+            width: '100%',
+            height: 'auto',
+            borderRadius: '4px',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            pointerEvents: 'auto',
+          }}
+        />
+        <figcaption style={{ marginTop: '4px', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center' }}>
+          {file.fileName} · view-only
+        </figcaption>
+      </figure>
+    )
+  }
+
   return (
     <a
       href={href}
