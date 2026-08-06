@@ -202,27 +202,16 @@ function SessionContent() {
     }
   }, [activeCandidateId, sessionId, wsSocket])
 
-  const handleAllVerified = useCallback(() => {
-    if (wsSocket?.connected) {
-      wsSocket.emit('proctor.allVerified', { sessionId })
-    }
-    // Move to MCQ phase so PostVerificationLayout renders. The actual
-    // `sessionsApi.begin` + `exam.pushMCQ` socket emit happens ONLY when
-    // the proctor clicks "Push MCQ" inside that layout — that's the
-    // deliberate handoff between verification and the exam clock
-    // starting. Do NOT pre-set mcqPushed here or the button lands
-    // already-disabled and the proctor can never trigger begin(),
-    // leaving every candidate stuck at the verification screen and
-    // Push Practical greyed out forever.
-    setPhase('mcq')
-  }, [sessionId, wsSocket])
-
+  // Actual "start the exam" action — POSTs /sessions/:id/begin, emits
+  // the exam.pushMCQ socket event, and flips mcqPushed. Extracted first
+  // so handleAllVerified can call it directly (see below).
   const handlePushMCQ = useCallback(async () => {
     try {
-      // Begin the session in DB so candidates can load MCQ questions
       await sessionsApi.begin(sessionId)
     } catch (e: any) {
-      // If already started, ignore
+      // "already started" is fine — the session flipped to MCQ_IN_PROGRESS
+      // via another proctor or a previous click; just carry on to the emit
+      // so candidates who haven't advanced yet get the push.
       if (!e.response?.data?.message?.toLowerCase().includes('already')) {
         toast.error(e.response?.data?.message || 'Failed to begin exam')
         return
@@ -235,6 +224,24 @@ function SessionContent() {
     qc.invalidateQueries({ queryKey: ['proctor-session', sessionId] })
     toast.success('MCQ pushed to all candidates')
   }, [sessionId, wsSocket, qc])
+
+  const handleAllVerified = useCallback(async () => {
+    if (wsSocket?.connected) {
+      wsSocket.emit('proctor.allVerified', { sessionId })
+    }
+    // Chain the three previously-separate clicks into one: mark verified
+    // → transition to MCQ phase → actually push MCQ. Before this fix the
+    // proctor had to click "Begin MCQ Exam" (mark verified) → "All
+    // Verified — Start Exam" (change phase) → "Push MCQ Exam"
+    // (finally call /begin). One state hiccup between any of those
+    // three and the exam never actually started.
+    //
+    // Now: Start Exam does the whole thing. PostVerificationLayout
+    // still renders after so the proctor keeps live MCQ monitoring
+    // + Push Practical when it's time.
+    setPhase('mcq')
+    await handlePushMCQ()
+  }, [sessionId, wsSocket, handlePushMCQ])
 
   const handlePushPractical = useCallback(() => {
     if (wsSocket?.connected) {
