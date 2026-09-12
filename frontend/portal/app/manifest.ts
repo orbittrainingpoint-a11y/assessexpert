@@ -27,10 +27,14 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#0a0f1e',
     theme_color: '#216dff',
     icons: [
+      // Real brand logo. Same asset serves the browser tab, the
+      // gallery grid, and the "Add to Home Screen" launcher; iOS also
+      // picks up the file at app/apple-icon.png via the metadata
+      // route convention.
       {
-        src: '/icon.svg',
+        src: '/brand/assessexpert-logo.png',
         sizes: 'any',
-        type: 'image/svg+xml',
+        type: 'image/png',
         purpose: 'any',
       },
       {

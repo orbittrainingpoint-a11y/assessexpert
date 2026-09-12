@@ -8,9 +8,14 @@ export function SiteFooter() {
       <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
         <div className="web-footer-grid">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <span style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #216dff, #39d5ff)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: '#ffffff', fontFamily: 'var(--web-serif)', boxShadow: '0 0 22px rgba(33,109,255,0.38)' }}>A</span>
-              <span style={{ color: 'var(--web-text)', fontSize: '18px', fontWeight: 700, fontFamily: 'var(--web-serif)' }}>{SITE.brand}</span>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+              {/* White wordmark for the dark footer ground (#030711). */}
+              <img
+                src="/brand/assessexpert-logo-white.png"
+                alt={SITE.brand}
+                height={36}
+                style={{ height: 36, width: 'auto', display: 'block' }}
+              />
             </div>
             <p style={{ color: 'var(--web-text-muted)', fontSize: '14px', lineHeight: 1.7, maxWidth: '280px', margin: '0 0 20px', fontFamily: 'var(--web-sans)' }}>
               Global B2B SaaS pre-employment assessment platform. AI-proctored. Human-reviewed. Verified.

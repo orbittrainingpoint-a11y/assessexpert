@@ -91,8 +91,12 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', padding: '20px' }}>
       <div style={{ width: '100%', maxWidth: '420px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h1 style={{ color: 'var(--cyan)', fontSize: '28px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>Pre-Employment Assessment Platform</p>
+          <img
+            src="/brand/assessexpert-logo-white.png"
+            alt="assessexpert"
+            style={{ height: 44, width: 'auto', margin: '0 auto', display: 'block' }}
+          />
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '12px' }}>Pre-Employment Assessment Platform</p>
         </div>
 
         <div className="glass-card" style={{ padding: '32px' }}>

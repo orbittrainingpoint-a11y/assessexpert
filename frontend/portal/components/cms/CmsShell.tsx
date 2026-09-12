@@ -71,9 +71,12 @@ export function CmsShell({ children, title }: { children: ReactNode; title?: str
     <div className="cms-root">
       <aside className="cms-sidebar">
         <div className="cms-brand">
-          <span className="cms-brand-mark">A</span>
+          <img
+            src="/brand/assessexpert-logo-white.png"
+            alt="assessexpert"
+            style={{ height: 30, width: 'auto', display: 'block' }}
+          />
           <div>
-            <div className="cms-brand-name">assessexpert</div>
             <div className="cms-brand-sub"><Sparkles size={10} /> Content studio</div>
           </div>
         </div>

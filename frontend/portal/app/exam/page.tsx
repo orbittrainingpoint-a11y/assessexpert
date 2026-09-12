@@ -1015,8 +1015,12 @@ function ExamContent() {
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h1 style={{ color: 'var(--cyan)', fontSize: '24px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>Welcome to Your Assessment</p>
+          <img
+            src="/brand/assessexpert-logo-white.png"
+            alt="assessexpert"
+            style={{ height: 40, width: 'auto', margin: '0 auto', display: 'block' }}
+          />
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '12px' }}>Welcome to Your Assessment</p>
         </div>
         <div className="glass-card" style={{ padding: '28px' }}>
           <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>Verify Your Identity</h2>
@@ -1039,7 +1043,11 @@ function ExamContent() {
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h1 style={{ color: 'var(--cyan)', fontSize: '24px', fontWeight: '700', margin: 0 }}>assessexpert</h1>
+          <img
+            src="/brand/assessexpert-logo-white.png"
+            alt="assessexpert"
+            style={{ height: 40, width: 'auto', margin: '0 auto', display: 'block' }}
+          />
         </div>
         <div className="glass-card" style={{ padding: '28px' }}>
           <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>Enter Verification Code</h2>

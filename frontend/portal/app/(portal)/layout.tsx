@@ -186,12 +186,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </h1>
             </div>
           ) : (
-            <h1 style={{
-              color: branding?.brandColor || 'var(--cyan)',
-              fontSize: '18px', fontWeight: '700', margin: 0,
-            }}>
-              {branding?.displayName || 'assessexpert'}
-            </h1>
+            // No per-org branding uploaded — show the platform's real
+            // wordmark. White variant on the dark sidebar ground.
+            <img
+              src="/brand/assessexpert-logo-white.png"
+              alt="assessexpert"
+              style={{ height: 28, width: 'auto', display: 'block' }}
+            />
           )}
           <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: '4px 0 0' }}>
             {user.role.replace(/_/g, ' ')}

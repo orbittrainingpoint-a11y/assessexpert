@@ -6,12 +6,16 @@ import { Menu, X } from 'lucide-react'
 import { NAV_LINKS, SITE } from '@/lib/marketing-content'
 import { siteGraph, jsonLdProps } from '@/lib/seo-schema'
 
-function Logo({ size = 32 }: { size?: number }) {
+function Logo({ size = 40 }: { size?: number }) {
+  // Real AssessExpert wordmark (icon + text baked into PNG).
+  // Height-driven; width scales via aspect-ratio.
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-      <span style={{ width: size, height: size, background: 'linear-gradient(135deg, #216dff, #39d5ff)', borderRadius: size / 3, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size / 2, fontWeight: 800, color: '#ffffff', fontFamily: 'var(--web-serif)', boxShadow: '0 0 24px rgba(33,109,255,0.44)' }}>A</span>
-      <span style={{ color: 'var(--web-text)', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em', fontFamily: 'var(--web-serif)' }}>{SITE.brand}</span>
-    </span>
+    <img
+      src="/brand/assessexpert-logo.png"
+      alt={SITE.brand}
+      height={size}
+      style={{ height: size, width: 'auto', display: 'block' }}
+    />
   )
 }
 
