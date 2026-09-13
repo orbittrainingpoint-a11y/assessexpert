@@ -7,11 +7,13 @@ import { NAV_LINKS, SITE } from '@/lib/marketing-content'
 import { siteGraph, jsonLdProps } from '@/lib/seo-schema'
 
 function Logo({ size = 40 }: { size?: number }) {
-  // Real AssessExpert wordmark (icon + text baked into PNG).
-  // Height-driven; width scales via aspect-ratio.
+  // White wordmark — the marketing site's ground is dark (same
+  // palette as the footer), so the white variant reads across every
+  // page. The colored variant is reserved for future light surfaces
+  // (email templates, PDFs).
   return (
     <img
-      src="/brand/assessexpert-logo.png"
+      src="/brand/assessexpert-logo-white.png"
       alt={SITE.brand}
       height={size}
       style={{ height: size, width: 'auto', display: 'block' }}
