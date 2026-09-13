@@ -11,15 +11,14 @@
 import { NextRequest } from 'next/server'
 import { getServicePage } from '@/lib/cms'
 import { renderServicePageMd } from '@/lib/to-markdown'
-import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
 
+// Render on-demand rather than prerender-per-slug at build time.
+// Fanning out to the backend for every slug during Next's 60s SSG
+// window is unreliable on modest VPS hardware; the Cache-Control
+// header below (60s public + 5 min stale-while-revalidate) still
+// gives crawlers and AI systems a cached response almost every time.
+export const dynamic = 'force-dynamic'
 export const revalidate = 60
-
-// Pre-render every service slug at build so the first crawl gets a
-// static file (no cold render latency).
-export function generateStaticParams() {
-  return SERVICE_PAGE_SLUGS.map((slug) => ({ slug }))
-}
 
 type Ctx = { params: Promise<{ slug: string }> }
 

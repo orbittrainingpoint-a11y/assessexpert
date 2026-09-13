@@ -8,14 +8,12 @@
 import { NextRequest } from 'next/server'
 import { getManpowerPage } from '@/lib/cms'
 import { renderServicePageMd } from '@/lib/to-markdown'
-import { MANPOWER_ROLE_SLUGS } from '@/lib/manpower-roles'
 import { SITE } from '@/lib/marketing-content'
 
+// Render on-demand — see /md/services/[slug]/route.ts for the same
+// rationale (SSG timeouts on modest hardware, HTTP cache is enough).
+export const dynamic = 'force-dynamic'
 export const revalidate = 60
-
-export function generateStaticParams() {
-  return MANPOWER_ROLE_SLUGS.map((role) => ({ role }))
-}
 
 type Ctx = { params: Promise<{ role: string }> }
 

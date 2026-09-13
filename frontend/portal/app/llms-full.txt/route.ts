@@ -20,9 +20,13 @@ import {
 import { SERVICE_PAGE_SLUGS } from '@/lib/service-slugs'
 import { MANPOWER_ROLE_SLUGS, fromManpowerDbSlug } from '@/lib/manpower-roles'
 
-// Rebuild every 10 min. Full-corpus render is heavier than a single
-// page, so we don't want it on every request; but staleness beyond
-// 10 min for a full-site dump would misinform AI systems.
+// Render on-demand (not at build time). Aggregating every top-level
+// page + every service page + every manpower page + every blog post
+// via API+DB fan-out reliably exceeds Next's 60s static-export
+// timeout on modest VPS hardware. HTTP `Cache-Control` below (10 min
+// public + 1 h stale-while-revalidate) means real traffic still gets
+// cached responses at the CDN / reverse proxy layer.
+export const dynamic = 'force-dynamic'
 export const revalidate = 600
 
 const TOP_SLUGS = ['home', 'about', 'services', 'manpower', 'contact', 'blog']

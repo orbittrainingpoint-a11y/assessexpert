@@ -13,11 +13,10 @@ import { renderTopPageMd } from '@/lib/to-markdown'
 // seeded by backend/prisma/seed-cms.ts.
 const TOP_SLUGS = new Set(['home', 'about', 'services', 'contact', 'blog', 'manpower'])
 
+// Render on-demand — see /md/services/[slug]/route.ts for the same
+// rationale (SSG timeouts on modest hardware, HTTP cache is enough).
+export const dynamic = 'force-dynamic'
 export const revalidate = 60
-
-export function generateStaticParams() {
-  return Array.from(TOP_SLUGS).map((slug) => ({ slug }))
-}
 
 type Ctx = { params: Promise<{ slug: string }> }
 
