@@ -225,6 +225,9 @@ STORAGE_PATH=${APP_DIR}/backend/storage
 
 REDIS_HOST=localhost
 REDIS_PORT=6379
+# RedisService reads REDIS_URL (host/port above are legacy). Set
+# both so either lookup finds a value.
+REDIS_URL=redis://localhost:6379
 
 MEDIAPIPE_ENABLED=true
 EOF
