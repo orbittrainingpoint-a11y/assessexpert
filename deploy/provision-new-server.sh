@@ -102,7 +102,10 @@ ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow OpenSSH
-ufw allow "Nginx Full"
+# Raw port numbers so this step doesn't depend on Nginx being
+# installed yet (the "Nginx Full" ufw profile ships WITH nginx).
+ufw allow 80/tcp
+ufw allow 443/tcp
 ufw --force enable
 systemctl enable --now fail2ban
 ok "Firewall + fail2ban up."
