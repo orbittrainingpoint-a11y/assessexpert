@@ -262,7 +262,11 @@ chown -R "$USER:$USER" /var/log/assessexpert "$APP_DIR/backend/storage" || true
 # ── 9. Install + build ───────────────────────────────────────────────
 log "9/11  Backend install + Prisma + build"
 cd "$APP_DIR/backend"
-npm install --no-audit --ignore-scripts
+# NOTE: allow lifecycle scripts here — bcrypt's postinstall compiles
+# a native binding (bcrypt_lib.node) that fails at runtime if you
+# skip it with --ignore-scripts. Prisma also uses postinstall to
+# generate the client for the installed platform.
+npm install --no-audit
 npx prisma generate
 npx prisma migrate deploy
 # Seed the CMS pages (home/about/services/manpower/contact/blog) so
